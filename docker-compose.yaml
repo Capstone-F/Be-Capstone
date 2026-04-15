@@ -1,0 +1,79 @@
+volumes:
+  postgres_data:
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: capstone-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: be-capstone
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d be-capstone"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - app_net
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.2
+    container_name: capstone-keycloak
+    restart: unless-stopped
+    command: start-dev --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL_HOST: postgres
+      KC_DB_URL_DATABASE: be-capstone
+      KC_DB_USERNAME: admin
+      KC_DB_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "8080:8080"
+      - "9000:9000"
+    volumes:
+      - ./keycloak/realm-import:/opt/keycloak/data/import
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app_net
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: capstone-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://admin:admin@postgres:5432/be-capstone
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_PUBLIC_URL: http://localhost:8080
+      KEYCLOAK_HEALTH_URL: http://keycloak:9000/health/ready
+      KEYCLOAK_REALM: be-capstone
+      KEYCLOAK_CLIENT_ID: be-capstone-api
+      KEYCLOAK_CLIENT_SECRET: be-capstone-secret
+      KEYCLOAK_REDIRECT_URI: http://localhost:3000/auth/callback
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    networks:
+      - app_net
+
+networks:
+  app_net:
+    driver: bridge
