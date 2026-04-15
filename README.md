@@ -1,5 +1,7 @@
 # BE Capstone
 
+[Vietnamese version](README.vi.md)
+
 NestJS backend API with PostgreSQL, Keycloak (OIDC / Google login), TypeORM, and Swagger.
 
 ---
@@ -384,5 +386,7 @@ Tests are co-located with source files (`*.spec.ts`). E2e tests are in `test/`.
 
 ## Documentation
 
+- **[README.vi.md](README.vi.md)** — Vietnamese project guide
 - **[docs/auth.md](docs/auth.md)** — Step-by-step frontend auth integration guide (web + mobile, standard + Google login, PKCE, token refresh, error handling)
+- **[docs/auth.vi.md](docs/auth.vi.md)** — Vietnamese frontend auth integration guide
 - **Swagger UI** — Available at `/docs` when the API is running

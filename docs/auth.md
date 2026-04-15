@@ -1,5 +1,7 @@
 # Authentication Guide
 
+[Vietnamese version](auth.vi.md)
+
 This guide walks web and mobile frontend clients through every step of integrating with the backend authentication API powered by **Keycloak** (OAuth 2.0 Authorization Code Flow).
 
 ---
