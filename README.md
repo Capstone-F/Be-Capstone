@@ -474,11 +474,13 @@ GET /auth/login?idpHint=google
 
 Runs on every push and pull request:
 
-1. Spins up a Postgres service container
+1. Spins up a Postgres service container (accessible at `localhost:5432`)
 2. Installs dependencies (`npm ci`)
 3. Builds the project (`npm run build`)
 4. Runs unit tests (`npm run test`)
 5. Runs e2e tests (`npm run test:e2e`)
+
+> **Note:** Keycloak is **not** running in CI. All Keycloak-related env vars (`KEYCLOAK_URL`, etc.) are set so the app config validation passes, but unit tests mock all Keycloak HTTP calls. The API runs directly on the GitHub Actions runner, not in a Docker container.
 
 ### Build & Publish (`.github/workflows/build.yaml`)
 
@@ -488,9 +490,13 @@ Runs on push to `main` only:
 2. Pushes to GitHub Container Registry (`ghcr.io/<owner>/<repo>`)
 3. Tags: `latest` + git SHA
 
+> **This image is for deployed environments only** (e.g. Kubernetes, ECS, Docker Swarm). It is **not** meant for local development — see [Quick start](#quick-start).
+
 ---
 
-## Docker
+## Docker (production deployment only)
+
+The Dockerfile produces a production image. **Do not use it locally** — `localhost` URLs in `.env` won't resolve inside a container. For local development, run the API directly with `npm run start:dev`.
 
 ### Multi-stage Dockerfile
 
@@ -500,11 +506,37 @@ Runs on push to `main` only:
 | `builder` | Compile TypeScript |
 | `runner` | Production image with only production deps + compiled output |
 
+### Running the image in a deployed environment
+
+The container requires env vars pointing to **real** Postgres and Keycloak instances (not `localhost`):
+
+```bash
+docker run -p 3000:3000 \
+  -e DATABASE_URL=postgresql://user:pass@db-host:5432/be-capstone \
+  -e KEYCLOAK_URL=https://auth.example.com \
+  -e KEYCLOAK_HEALTH_URL=https://auth.example.com:9000/health/ready \
+  -e KEYCLOAK_REALM=be-capstone \
+  -e KEYCLOAK_CLIENT_ID=be-capstone-api \
+  -e KEYCLOAK_CLIENT_SECRET=your-secret \
+  -e KEYCLOAK_REDIRECT_URI=https://app.example.com/auth/callback \
+  -e NODE_ENV=production \
+  ghcr.io/<owner>/be-capstone:latest
+```
+
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | Postgres connection URL (must be reachable from the container) |
+| `KEYCLOAK_URL` | Keycloak base URL as seen by **both** the browser and the API container |
+| `KEYCLOAK_HEALTH_URL` | Keycloak management health endpoint |
+| `KEYCLOAK_CLIENT_SECRET` | Must match the secret configured in Keycloak |
+| `KEYCLOAK_REDIRECT_URI` | Must match the public URL of your frontend callback |
+
+> **Important:** `KEYCLOAK_URL` must be the same URL the browser uses to reach Keycloak, so the JWT `iss` claim matches between browser-issued tokens and server-side validation. In a deployed environment, this is typically a public domain like `https://auth.example.com`.
+
 ### Build manually
 
 ```bash
 docker build -t be-capstone .
-docker run -p 3000:3000 --env-file .env be-capstone
 ```
 
 ---

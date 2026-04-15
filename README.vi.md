@@ -479,11 +479,13 @@ GET /auth/login?idpHint=google
 
 Workflow `ci.yaml` chạy khi push và pull request:
 
-1. Khởi tạo Postgres service container
+1. Khởi tạo Postgres service container (truy cập tại `localhost:5432`)
 2. `npm ci`
 3. `npm run build`
 4. `npm run test`
 5. `npm run test:e2e`
+
+> **Lưu ý:** Keycloak **không** chạy trong CI. Các biến `KEYCLOAK_URL`, v.v. được đặt sẵn để validation env pass, nhưng unit test mock toàn bộ HTTP call tới Keycloak. API chạy trực tiếp trên GitHub Actions runner, không chạy trong Docker.
 
 ### Build & publish image
 
@@ -493,9 +495,13 @@ Workflow `build.yaml` chạy khi push vào `main`:
 2. Push lên GitHub Container Registry `ghcr.io/<owner>/<repo>`
 3. Tag: `latest` và git SHA
 
+> **Image này chỉ dùng cho môi trường deploy** (Kubernetes, ECS, Docker Swarm). **Không** dùng cho local development — xem [Chạy nhanh](#chạy-nhanh).
+
 ---
 
-## Docker
+## Docker (chỉ dùng cho production deployment)
+
+Dockerfile tạo ra image production. **Không dùng ở local** — các URL `localhost` trong `.env` sẽ không hoạt động bên trong container. Để phát triển, hãy chạy API trực tiếp bằng `npm run start:dev`.
 
 ### Dockerfile nhiều stage
 
@@ -505,11 +511,37 @@ Workflow `build.yaml` chạy khi push vào `main`:
 | `builder` | Build TypeScript |
 | `runner` | Ảnh production chỉ chứa dependency cần thiết và output đã build |
 
+### Chạy image trong môi trường deploy
+
+Container cần env vars trỏ tới **Postgres và Keycloak thật** (không phải `localhost`):
+
+```bash
+docker run -p 3000:3000 \
+  -e DATABASE_URL=postgresql://user:pass@db-host:5432/be-capstone \
+  -e KEYCLOAK_URL=https://auth.example.com \
+  -e KEYCLOAK_HEALTH_URL=https://auth.example.com:9000/health/ready \
+  -e KEYCLOAK_REALM=be-capstone \
+  -e KEYCLOAK_CLIENT_ID=be-capstone-api \
+  -e KEYCLOAK_CLIENT_SECRET=your-secret \
+  -e KEYCLOAK_REDIRECT_URI=https://app.example.com/auth/callback \
+  -e NODE_ENV=production \
+  ghcr.io/<owner>/be-capstone:latest
+```
+
+| Biến | Mô tả |
+|---|---|
+| `DATABASE_URL` | Chuỗi kết nối Postgres (phải truy cập được từ container) |
+| `KEYCLOAK_URL` | URL gốc Keycloak — phải giống URL mà **browser** dùng để truy cập Keycloak |
+| `KEYCLOAK_HEALTH_URL` | Endpoint health management của Keycloak |
+| `KEYCLOAK_CLIENT_SECRET` | Phải trùng với secret đã cấu hình trong Keycloak |
+| `KEYCLOAK_REDIRECT_URI` | Phải trùng với URL callback public của frontend |
+
+> **Quan trọng:** `KEYCLOAK_URL` phải là URL mà browser dùng để truy cập Keycloak, để claim `iss` trong JWT khớp giữa token phát hành từ browser và server-side validation. Trong môi trường deploy, thường là domain public như `https://auth.example.com`.
+
 ### Build thủ công
 
 ```bash
 docker build -t be-capstone .
-docker run -p 3000:3000 --env-file .env be-capstone
 ```
 
 ---

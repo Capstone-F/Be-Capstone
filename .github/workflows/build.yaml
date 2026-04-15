@@ -1,5 +1,11 @@
 name: Build and Publish Image
 
+# Builds a production Docker image and pushes it to GHCR.
+# This image is intended for DEPLOYED ENVIRONMENTS ONLY (e.g. Kubernetes, ECS).
+# At runtime, the container requires env vars pointing to real Postgres and
+# Keycloak instances — NOT localhost. See README for required env vars.
+# For local development, run the API directly with `npm run start:dev`.
+
 on:
   push:
     branches:
