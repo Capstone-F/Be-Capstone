@@ -1,98 +1,388 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# BE Capstone
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+NestJS backend API with PostgreSQL, Keycloak (OIDC / Google login), TypeORM, and Swagger.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+---
 
-## Description
+## Prerequisites
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+| Tool | Version | Purpose |
+|---|---|---|
+| [Node.js](https://nodejs.org) | >= 20 | Runtime |
+| [npm](https://www.npmjs.com) | >= 10 | Package manager |
+| [Docker](https://docs.docker.com/get-docker/) | >= 24 | Containers for Postgres, Keycloak, and production API |
+| [Docker Compose](https://docs.docker.com/compose/) | >= 2.20 | Multi-container orchestration |
 
-## Project setup
+---
 
-```bash
-$ npm install
+## Project structure
+
+```
+src/
+  config/          Centralized env config (ConfigModule, env.config.ts)
+  auth/            OIDC auth endpoints (login, callback, token, refresh, logout, me)
+  health/          Health check endpoint (API, DB, Keycloak)
+  users/           User entity + upsert-on-login service
+  app.module.ts    Root module
+  main.ts          Bootstrap with env validation + Swagger setup
+keycloak/
+  realm-import/    Keycloak realm JSON auto-imported on startup
+docs/
+  auth.md          Frontend auth integration guide
+.github/
+  workflows/
+    ci.yaml        PR/push: lint, build, test (with Postgres service)
+    build.yaml     Push to main: build + publish Docker image to GHCR
 ```
 
-## Compile and run the project
+---
+
+## Initial setup
+
+### 1. Create your `.env` file
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+cp .env.example .env
 ```
 
-## Run tests
+### 2. Create the Keycloak realm import file
+
+The `keycloak/realm-import/` directory is **gitignored** because it can contain secrets (Google OAuth credentials). You must create it manually before starting Keycloak.
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+mkdir -p keycloak/realm-import
 ```
 
-## Deployment
+Then create `keycloak/realm-import/be-capstone-realm.json` with the following content:
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+```json
+{
+  "realm": "be-capstone",
+  "enabled": true,
+  "registrationAllowed": true,
+  "resetPasswordAllowed": true,
+  "rememberMe": true,
+  "clients": [
+    {
+      "clientId": "be-capstone-api",
+      "name": "be-capstone-api",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "secret": "be-capstone-secret",
+      "redirectUris": ["*"],
+      "webOrigins": ["*"],
+      "attributes": {
+        "post.logout.redirect.uris": "+"
+      },
+      "protocolMappers": [
+        {
+          "name": "identity-provider-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usersessionmodel-note-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.session.note": "identity_provider",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "identity_provider",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    }
+  ],
+  "identityProviders": [
+    {
+      "alias": "google",
+      "displayName": "Google",
+      "providerId": "google",
+      "enabled": true,
+      "trustEmail": true,
+      "storeToken": false,
+      "addReadTokenRoleOnCreate": false,
+      "authenticateByDefault": false,
+      "linkOnly": false,
+      "firstBrokerLoginFlowAlias": "first broker login",
+      "config": {
+        "clientId": "REPLACE_WITH_GOOGLE_CLIENT_ID",
+        "clientSecret": "REPLACE_WITH_GOOGLE_CLIENT_SECRET",
+        "syncMode": "FORCE",
+        "useJwksUrl": "true"
+      }
+    }
+  ],
+  "identityProviderMappers": [
+    {
+      "name": "google-email-mapper",
+      "identityProviderAlias": "google",
+      "identityProviderMapper": "oidc-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "INHERIT",
+        "claim": "email",
+        "user.attribute": "email"
+      }
+    },
+    {
+      "name": "google-name-mapper",
+      "identityProviderAlias": "google",
+      "identityProviderMapper": "oidc-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "INHERIT",
+        "claim": "name",
+        "user.attribute": "name"
+      }
+    }
+  ]
+}
+```
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+> Replace `REPLACE_WITH_GOOGLE_CLIENT_ID` and `REPLACE_WITH_GOOGLE_CLIENT_SECRET` with your real Google OAuth credentials (see [Google identity provider](#google-identity-provider) below). If you don't need Google login yet, leave the placeholders — Keycloak will import with Google IDP disabled until valid credentials are set.
+
+---
+
+## Quick start
+
+### Option A — Run everything with Docker Compose (recommended)
+
+This starts Postgres, Keycloak (with pre-configured realm + Google IDP), and the API in one command.
+
+> Make sure you have completed [Initial setup](#initial-setup) first.
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+docker compose up --build
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+| Service | URL |
+|---|---|
+| API | http://localhost:3000 |
+| Swagger docs | http://localhost:3000/docs |
+| Health check | http://localhost:3000/health |
+| Keycloak admin | http://localhost:8080 (admin / admin) |
+| Keycloak health | http://localhost:9000/health/ready |
+| Postgres | localhost:5432 (admin / admin / be-capstone) |
 
-## Resources
+To stop and remove containers:
 
-Check out a few resources that may come in handy when working with NestJS:
+```bash
+docker compose down
+```
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+To also wipe the database volume:
 
-## Support
+```bash
+docker compose down -v
+```
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+---
 
-## Stay in touch
+### Option B — Run API locally (dev mode)
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+Use this when you want hot-reload and want to develop against a local or Docker-hosted Postgres + Keycloak.
 
-## License
+#### 1. Start Postgres and Keycloak
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+> Make sure you have completed [Initial setup](#initial-setup) first.
+
+```bash
+docker compose up postgres keycloak
+```
+
+#### 2. Install dependencies and start
+
+```bash
+npm install
+npm run start:dev
+```
+
+The API is now running at http://localhost:3000 with hot-reload.
+
+---
+
+## Environment variables
+
+All env vars are centrally managed in `src/config/env.config.ts`. The app validates them at startup and logs any missing required keys.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `NODE_ENV` | No | `development` | Runtime mode |
+| `PORT` | No | `3000` | API listen port |
+| `DATABASE_URL` | **Yes** | — | Postgres connection URL |
+| `KEYCLOAK_URL` | **Yes** | — | Internal Keycloak base URL (server-to-server) |
+| `KEYCLOAK_PUBLIC_URL` | No | Falls back to `KEYCLOAK_URL` | Public Keycloak URL (browser-facing login redirects) |
+| `KEYCLOAK_HEALTH_URL` | No | `http://localhost:9000/health/ready` | Keycloak management health endpoint |
+| `KEYCLOAK_REALM` | No | `be-capstone` | Keycloak realm name |
+| `KEYCLOAK_CLIENT_ID` | No | `be-capstone-api` | OIDC client ID |
+| `KEYCLOAK_CLIENT_SECRET` | No | `be-capstone-secret` | OIDC client secret |
+| `KEYCLOAK_REDIRECT_URI` | No | `http://localhost:3000/auth/callback` | Default OAuth redirect URI |
+
+---
+
+## Available scripts
+
+| Command | Description |
+|---|---|
+| `npm run start:dev` | Start in watch mode (development) |
+| `npm run start:debug` | Start in debug + watch mode |
+| `npm run start:prod` | Start compiled production build |
+| `npm run build` | Compile TypeScript to `dist/` |
+| `npm run test` | Run unit tests |
+| `npm run test:e2e` | Run end-to-end tests |
+| `npm run test:cov` | Run tests with coverage report |
+| `npm run lint` | Lint and auto-fix with ESLint |
+| `npm run format` | Format code with Prettier |
+
+---
+
+## API endpoints
+
+### Core
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/` | Hello World |
+| `GET` | `/health` | Health check (API + DB + Keycloak) |
+| `GET` | `/docs` | Swagger UI |
+
+### Auth
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/auth/endpoints` | OIDC discovery endpoints |
+| `GET` | `/auth/login` | Get authorization URL (`?idpHint=google` for Google login) |
+| `GET` | `/auth/callback` | Exchange code via query params (Keycloak redirect target) |
+| `POST` | `/auth/token` | Exchange code via JSON body (preferred for SPAs) |
+| `POST` | `/auth/refresh` | Refresh access token |
+| `POST` | `/auth/logout` | Revoke session |
+| `GET` | `/auth/me` | Current user profile (requires `Authorization: Bearer`) |
+
+> For full frontend integration details, see [docs/auth.md](docs/auth.md).
+
+---
+
+## Keycloak setup
+
+### Auto-import (Docker Compose)
+
+The `keycloak` service is configured with `--import-realm`. On first start it automatically imports:
+
+- Realm: `be-capstone`
+- Confidential client: `be-capstone-api`
+- Google identity provider (requires manual credential setup — see below)
+- Protocol mapper to expose `identity_provider` claim in tokens
+
+The realm file is at `keycloak/realm-import/be-capstone-realm.json`.
+
+> This directory is **gitignored** because it can contain real OAuth secrets. See [Initial setup](#initial-setup) for how to create it.
+
+### Google identity provider
+
+Google IDP is pre-configured in the realm import with placeholder credentials. To enable it:
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials
+2. Create an OAuth 2.0 Client ID (Web application)
+3. Set **Authorized redirect URI** to:
+   ```
+   http://localhost:8080/realms/be-capstone/broker/google/endpoint
+   ```
+4. Open Keycloak admin at http://localhost:8080 → `be-capstone` realm → Identity Providers → Google
+5. Enter the Google Client ID and Client Secret
+6. Save
+
+Users can now log in via Google using:
+
+```
+GET /auth/login?idpHint=google
+```
+
+---
+
+## Database
+
+- **Engine:** PostgreSQL 16
+- **ORM:** TypeORM with `synchronize: true` (auto-creates tables from entities in dev)
+- **User table:** Auto-created from `src/users/user.entity.ts` on first boot
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `keycloakSub` | string (unique) | Immutable Keycloak user ID |
+| `email` | varchar (nullable) | Refreshed on every login |
+| `name` | varchar (nullable) | Refreshed on every login |
+| `provider` | string | `keycloak` or `google` — set at first login |
+| `isActive` | boolean | Default `true` |
+| `createdAt` | timestamp | Auto-managed |
+| `updatedAt` | timestamp | Auto-managed |
+
+> **Production:** Set `synchronize: false` and use TypeORM migrations instead.
+
+---
+
+## CI/CD
+
+### CI (`.github/workflows/ci.yaml`)
+
+Runs on every push and pull request:
+
+1. Spins up a Postgres service container
+2. Installs dependencies (`npm ci`)
+3. Builds the project (`npm run build`)
+4. Runs unit tests (`npm run test`)
+5. Runs e2e tests (`npm run test:e2e`)
+
+### Build & Publish (`.github/workflows/build.yaml`)
+
+Runs on push to `main` only:
+
+1. Builds the Docker image using the multi-stage `Dockerfile`
+2. Pushes to GitHub Container Registry (`ghcr.io/<owner>/<repo>`)
+3. Tags: `latest` + git SHA
+
+---
+
+## Docker
+
+### Multi-stage Dockerfile
+
+| Stage | Purpose |
+|---|---|
+| `deps` | Install all dependencies |
+| `builder` | Compile TypeScript |
+| `runner` | Production image with only production deps + compiled output |
+
+### Build manually
+
+```bash
+docker build -t be-capstone .
+docker run -p 3000:3000 --env-file .env be-capstone
+```
+
+---
+
+## Testing
+
+```bash
+# Unit tests
+npm run test
+
+# Unit tests in watch mode
+npm run test:watch
+
+# E2e tests (requires Postgres running)
+npm run test:e2e
+
+# Coverage report
+npm run test:cov
+```
+
+Tests are co-located with source files (`*.spec.ts`). E2e tests are in `test/`.
+
+---
+
+## Documentation
+
+- **[docs/auth.md](docs/auth.md)** — Step-by-step frontend auth integration guide (web + mobile, standard + Google login, PKCE, token refresh, error handling)
+- **Swagger UI** — Available at `/docs` when the API is running
