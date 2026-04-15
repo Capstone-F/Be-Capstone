@@ -45,7 +45,13 @@ describe('AuthController', () => {
     expect(() => controller.refreshToken({} as never)).toThrow(BadRequestException);
   });
 
+  it('should throw when authorization header is missing', () => {
+    const req = { headers: {} } as never;
+    expect(() => controller.getProfile(req)).toThrow(UnauthorizedException);
+  });
+
   it('should throw when authorization header is invalid', () => {
-    expect(() => controller.getProfile('invalid')).toThrow(UnauthorizedException);
+    const req = { headers: { authorization: 'invalid' } } as never;
+    expect(() => controller.getProfile(req)).toThrow(UnauthorizedException);
   });
 });
