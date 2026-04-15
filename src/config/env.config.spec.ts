@@ -17,7 +17,6 @@ describe('env.config', () => {
         'KEYCLOAK_CLIENT_ID',
         'KEYCLOAK_CLIENT_SECRET',
         'KEYCLOAK_REDIRECT_URI',
-        'KEYCLOAK_PUBLIC_URL',
       ]),
     );
   });
@@ -34,35 +33,20 @@ describe('env.config', () => {
   it('should resolve env with defaults', () => {
     const resolved = resolveAppEnv({
       DATABASE_URL: 'postgresql://admin:admin@localhost:5432/be-capstone',
-      KEYCLOAK_URL: 'http://localhost:8081',
+      KEYCLOAK_URL: 'http://localhost:8080',
     });
 
     expect(resolved.NODE_ENV).toBe('development');
     expect(resolved.PORT).toBe(3000);
     expect(resolved.DATABASE_URL).toContain('postgresql://');
-    expect(resolved.KEYCLOAK_URL).toBe('http://localhost:8081');
-    expect(resolved.KEYCLOAK_HEALTH_URL).toBe(
-      'http://localhost:9000/health/ready',
-    );
+    expect(resolved.KEYCLOAK_URL).toBe('http://localhost:8080');
+    expect(resolved.KEYCLOAK_HEALTH_URL).toBe('http://localhost:9000/health/ready');
     expect(resolved.KEYCLOAK_REALM).toBe('be-capstone');
     expect(resolved.KEYCLOAK_CLIENT_ID).toBe('be-capstone-api');
     expect(resolved.KEYCLOAK_CLIENT_SECRET).toBe('be-capstone-secret');
     expect(resolved.KEYCLOAK_REDIRECT_URI).toBe(
       'http://localhost:3000/auth/callback',
     );
-    // KEYCLOAK_PUBLIC_URL falls back to KEYCLOAK_URL when not explicitly set
-    expect(resolved.KEYCLOAK_PUBLIC_URL).toBe('http://localhost:8081');
-  });
-
-  it('should use explicit KEYCLOAK_PUBLIC_URL when provided', () => {
-    const resolved = resolveAppEnv({
-      DATABASE_URL: 'postgresql://admin:admin@localhost:5432/be-capstone',
-      KEYCLOAK_URL: 'http://keycloak:8080',
-      KEYCLOAK_PUBLIC_URL: 'http://localhost:8080',
-    });
-
-    expect(resolved.KEYCLOAK_URL).toBe('http://keycloak:8080');
-    expect(resolved.KEYCLOAK_PUBLIC_URL).toBe('http://localhost:8080');
   });
 
   it('should throw when port is not a number', () => {
@@ -70,7 +54,7 @@ describe('env.config', () => {
       resolveAppEnv({
         PORT: 'not-a-number',
         DATABASE_URL: 'postgresql://admin:admin@localhost:5432/be-capstone',
-        KEYCLOAK_URL: 'http://localhost:8081',
+        KEYCLOAK_URL: 'http://localhost:8080',
       }),
     ).toThrow('PORT must be a number');
   });

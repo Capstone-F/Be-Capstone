@@ -4,6 +4,9 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { AppConfigService } from './config/config.service';
 import { ENV_DEFINITIONS, getMissingRequiredEnv } from './config/env.config';
+import { config } from 'dotenv';
+
+config();
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -27,6 +30,10 @@ async function bootstrap() {
     .setTitle('BE Capstone API')
     .setDescription('API documentation for BE Capstone service')
     .setVersion('1.0')
+    .addBearerAuth(
+      { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+      'bearer',
+    )
     .build();
   const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('docs', app, swaggerDocument);

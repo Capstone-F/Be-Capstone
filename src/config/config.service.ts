@@ -21,6 +21,7 @@ export class AppConfigService {
     return this.env.DATABASE_URL;
   }
 
+  /** Single Keycloak base URL used for both browser redirects and server calls. */
   get keycloakUrl(): string {
     return this.env.KEYCLOAK_URL;
   }
@@ -43,11 +44,6 @@ export class AppConfigService {
 
   get keycloakRedirectUri(): string {
     return this.env.KEYCLOAK_REDIRECT_URI;
-  }
-
-  /** Publicly reachable Keycloak base URL. Used in browser-facing URLs. */
-  get keycloakPublicUrl(): string {
-    return this.env.KEYCLOAK_PUBLIC_URL;
   }
 
   getMissingRequiredKeys(): string[] {

@@ -4,6 +4,12 @@ import { UsersService } from '../users/users.service';
 import { User } from '../users/user.entity';
 import { AuthService } from './auth.service';
 
+function makeJwt(payload: Record<string, unknown>): string {
+  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  return `${header}.${body}.fake-signature`;
+}
+
 const mockUser = { id: 'uuid-1', keycloakSub: 'sub-001' } as User;
 const mockUsersService = {
   upsertFromKeycloak: jest.fn().mockResolvedValue({ user: mockUser, isNewUser: false }),
@@ -12,8 +18,7 @@ const mockUsersService = {
 describe('AuthService', () => {
   const originalFetch = global.fetch;
   const config = {
-    keycloakUrl: 'http://keycloak:8080',
-    keycloakPublicUrl: 'http://localhost:8080',
+    keycloakUrl: 'http://localhost:8080',
     keycloakRealm: 'be-capstone',
     keycloakClientId: 'be-capstone-api',
     keycloakClientSecret: 'be-capstone-secret',
@@ -48,90 +53,83 @@ describe('AuthService', () => {
     expect(result.idpHint).toBe('google');
   });
 
-  it('should expose expected oidc endpoints using public url', () => {
+  it('should expose expected oidc endpoints', () => {
     const endpoints = service.getOidcEndpoints();
-    // issuer must use KEYCLOAK_PUBLIC_URL, not the internal Docker service name
     expect(endpoints.issuer).toBe('http://localhost:8080/realms/be-capstone');
     expect(endpoints.tokenEndpoint).toContain('/protocol/openid-connect/token');
-    expect(endpoints.authorizationEndpoint).not.toContain('keycloak:8080');
   });
 
-  it('login url should use public keycloak url', () => {
+  it('login url should use keycloak url', () => {
     const result = service.getLoginUrl();
     expect(result.authorizationUrl).toContain('http://localhost:8080');
-    expect(result.authorizationUrl).not.toContain('keycloak:8080');
   });
 
-  it('token exchange should call internal keycloak url', async () => {
-    global.fetch = jest
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        text: async () =>
-          JSON.stringify({
-            access_token: 'token',
-            token_type: 'Bearer',
-            expires_in: 300,
-          }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ sub: '123' }),
-      } as Response);
+  it('token exchange should call keycloak url and decode id_token', async () => {
+    const idToken = makeJwt({ sub: '123', email: 'a@b.com', name: 'Test' });
+
+    global.fetch = jest.fn().mockResolvedValueOnce({
+      ok: true,
+      text: async () =>
+        JSON.stringify({
+          access_token: 'at-value',
+          id_token: idToken,
+          token_type: 'Bearer',
+          expires_in: 300,
+        }),
+    } as Response);
 
     await service.exchangeAuthorizationCode('abc');
 
     const calls = (global.fetch as jest.Mock).mock.calls;
-    // first call is token endpoint (internal), second is userinfo (internal)
-    expect(calls[0][0]).toContain('keycloak:8080');
-    expect(calls[1][0]).toContain('keycloak:8080');
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toContain('localhost:8080');
   });
 
-  it('should exchange authorization code and return profile', async () => {
-    global.fetch = jest
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        text: async () =>
-          JSON.stringify({
-            access_token: 'token',
-            token_type: 'Bearer',
-            expires_in: 300,
-          }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ sub: '123' }),
-      } as Response);
+  it('should exchange authorization code and return decoded profile', async () => {
+    const idToken = makeJwt({ sub: '123', email: 'user@test.com', name: 'User' });
+
+    global.fetch = jest.fn().mockResolvedValueOnce({
+      ok: true,
+      text: async () =>
+        JSON.stringify({
+          access_token: 'at',
+          id_token: idToken,
+          token_type: 'Bearer',
+          expires_in: 300,
+        }),
+    } as Response);
 
     const result = await service.exchangeAuthorizationCode('abc', undefined, undefined, 'google');
 
-    expect(result.token.access_token).toBe('token');
-    expect(result.profile).toEqual({ sub: '123' });
+    expect(result.token.access_token).toBe('at');
+    expect(result.profile.sub).toBe('123');
+    expect(result.profile.email).toBe('user@test.com');
     expect(result.user).toEqual(mockUser);
     expect(result.isNewUser).toBe(false);
     expect(mockUsersService.upsertFromKeycloak).toHaveBeenCalledWith(
-      { sub: '123' },
+      expect.objectContaining({ sub: '123' }),
       'google',
     );
   });
 
-  it('should pass keycloak as default provider when idpHint is absent', async () => {
-    global.fetch = jest
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        text: async () => JSON.stringify({ access_token: 't', token_type: 'Bearer', expires_in: 300 }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ sub: 'abc' }),
-      } as Response);
+  it('should fall back to access_token if id_token is missing', async () => {
+    const accessToken = makeJwt({ sub: 'abc', email: 'fallback@test.com' });
 
-    await service.exchangeAuthorizationCode('code-xyz');
+    global.fetch = jest.fn().mockResolvedValueOnce({
+      ok: true,
+      text: async () =>
+        JSON.stringify({
+          access_token: accessToken,
+          token_type: 'Bearer',
+          expires_in: 300,
+        }),
+    } as Response);
 
+    const result = await service.exchangeAuthorizationCode('code-xyz');
+
+    expect(result.profile.sub).toBe('abc');
     expect(mockUsersService.upsertFromKeycloak).toHaveBeenCalledWith(
-      { sub: 'abc' },
+      expect.objectContaining({ sub: 'abc' }),
       'keycloak',
     );
   });
@@ -148,11 +146,27 @@ describe('AuthService', () => {
     );
   });
 
-  it('should throw if userinfo endpoint fails', async () => {
-    global.fetch = jest.fn().mockResolvedValue({
+  it('getUserInfo should return profile from keycloak userinfo endpoint', async () => {
+    global.fetch = jest.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ sub: 'u1', email: 'a@b.c', name: 'Test' }),
+    } as Response);
+
+    const profile = await service.getUserInfo('valid-token');
+
+    expect(profile.sub).toBe('u1');
+    expect(profile.email).toBe('a@b.c');
+    const call = (global.fetch as jest.Mock).mock.calls[0];
+    expect(call[0]).toContain('/protocol/openid-connect/userinfo');
+    expect(call[1].headers.Authorization).toBe('Bearer valid-token');
+  });
+
+  it('getUserInfo should throw on 401 from keycloak', async () => {
+    global.fetch = jest.fn().mockResolvedValueOnce({
       ok: false,
       status: 401,
-      json: async () => ({}),
+      statusText: 'Unauthorized',
+      text: async () => 'Unauthorized',
     } as Response);
 
     await expect(service.getUserInfo('bad-token')).rejects.toBeInstanceOf(

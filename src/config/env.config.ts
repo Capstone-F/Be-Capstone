@@ -21,12 +21,14 @@ export const ENV_DEFINITIONS = {
   },
   KEYCLOAK_URL: {
     required: true,
-    description: 'Base URL of Keycloak server',
+    description:
+      'Base URL of Keycloak (e.g. http://localhost:8080). ' +
+      'Used for both browser redirects and server-to-server calls.',
   },
   KEYCLOAK_HEALTH_URL: {
     required: false,
     defaultValue: 'http://localhost:9000/health/ready',
-    description: 'Keycloak health endpoint URL',
+    description: 'Keycloak management health endpoint (port 9000 by default)',
   },
   KEYCLOAK_REALM: {
     required: false,
@@ -48,12 +50,6 @@ export const ENV_DEFINITIONS = {
     defaultValue: 'http://localhost:3000/auth/callback',
     description: 'Default redirect URI for authorization code flow',
   },
-  KEYCLOAK_PUBLIC_URL: {
-    required: false,
-    defaultValue: 'http://localhost:8080',
-    description:
-      'Publicly reachable Keycloak base URL used in browser-facing URLs (login redirect, OIDC discovery). Defaults to KEYCLOAK_URL when not set.',
-  },
 } as const satisfies Record<string, EnvDefinition>;
 
 export type EnvKey = keyof typeof ENV_DEFINITIONS;
@@ -68,7 +64,6 @@ export type AppEnv = {
   KEYCLOAK_CLIENT_ID: string;
   KEYCLOAK_CLIENT_SECRET: string;
   KEYCLOAK_REDIRECT_URI: string;
-  KEYCLOAK_PUBLIC_URL: string;
 };
 
 export function getMissingRequiredEnv(raw: NodeJS.ProcessEnv = process.env): string[] {
@@ -110,10 +105,5 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
     KEYCLOAK_REDIRECT_URI:
       raw.KEYCLOAK_REDIRECT_URI?.trim() ||
       ENV_DEFINITIONS.KEYCLOAK_REDIRECT_URI.defaultValue!,
-    // Fall back to KEYCLOAK_URL so single-var setups work without change
-    KEYCLOAK_PUBLIC_URL:
-      raw.KEYCLOAK_PUBLIC_URL?.trim() ||
-      raw.KEYCLOAK_URL?.trim() ||
-      ENV_DEFINITIONS.KEYCLOAK_PUBLIC_URL.defaultValue!,
   };
 }

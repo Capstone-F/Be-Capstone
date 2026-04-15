@@ -42,7 +42,7 @@ describe('AuthController', () => {
   });
 
   it('should throw if refresh token missing', () => {
-    expect(() => controller.refreshToken({})).toThrow(BadRequestException);
+    expect(() => controller.refreshToken({} as never)).toThrow(BadRequestException);
   });
 
   it('should throw when authorization header is invalid', () => {

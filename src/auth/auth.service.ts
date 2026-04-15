@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
@@ -29,17 +30,15 @@ type OidcEndpoints = {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly config: AppConfigService,
     private readonly usersService: UsersService,
   ) {}
 
-  /**
-   * Returns OIDC endpoint URLs built from the PUBLIC Keycloak URL.
-   * These URLs are safe to return to browsers and frontend clients.
-   */
   getOidcEndpoints(): OidcEndpoints {
-    const issuer = this.getPublicIssuer();
+    const issuer = this.getIssuer();
     return {
       issuer,
       authorizationEndpoint: `${issuer}/protocol/openid-connect/auth`,
@@ -52,17 +51,18 @@ export class AuthService {
   }
 
   getLoginUrl(redirectUri?: string, idpHint?: string) {
-    const issuer = this.getPublicIssuer();
-    const authorizationEndpoint = `${issuer}/protocol/openid-connect/auth`;
+    const authorizationEndpoint = `${this.getIssuer()}/protocol/openid-connect/auth`;
     const state = randomUUID();
     const url = new URL(authorizationEndpoint);
     url.searchParams.set('client_id', this.config.keycloakClientId);
-    url.searchParams.set('redirect_uri', redirectUri ?? this.config.keycloakRedirectUri);
+    url.searchParams.set(
+      'redirect_uri',
+      redirectUri ?? this.config.keycloakRedirectUri,
+    );
     url.searchParams.set('response_type', 'code');
     url.searchParams.set('scope', 'openid profile email');
     url.searchParams.set('state', state);
 
-    // kc_idp_hint skips the Keycloak login page and goes directly to the IDP
     if (idpHint) {
       url.searchParams.set('kc_idp_hint', idpHint);
     }
@@ -91,10 +91,20 @@ export class AuthService {
     }
 
     const token = await this.postForm<TokenResponse>(
-      this.getInternalTokenEndpoint(),
+      this.getTokenEndpoint(),
       params,
     );
-    const profile = await this.getUserInfo(token.access_token);
+
+    if (!token.access_token) {
+      throw new BadGatewayException(
+        'Keycloak returned a token response without access_token',
+      );
+    }
+
+    const profile = this.decodeJwtPayload(
+      token.id_token ?? token.access_token,
+    );
+
     const { user, isNewUser } = await this.usersService.upsertFromKeycloak(
       profile,
       idpHint ?? 'keycloak',
@@ -108,65 +118,69 @@ export class AuthService {
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
     });
-    return this.postForm<TokenResponse>(this.getInternalTokenEndpoint(), params);
+    return this.postForm<TokenResponse>(this.getTokenEndpoint(), params);
   }
 
   async logout(refreshToken: string) {
     const params = new URLSearchParams({ refresh_token: refreshToken });
-    await this.postForm(this.getInternalLogoutEndpoint(), params);
+    await this.postForm(this.getLogoutEndpoint(), params);
     return { success: true };
   }
 
   async getUserInfo(accessToken: string): Promise<Record<string, unknown>> {
-    const response = await fetch(this.getInternalUserInfoEndpoint(), {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
+    const url = `${this.getIssuer()}/protocol/openid-connect/userinfo`;
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
 
     if (!response.ok) {
-      throw new UnauthorizedException('Unable to fetch user profile from Keycloak');
+      const body = await response.text().catch(() => '');
+      throw new UnauthorizedException(
+        `Keycloak userinfo failed (${response.status}): ${body || response.statusText}`,
+      );
     }
 
     return (await response.json()) as Record<string, unknown>;
   }
 
-  /**
-   * Internal issuer — uses KEYCLOAK_URL (Docker service name / private host).
-   * Only used for direct server-to-server calls (token, userinfo, logout).
-   */
-  private getInternalIssuer(): string {
-    return this.buildIssuer(this.config.keycloakUrl);
-  }
+  // ─── Private helpers ───────────────────────────────────────────
 
-  /**
-   * Public issuer — uses KEYCLOAK_PUBLIC_URL (externally reachable host).
-   * Used when building URLs returned to browsers/frontends.
-   */
-  private getPublicIssuer(): string {
-    return this.buildIssuer(this.config.keycloakPublicUrl);
-  }
-
-  private buildIssuer(baseUrl: string): string {
-    const raw = baseUrl.trim();
-    const normalized =
+  private getIssuer(): string {
+    const raw = this.config.keycloakUrl.trim();
+    const base =
       raw.startsWith('http://') || raw.startsWith('https://')
         ? raw
         : `http://${raw}`;
-    return `${normalized.replace(/\/+$/, '')}/realms/${this.config.keycloakRealm}`;
+    return `${base.replace(/\/+$/, '')}/realms/${this.config.keycloakRealm}`;
   }
 
-  private getInternalTokenEndpoint(): string {
-    return `${this.getInternalIssuer()}/protocol/openid-connect/token`;
+  private getTokenEndpoint(): string {
+    return `${this.getIssuer()}/protocol/openid-connect/token`;
   }
 
-  private getInternalLogoutEndpoint(): string {
-    return `${this.getInternalIssuer()}/protocol/openid-connect/logout`;
+  private getLogoutEndpoint(): string {
+    return `${this.getIssuer()}/protocol/openid-connect/logout`;
   }
 
-  private getInternalUserInfoEndpoint(): string {
-    return `${this.getInternalIssuer()}/protocol/openid-connect/userinfo`;
+  /**
+   * Decode a JWT payload (base64url) without signature verification.
+   * Safe because tokens come directly from Keycloak's token endpoint
+   * (server-to-server) or are checked for expiry in getUserProfile.
+   *
+   * TODO: add JWKS-based signature verification for production.
+   */
+  private decodeJwtPayload(token: string): Record<string, unknown> {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) {
+        throw new Error('Not a valid JWT (expected 3 parts)');
+      }
+      const payload = Buffer.from(parts[1], 'base64url').toString('utf-8');
+      return JSON.parse(payload) as Record<string, unknown>;
+    } catch (err) {
+      this.logger.error('Failed to decode JWT payload', err);
+      throw new UnauthorizedException('Invalid or malformed token');
+    }
   }
 
   private async postForm<T = unknown>(
@@ -183,9 +197,7 @@ export class AuthService {
 
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: form.toString(),
     });
 
