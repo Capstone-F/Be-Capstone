@@ -34,7 +34,8 @@ Client (browser / mobile)
   │
   │  2. Redirect browser → authorizationUrl (Keycloak / Google login page)
   │
-  │  3. User authenticates on Keycloak
+  │  3. User authenticates on Keycloak (or Google)
+  │     └── First Google login only: Keycloak shows "Review Profile" form
   │
   │  4. Keycloak redirects → redirectUri?code=...&state=...
   │
@@ -73,13 +74,12 @@ The backend acts as the **token broker**: all sensitive exchanges with Keycloak 
 
 ## 3. Environment & Base URLs
 
-| Variable | Local dev | Docker Compose (API container) |
+| Variable | Local dev | Description |
 |---|---|---|
-| Backend API | `http://localhost:3000` | `http://localhost:3000` |
-| `KEYCLOAK_PUBLIC_URL` | `http://localhost:8080` | `http://localhost:8080` |
-| `KEYCLOAK_URL` (internal) | `http://localhost:8080` | `http://keycloak:8080` |
+| Backend API | `http://localhost:3000` | NestJS API server |
+| `KEYCLOAK_URL` | `http://localhost:8080` | Keycloak base URL (API + browser) |
 
-All URLs returned by `/auth/login` and `/auth/endpoints` use `KEYCLOAK_PUBLIC_URL` — they are safe to open in a browser.
+All URLs returned by `/auth/login` and `/auth/endpoints` use `KEYCLOAK_URL` — they are safe to open in a browser.
 
 ---
 
@@ -234,6 +234,15 @@ await SecureStore.setItemAsync('refresh_token', token.refresh_token);
 
 Google login uses the exact same flow as standard login. The only difference is the `idpHint=google` parameter, which tells Keycloak to **skip its own login page** and redirect straight to Google.
 
+### First-time Google login — profile review
+
+On the **very first** Google login (when no Keycloak user exists for that Google account), Keycloak shows a "Review Profile" form. This lets the user verify/edit their name and email before the account is created. This only happens **once** — all subsequent logins go straight through to the callback.
+
+| Login | What happens |
+|---|---|
+| First time (new user) | Google sign-in → Keycloak "Review Profile" form → account created → callback |
+| Subsequent logins | Google sign-in → callback (no profile prompt) |
+
 ### Step 1 — Get the Google authorization URL
 
 ```http
@@ -262,6 +271,8 @@ window.location.href = authorizationUrl; // opens Google sign-in directly
 ### Step 2 — User authenticates on Google
 
 Google shows its own sign-in page. After the user grants access, Google redirects back to Keycloak, which then redirects to your `redirectUri`.
+
+> **First login only:** Keycloak will show a "Review Profile" form between Google sign-in and the callback redirect. The user can verify their name/email and submit. This happens only once per Google account.
 
 ---
 

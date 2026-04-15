@@ -62,9 +62,20 @@ Sau đó tạo file `keycloak/realm-import/be-capstone-realm.json` với nội d
 {
   "realm": "be-capstone",
   "enabled": true,
+  "loginTheme": "capstone",
   "registrationAllowed": true,
   "resetPasswordAllowed": true,
   "rememberMe": true,
+  "requiredActions": [
+    {
+      "alias": "VERIFY_PROFILE",
+      "name": "Verify Profile",
+      "providerId": "VERIFY_PROFILE",
+      "enabled": false,
+      "defaultAction": false,
+      "priority": 90
+    }
+  ],
   "clients": [
     {
       "clientId": "be-capstone-api",
@@ -98,6 +109,80 @@ Sau đó tạo file `keycloak/realm-import/be-capstone-realm.json` với nội d
       ]
     }
   ],
+  "authenticationFlows": [
+    {
+      "alias": "capstone first broker login",
+      "description": "First broker login flow: review profile then create or link user",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "idp-review-profile",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "authenticatorConfig": "review profile config"
+        },
+        {
+          "authenticatorFlow": true,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "flowAlias": "capstone create or link user"
+        }
+      ]
+    },
+    {
+      "alias": "capstone create or link user",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "idp-create-user-if-unique",
+          "requirement": "ALTERNATIVE",
+          "priority": 10
+        },
+        {
+          "authenticatorFlow": true,
+          "requirement": "ALTERNATIVE",
+          "priority": 20,
+          "flowAlias": "capstone handle existing account"
+        }
+      ]
+    },
+    {
+      "alias": "capstone handle existing account",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "idp-confirm-link",
+          "requirement": "REQUIRED",
+          "priority": 10
+        },
+        {
+          "authenticator": "idp-email-verification",
+          "requirement": "ALTERNATIVE",
+          "priority": 20
+        },
+        {
+          "authenticator": "idp-username-password-form",
+          "requirement": "ALTERNATIVE",
+          "priority": 30
+        }
+      ]
+    }
+  ],
+  "authenticatorConfig": [
+    {
+      "alias": "review profile config",
+      "config": {
+        "update.profile.on.first.login": "on"
+      }
+    }
+  ],
   "identityProviders": [
     {
       "alias": "google",
@@ -109,7 +194,7 @@ Sau đó tạo file `keycloak/realm-import/be-capstone-realm.json` với nội d
       "addReadTokenRoleOnCreate": false,
       "authenticateByDefault": false,
       "linkOnly": false,
-      "firstBrokerLoginFlowAlias": "first broker login",
+      "firstBrokerLoginFlowAlias": "capstone first broker login",
       "config": {
         "clientId": "REPLACE_WITH_GOOGLE_CLIENT_ID",
         "clientSecret": "REPLACE_WITH_GOOGLE_CLIENT_SECRET",
@@ -149,21 +234,19 @@ Sau đó tạo file `keycloak/realm-import/be-capstone-realm.json` với nội d
 
 ## Chạy nhanh
 
-### Cách A — Chạy toàn bộ bằng Docker Compose (khuyến nghị)
+> **Tại sao API chạy trực tiếp trên máy, không chạy trong Docker Compose:**
+> API sử dụng `KEYCLOAK_URL=http://localhost:8080` và `KEYCLOAK_HEALTH_URL=http://localhost:9000/health/ready` để kết nối Keycloak. Điều này đảm bảo issuer (`iss`) trong JWT luôn là `http://localhost:8080/...` cho cả browser lẫn server — tránh lỗi xác thực token do hostname không khớp. Nếu API chạy trong Docker Compose, `localhost` sẽ trỏ tới chính container thay vì máy host, khiến Keycloak và Postgres không thể truy cập được. Docker Compose chỉ dùng để chạy Postgres và Keycloak; API cần chạy trực tiếp trên máy của bạn.
 
-Lệnh này sẽ khởi động Postgres, Keycloak và API cùng lúc.
+### 1. Chạy Postgres và Keycloak
 
 > Hãy đảm bảo bạn đã hoàn thành phần [Thiết lập ban đầu](#thiết-lập-ban-đầu).
 
 ```bash
-docker compose up --build
+docker compose up -d
 ```
 
 | Dịch vụ | URL |
 |---|---|
-| API | http://localhost:3000 |
-| Swagger docs | http://localhost:3000/docs |
-| Health check | http://localhost:3000/health |
 | Keycloak admin | http://localhost:8080 (`admin` / `admin`) |
 | Keycloak health | http://localhost:9000/health/ready |
 | Postgres | localhost:5432 (`admin` / `admin` / `be-capstone`) |
@@ -174,34 +257,26 @@ Dừng container:
 docker compose down
 ```
 
-Xóa luôn volume database:
+Xóa luôn volume database (buộc Keycloak import lại realm):
 
 ```bash
 docker compose down -v
 ```
 
----
-
-### Cách B — Chạy API local ở chế độ dev
-
-Dùng cách này nếu bạn muốn hot-reload khi code.
-
-#### 1. Chạy Postgres và Keycloak
-
-> Hãy đảm bảo bạn đã hoàn thành phần [Thiết lập ban đầu](#thiết-lập-ban-đầu).
-
-```bash
-docker compose up postgres keycloak
-```
-
-#### 2. Cài dependency và chạy app
+### 2. Cài dependency và chạy API
 
 ```bash
 npm install
 npm run start:dev
 ```
 
-API sẽ chạy tại `http://localhost:3000`.
+| Dịch vụ | URL |
+|---|---|
+| API | http://localhost:3000 |
+| Swagger docs | http://localhost:3000/docs |
+| Health check | http://localhost:3000/health |
+
+API sẽ chạy tại `http://localhost:3000` với hot-reload.
 
 ---
 
@@ -214,8 +289,7 @@ Tất cả env được quản lý tập trung trong `src/config/env.config.ts`.
 | `NODE_ENV` | Không | `development` | Môi trường chạy |
 | `PORT` | Không | `3000` | Port của API |
 | `DATABASE_URL` | Có | — | Chuỗi kết nối Postgres |
-| `KEYCLOAK_URL` | Có | — | URL nội bộ của Keycloak cho server-to-server |
-| `KEYCLOAK_PUBLIC_URL` | Không | fallback về `KEYCLOAK_URL` | URL public để frontend/browser truy cập |
+| `KEYCLOAK_URL` | Có | — | URL gốc của Keycloak (dùng cho cả API và browser redirect) |
 | `KEYCLOAK_HEALTH_URL` | Không | `http://localhost:9000/health/ready` | Endpoint health của Keycloak |
 | `KEYCLOAK_REALM` | Không | `be-capstone` | Tên realm Keycloak |
 | `KEYCLOAK_CLIENT_ID` | Không | `be-capstone-api` | OIDC client ID |
@@ -276,10 +350,81 @@ Service `keycloak` được cấu hình với `--import-realm`. Khi khởi độ
 - Client bảo mật `be-capstone-api`
 - Google identity provider
 - Protocol mapper để thêm claim `identity_provider` vào token
+- Custom login theme `capstone`
+- Luồng đăng nhập tùy chỉnh cho Google (chỉ yêu cầu cập nhật hồ sơ lần đầu)
+- Vô hiệu hóa `VERIFY_PROFILE` required action (tránh hỏi cập nhật hồ sơ lặp lại)
 
 File realm nằm tại `keycloak/realm-import/be-capstone-realm.json`.
 
 > Thư mục này đang **gitignore**. Xem lại phần [Thiết lập ban đầu](#thiết-lập-ban-đầu) để tạo file nếu máy mới clone repo.
+
+### Luồng xác thực tùy chỉnh
+
+Realm sử dụng luồng `capstone first broker login` cho Google IDP:
+
+```
+capstone first broker login
+├── Review Profile                     REQUIRED  (hiển thị 1 lần khi đăng nhập Google lần đầu)
+└── Create or Link User                REQUIRED  (sub-flow)
+    ├── Create User If Unique          ALTERNATIVE  (email mới → tạo user)
+    └── Handle Existing Account        ALTERNATIVE  (sub-flow, nếu email đã tồn tại)
+        ├── Confirm Link               REQUIRED
+        ├── Email Verification         ALTERNATIVE
+        └── Username/Password Form     ALTERNATIVE
+```
+
+| Tình huống | Hành vi |
+|---|---|
+| Đăng nhập Google lần đầu (user mới) | Hiển thị form cập nhật hồ sơ → tạo user → hoàn tất |
+| Đăng nhập Google lần đầu (email đã đăng ký) | Hiển thị form cập nhật hồ sơ → xác nhận liên kết → xác thực qua email hoặc mật khẩu |
+| Các lần đăng nhập Google tiếp theo | Không hỏi hồ sơ — chuyển thẳng tới callback |
+
+> **Lưu ý:** Keycloak 26.x mặc định bật `VERIFY_PROFILE` required action, khiến mỗi lần đăng nhập đều bị hỏi cập nhật hồ sơ. Realm này đã tắt tính năng đó, chỉ giữ lại form cập nhật hồ sơ trong luồng first broker login (chạy 1 lần duy nhất).
+
+### Custom Keycloak login theme
+
+Dự án hiện có sẵn một custom Keycloak login theme tại:
+
+```text
+keycloak/themes/capstone/login/
+```
+
+Các file chính:
+
+| File | Vai trò |
+|---|---|
+| `theme.properties` | Khai báo theme và parent theme (`keycloak.v2`) |
+| `login.ftl` | Layout trang đăng nhập tùy chỉnh |
+| `resources/css/styles.css` | Màu sắc, spacing, typography, responsive styling |
+
+Theme được mount vào container bằng Docker Compose:
+
+```yaml
+volumes:
+  - ./keycloak/themes:/opt/keycloak/themes
+```
+
+Và realm import đã được cấu hình để dùng theme này:
+
+```json
+"loginTheme": "capstone"
+```
+
+Nếu muốn tùy chỉnh thêm:
+
+1. Sửa `keycloak/themes/capstone/login/login.ftl` để đổi bố cục/nội dung
+2. Sửa `keycloak/themes/capstone/login/resources/css/styles.css` để đổi giao diện
+3. Khởi động lại Keycloak:
+
+```bash
+docker compose restart keycloak
+```
+
+Nếu giao diện vẫn bị cache, hãy recreate container:
+
+```bash
+docker compose up -d --force-recreate keycloak
+```
 
 ### Google identity provider
 

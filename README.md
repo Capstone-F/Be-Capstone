@@ -61,9 +61,20 @@ Then create `keycloak/realm-import/be-capstone-realm.json` with the following co
 {
   "realm": "be-capstone",
   "enabled": true,
+  "loginTheme": "capstone",
   "registrationAllowed": true,
   "resetPasswordAllowed": true,
   "rememberMe": true,
+  "requiredActions": [
+    {
+      "alias": "VERIFY_PROFILE",
+      "name": "Verify Profile",
+      "providerId": "VERIFY_PROFILE",
+      "enabled": false,
+      "defaultAction": false,
+      "priority": 90
+    }
+  ],
   "clients": [
     {
       "clientId": "be-capstone-api",
@@ -97,6 +108,80 @@ Then create `keycloak/realm-import/be-capstone-realm.json` with the following co
       ]
     }
   ],
+  "authenticationFlows": [
+    {
+      "alias": "capstone first broker login",
+      "description": "First broker login flow: review profile then create or link user",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "idp-review-profile",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "authenticatorConfig": "review profile config"
+        },
+        {
+          "authenticatorFlow": true,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "flowAlias": "capstone create or link user"
+        }
+      ]
+    },
+    {
+      "alias": "capstone create or link user",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "idp-create-user-if-unique",
+          "requirement": "ALTERNATIVE",
+          "priority": 10
+        },
+        {
+          "authenticatorFlow": true,
+          "requirement": "ALTERNATIVE",
+          "priority": 20,
+          "flowAlias": "capstone handle existing account"
+        }
+      ]
+    },
+    {
+      "alias": "capstone handle existing account",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "idp-confirm-link",
+          "requirement": "REQUIRED",
+          "priority": 10
+        },
+        {
+          "authenticator": "idp-email-verification",
+          "requirement": "ALTERNATIVE",
+          "priority": 20
+        },
+        {
+          "authenticator": "idp-username-password-form",
+          "requirement": "ALTERNATIVE",
+          "priority": 30
+        }
+      ]
+    }
+  ],
+  "authenticatorConfig": [
+    {
+      "alias": "review profile config",
+      "config": {
+        "update.profile.on.first.login": "on"
+      }
+    }
+  ],
   "identityProviders": [
     {
       "alias": "google",
@@ -108,7 +193,7 @@ Then create `keycloak/realm-import/be-capstone-realm.json` with the following co
       "addReadTokenRoleOnCreate": false,
       "authenticateByDefault": false,
       "linkOnly": false,
-      "firstBrokerLoginFlowAlias": "first broker login",
+      "firstBrokerLoginFlowAlias": "capstone first broker login",
       "config": {
         "clientId": "REPLACE_WITH_GOOGLE_CLIENT_ID",
         "clientSecret": "REPLACE_WITH_GOOGLE_CLIENT_SECRET",
@@ -148,14 +233,40 @@ Then create `keycloak/realm-import/be-capstone-realm.json` with the following co
 
 ## Quick start
 
-### Option A — Run everything with Docker Compose (recommended)
+> **Why the API runs locally, not in Docker Compose:**
+> The API uses `KEYCLOAK_URL=http://localhost:8080` and `KEYCLOAK_HEALTH_URL=http://localhost:9000/health/ready` to reach Keycloak. This ensures the JWT issuer (`iss` claim) is always `http://localhost:8080/...` for both browser and server — avoiding token validation mismatches. If the API ran inside Docker Compose, `localhost` would resolve to the container itself instead of the host machine, making Keycloak and Postgres unreachable. Docker Compose is used only for Postgres and Keycloak; run the API on your host machine.
 
-This starts Postgres, Keycloak (with pre-configured realm + Google IDP), and the API in one command.
+### 1. Start Postgres and Keycloak
 
 > Make sure you have completed [Initial setup](#initial-setup) first.
 
 ```bash
-docker compose up --build
+docker compose up -d
+```
+
+| Service | URL |
+|---|---|
+| Keycloak admin | http://localhost:8080 (admin / admin) |
+| Keycloak health | http://localhost:9000/health/ready |
+| Postgres | localhost:5432 (admin / admin / be-capstone) |
+
+To stop containers:
+
+```bash
+docker compose down
+```
+
+To also wipe the database volume (forces fresh Keycloak realm import):
+
+```bash
+docker compose down -v
+```
+
+### 2. Install dependencies and start the API
+
+```bash
+npm install
+npm run start:dev
 ```
 
 | Service | URL |
@@ -163,42 +274,6 @@ docker compose up --build
 | API | http://localhost:3000 |
 | Swagger docs | http://localhost:3000/docs |
 | Health check | http://localhost:3000/health |
-| Keycloak admin | http://localhost:8080 (admin / admin) |
-| Keycloak health | http://localhost:9000/health/ready |
-| Postgres | localhost:5432 (admin / admin / be-capstone) |
-
-To stop and remove containers:
-
-```bash
-docker compose down
-```
-
-To also wipe the database volume:
-
-```bash
-docker compose down -v
-```
-
----
-
-### Option B — Run API locally (dev mode)
-
-Use this when you want hot-reload and want to develop against a local or Docker-hosted Postgres + Keycloak.
-
-#### 1. Start Postgres and Keycloak
-
-> Make sure you have completed [Initial setup](#initial-setup) first.
-
-```bash
-docker compose up postgres keycloak
-```
-
-#### 2. Install dependencies and start
-
-```bash
-npm install
-npm run start:dev
-```
 
 The API is now running at http://localhost:3000 with hot-reload.
 
@@ -213,8 +288,7 @@ All env vars are centrally managed in `src/config/env.config.ts`. The app valida
 | `NODE_ENV` | No | `development` | Runtime mode |
 | `PORT` | No | `3000` | API listen port |
 | `DATABASE_URL` | **Yes** | — | Postgres connection URL |
-| `KEYCLOAK_URL` | **Yes** | — | Internal Keycloak base URL (server-to-server) |
-| `KEYCLOAK_PUBLIC_URL` | No | Falls back to `KEYCLOAK_URL` | Public Keycloak URL (browser-facing login redirects) |
+| `KEYCLOAK_URL` | **Yes** | — | Keycloak base URL (used for both API and browser redirects) |
 | `KEYCLOAK_HEALTH_URL` | No | `http://localhost:9000/health/ready` | Keycloak management health endpoint |
 | `KEYCLOAK_REALM` | No | `be-capstone` | Keycloak realm name |
 | `KEYCLOAK_CLIENT_ID` | No | `be-capstone-api` | OIDC client ID |
@@ -275,10 +349,81 @@ The `keycloak` service is configured with `--import-realm`. On first start it au
 - Confidential client: `be-capstone-api`
 - Google identity provider (requires manual credential setup — see below)
 - Protocol mapper to expose `identity_provider` claim in tokens
+- Custom login theme: `capstone`
+- Custom first broker login flow (profile review on first Google login only)
+- Disabled `VERIFY_PROFILE` required action (prevents repeated profile prompts)
 
 The realm file is at `keycloak/realm-import/be-capstone-realm.json`.
 
 > This directory is **gitignored** because it can contain real OAuth secrets. See [Initial setup](#initial-setup) for how to create it.
+
+### Custom authentication flow
+
+The realm uses a custom `capstone first broker login` flow for Google IDP:
+
+```
+capstone first broker login
+├── Review Profile                     REQUIRED  (shows once on first Google login)
+└── Create or Link User                REQUIRED  (sub-flow)
+    ├── Create User If Unique          ALTERNATIVE  (new email → create user)
+    └── Handle Existing Account        ALTERNATIVE  (sub-flow, if email exists)
+        ├── Confirm Link               REQUIRED
+        ├── Email Verification         ALTERNATIVE
+        └── Username/Password Form     ALTERNATIVE
+```
+
+| Scenario | Behavior |
+|---|---|
+| First Google login (new user) | Profile review form → user created → done |
+| First Google login (email already registered) | Profile review form → confirm link → verify via email or password |
+| Subsequent Google logins | No profile prompt — straight to callback |
+
+> **Important:** Keycloak 26.x has a `VERIFY_PROFILE` required action enabled by default that prompts profile review on every login. This realm disables it so that only the first broker login flow triggers the one-time review.
+
+### Custom Keycloak login theme
+
+This project now includes a custom Keycloak login theme located at:
+
+```text
+keycloak/themes/capstone/login/
+```
+
+Key files:
+
+| File | Purpose |
+|---|---|
+| `theme.properties` | Declares the theme and its parent (`keycloak.v2`) |
+| `login.ftl` | Custom login page layout |
+| `resources/css/styles.css` | Branding, layout, colors, responsive styling |
+
+The theme is mounted into the container by Docker Compose:
+
+```yaml
+volumes:
+  - ./keycloak/themes:/opt/keycloak/themes
+```
+
+And the imported realm is configured to use it:
+
+```json
+"loginTheme": "capstone"
+```
+
+If you want to customize the login page further:
+
+1. Edit `keycloak/themes/capstone/login/login.ftl` for layout/content
+2. Edit `keycloak/themes/capstone/login/resources/css/styles.css` for colors, spacing, typography
+3. Restart Keycloak:
+
+```bash
+docker compose restart keycloak
+```
+
+If the UI still looks cached, recreate the Keycloak container:
+
+```bash
+docker compose up -d --force-recreate keycloak
+```
 
 ### Google identity provider
 

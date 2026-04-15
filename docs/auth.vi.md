@@ -35,6 +35,7 @@ Client (browser / mobile)
   │  2. Redirect browser → authorizationUrl (trang đăng nhập Keycloak / Google)
   │
   │  3. Người dùng xác thực
+  │     └── Lần đầu đăng nhập Google: Keycloak hiển thị form "Cập nhật hồ sơ"
   │
   │  4. Keycloak redirect → redirectUri?code=...&state=...
   │
@@ -74,13 +75,12 @@ Backend đóng vai trò **token broker**: mọi tác vụ nhạy cảm với Key
 
 ## 3. Môi trường và URL nền tảng
 
-| Biến | Local dev | Docker Compose (trong API container) |
+| Biến | Local dev | Mô tả |
 |---|---|---|
-| Backend API | `http://localhost:3000` | `http://localhost:3000` |
-| `KEYCLOAK_PUBLIC_URL` | `http://localhost:8080` | `http://localhost:8080` |
-| `KEYCLOAK_URL` | `http://localhost:8080` | `http://keycloak:8080` |
+| Backend API | `http://localhost:3000` | NestJS API server |
+| `KEYCLOAK_URL` | `http://localhost:8080` | URL gốc Keycloak (API + browser) |
 
-Mọi URL trả về từ `/auth/login` và `/auth/endpoints` đều dùng `KEYCLOAK_PUBLIC_URL`, nên frontend/browser có thể truy cập trực tiếp.
+Mọi URL trả về từ `/auth/login` và `/auth/endpoints` đều dùng `KEYCLOAK_URL`, nên frontend/browser có thể truy cập trực tiếp.
 
 ---
 
@@ -218,6 +218,15 @@ await SecureStore.setItemAsync('refresh_token', token.refresh_token);
 
 Flow này giống hệt đăng nhập thường, chỉ khác là có `idpHint=google` để bỏ qua trang login Keycloak và chuyển thẳng tới Google.
 
+### Đăng nhập Google lần đầu — cập nhật hồ sơ
+
+Ở **lần đầu tiên** đăng nhập Google (khi chưa có user Keycloak tương ứng), Keycloak sẽ hiển thị form "Cập nhật hồ sơ" để người dùng xác nhận/chỉnh sửa tên và email trước khi tạo tài khoản. Điều này chỉ xảy ra **một lần duy nhất** — các lần đăng nhập sau sẽ chuyển thẳng tới callback.
+
+| Lần đăng nhập | Điều gì xảy ra |
+|---|---|
+| Lần đầu (user mới) | Đăng nhập Google → form "Cập nhật hồ sơ" → tạo tài khoản → callback |
+| Các lần sau | Đăng nhập Google → callback (không hỏi hồ sơ) |
+
 ### Bước 1 — Lấy Google authorization URL
 
 ```http
@@ -244,6 +253,8 @@ window.location.href = authorizationUrl;
 ### Bước 2 — Người dùng xác thực trên Google
 
 Google hiển thị trang đăng nhập riêng. Sau khi người dùng đồng ý, Google redirect lại Keycloak, sau đó Keycloak redirect về ứng dụng.
+
+> **Chỉ lần đầu:** Keycloak sẽ hiển thị form "Cập nhật hồ sơ" giữa bước đăng nhập Google và redirect callback. Người dùng xác nhận tên/email rồi submit. Điều này chỉ xảy ra một lần cho mỗi tài khoản Google.
 
 ### Bước 3 — Exchange code và truyền `idpHint`
 
