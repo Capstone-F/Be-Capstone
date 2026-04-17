@@ -13,7 +13,8 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package*.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+# --omit=dev omits husky; `prepare` would still run it → 127 without --ignore-scripts
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY --from=builder /app/dist ./dist
 EXPOSE 3000
 CMD ["node", "dist/main"]
