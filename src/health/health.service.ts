@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import Redis from 'ioredis';
 import { AppConfigService } from '../config/config.service';
 
 type ComponentHealth = {
@@ -9,25 +10,36 @@ type ComponentHealth = {
 
 @Injectable()
 export class HealthService {
+  private readonly logger = new Logger(HealthService.name);
+  private readonly redis: Redis;
+
   constructor(
-    private readonly logger: Logger,
     private readonly dataSource: DataSource,
     private readonly config: AppConfigService,
-  ) {}
+  ) {
+    this.redis = new Redis(this.config.redisUrl, {
+      lazyConnect: true,
+      maxRetriesPerRequest: 1,
+    });
+  }
 
   async getHealthStatus() {
     const api: ComponentHealth = { status: 'up' };
-    const db = await this.checkDatabase();
-    const keycloak = await this.checkKeycloak();
-    const overallStatus =
-      db.status === 'up' && keycloak.status === 'up' ? 'ok' : 'degraded';
+    const [db, keycloak, redis] = await Promise.all([
+      this.checkDatabase(),
+      this.checkKeycloak(),
+      this.checkRedis(),
+    ]);
+    const allUp =
+      db.status === 'up' && keycloak.status === 'up' && redis.status === 'up';
 
     return {
-      status: overallStatus,
+      status: allUp ? 'ok' : 'degraded',
       timestamp: new Date().toISOString(),
       api,
       db,
       keycloak,
+      redis,
     };
   }
 
@@ -58,6 +70,19 @@ export class HealthService {
     } catch (error) {
       const detail =
         error instanceof Error ? error.message : 'Unknown keycloak error';
+      return { status: 'down', detail };
+    }
+  }
+
+  private async checkRedis(): Promise<ComponentHealth> {
+    try {
+      await this.redis.connect();
+      const result = await this.redis.ping();
+      this.redis.disconnect();
+      return result === 'PONG' ? { status: 'up' } : { status: 'down', detail: `Unexpected PING response: ${result}` };
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : 'Unknown redis error';
       return { status: 'down', detail };
     }
   }

@@ -1,7 +1,17 @@
 import { DataSource } from 'typeorm';
 import { AppConfigService } from '../config/config.service';
 import { HealthService } from './health.service';
-import { Logger } from '@nestjs/common';
+
+jest.mock('ioredis', () => {
+  return {
+    __esModule: true,
+    default: jest.fn().mockImplementation(() => ({
+      connect: jest.fn().mockResolvedValue(undefined),
+      ping: jest.fn().mockResolvedValue('PONG'),
+      disconnect: jest.fn(),
+    })),
+  };
+});
 
 describe('HealthService', () => {
   const originalFetch = global.fetch;
@@ -11,18 +21,23 @@ describe('HealthService', () => {
     jest.restoreAllMocks();
   });
 
-  it('should return ok when database and keycloak are up', async () => {
+  function makeConfig(overrides?: Partial<AppConfigService>) {
+    return {
+      keycloakHealthUrl: 'http://localhost:9000/health/ready',
+      redisUrl: 'redis://localhost:6379',
+      ...overrides,
+    } as AppConfigService;
+  }
+
+  it('should return ok when all components are up', async () => {
     const dataSource = {
       query: jest.fn().mockResolvedValue([{ ok: 1 }]),
     } as unknown as DataSource;
-    const config = {
-      keycloakHealthUrl: 'http://localhost:9000/health/ready',
-    } as AppConfigService;
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
     } as Response);
-    const service = new HealthService(new Logger(), dataSource, config);
+    const service = new HealthService(dataSource, makeConfig());
 
     const result = await service.getHealthStatus();
 
@@ -35,20 +50,18 @@ describe('HealthService', () => {
     expect(result.api.status).toBe('up');
     expect(result.db.status).toBe('up');
     expect(result.keycloak.status).toBe('up');
+    expect(result.redis.status).toBe('up');
   });
 
   it('should return degraded when database is down', async () => {
     const dataSource = {
       query: jest.fn().mockRejectedValue(new Error('db is down')),
     } as unknown as DataSource;
-    const config = {
-      keycloakHealthUrl: 'http://localhost:9000/health/ready',
-    } as AppConfigService;
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
     } as Response);
-    const service = new HealthService(new Logger(), dataSource, config);
+    const service = new HealthService(dataSource, makeConfig());
 
     const result = await service.getHealthStatus();
 
@@ -62,14 +75,11 @@ describe('HealthService', () => {
     const dataSource = {
       query: jest.fn().mockResolvedValue([{ ok: 1 }]),
     } as unknown as DataSource;
-    const config = {
-      keycloakHealthUrl: 'http://localhost:9000/health/ready',
-    } as AppConfigService;
     global.fetch = jest.fn().mockResolvedValue({
       ok: false,
       status: 503,
     } as Response);
-    const service = new HealthService(new Logger(), dataSource, config);
+    const service = new HealthService(dataSource, makeConfig());
 
     const result = await service.getHealthStatus();
 

@@ -21,9 +21,14 @@ export class AppConfigService {
     return this.env.DATABASE_URL;
   }
 
-  /** Single Keycloak base URL used for both browser redirects and server calls. */
-  get keycloakUrl(): string {
-    return this.env.KEYCLOAK_URL;
+  /** Public Keycloak URL reachable by the browser (login page redirects). */
+  get keycloakPublicUrl(): string {
+    return this.env.KEYCLOAK_PUBLIC_URL;
+  }
+
+  /** Internal Keycloak URL for server-to-server calls (token exchange, etc.). */
+  get keycloakInternalUrl(): string {
+    return this.env.KEYCLOAK_INTERNAL_URL;
   }
 
   get keycloakHealthUrl(): string {
@@ -44,6 +49,22 @@ export class AppConfigService {
 
   get keycloakRedirectUri(): string {
     return this.env.KEYCLOAK_REDIRECT_URI;
+  }
+
+  get redisUrl(): string {
+    return this.env.REDIS_URL;
+  }
+
+  get sessionSecret(): string {
+    return this.env.SESSION_SECRET;
+  }
+
+  get frontendUrl(): string {
+    return this.env.FRONTEND_URL;
+  }
+
+  get corsOrigin(): string {
+    return this.env.CORS_ORIGIN;
   }
 
   getMissingRequiredKeys(): string[] {

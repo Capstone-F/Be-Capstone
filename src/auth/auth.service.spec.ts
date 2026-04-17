@@ -13,12 +13,14 @@ function makeJwt(payload: Record<string, unknown>): string {
 const mockUser = { id: 'uuid-1', keycloakSub: 'sub-001' } as User;
 const mockUsersService = {
   upsertFromKeycloak: jest.fn().mockResolvedValue({ user: mockUser, isNewUser: false }),
-} as unknown as UsersService;
+  findById: jest.fn().mockResolvedValue(mockUser),
+} as unknown as jest.Mocked<UsersService>;
 
 describe('AuthService', () => {
   const originalFetch = global.fetch;
   const config = {
-    keycloakUrl: 'http://localhost:8080',
+    keycloakPublicUrl: 'http://localhost:8080',
+    keycloakInternalUrl: 'http://keycloak:8080',
     keycloakRealm: 'be-capstone',
     keycloakClientId: 'be-capstone-api',
     keycloakClientSecret: 'be-capstone-secret',
@@ -32,145 +34,179 @@ describe('AuthService', () => {
     jest.clearAllMocks();
   });
 
-  it('should build login url with expected query params', () => {
-    const result = service.getLoginUrl();
-    const url = new URL(result.authorizationUrl);
+  describe('buildLoginUrl', () => {
+    it('should build login url with expected query params', () => {
+      const result = service.buildLoginUrl();
+      const url = new URL(result.url);
 
-    expect(url.pathname).toContain('/protocol/openid-connect/auth');
-    expect(url.searchParams.get('client_id')).toBe('be-capstone-api');
-    expect(url.searchParams.get('redirect_uri')).toBe(
-      'http://localhost:3000/auth/callback',
-    );
-    expect(result.state).toBeTruthy();
-    expect(result.idpHint).toBeNull();
+      expect(url.pathname).toContain('/protocol/openid-connect/auth');
+      expect(url.searchParams.get('client_id')).toBe('be-capstone-api');
+      expect(url.searchParams.get('redirect_uri')).toBe('http://localhost:3000/auth/callback');
+      expect(result.state).toBeTruthy();
+    });
+
+    it('should add kc_idp_hint when idpHint is provided', () => {
+      const result = service.buildLoginUrl('google');
+      const url = new URL(result.url);
+      expect(url.searchParams.get('kc_idp_hint')).toBe('google');
+    });
   });
 
-  it('should add kc_idp_hint when idpHint is provided', () => {
-    const result = service.getLoginUrl(undefined, 'google');
-    const url = new URL(result.authorizationUrl);
+  describe('exchangeCodeAndUpsertUser', () => {
+    it('should exchange code and return session data', async () => {
+      const idToken = makeJwt({ sub: '123', email: 'user@test.com', name: 'User' });
 
-    expect(url.searchParams.get('kc_idp_hint')).toBe('google');
-    expect(result.idpHint).toBe('google');
+      global.fetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          JSON.stringify({
+            access_token: 'at',
+            id_token: idToken,
+            refresh_token: 'rt',
+            token_type: 'Bearer',
+            expires_in: 300,
+          }),
+      } as Response);
+
+      const result = await service.exchangeCodeAndUpsertUser('abc', 'google');
+
+      expect(result.accessToken).toBe('at');
+      expect(result.refreshToken).toBe('rt');
+      expect(result.user).toEqual(mockUser);
+      expect(result.isNewUser).toBe(false);
+      expect(result.tokenExpiresAt).toBeGreaterThan(Date.now());
+      expect(mockUsersService.upsertFromKeycloak).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: '123' }),
+        'google',
+      );
+    });
+
+    it('should fall back to access_token if id_token is missing', async () => {
+      const accessToken = makeJwt({ sub: 'abc', email: 'fallback@test.com' });
+
+      global.fetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          JSON.stringify({
+            access_token: accessToken,
+            token_type: 'Bearer',
+            expires_in: 300,
+          }),
+      } as Response);
+
+      const result = await service.exchangeCodeAndUpsertUser('code-xyz');
+
+      expect(result.user).toEqual(mockUser);
+      expect(mockUsersService.upsertFromKeycloak).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: 'abc' }),
+        'keycloak',
+      );
+    });
+
+    it('should throw if token endpoint fails', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: async () => 'invalid_grant',
+      } as Response);
+
+      await expect(service.exchangeCodeAndUpsertUser('bad')).rejects.toBeInstanceOf(
+        BadGatewayException,
+      );
+    });
   });
 
-  it('should expose expected oidc endpoints', () => {
-    const endpoints = service.getOidcEndpoints();
-    expect(endpoints.issuer).toBe('http://localhost:8080/realms/be-capstone');
-    expect(endpoints.tokenEndpoint).toContain('/protocol/openid-connect/token');
+  describe('refreshTokenIfNeeded', () => {
+    it('should not refresh if token is still valid', async () => {
+      global.fetch = jest.fn();
+      const session = {
+        refreshToken: 'rt',
+        tokenExpiresAt: Date.now() + 60_000,
+      } as any;
+
+      await service.refreshTokenIfNeeded(session);
+
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('should refresh if token is expired', async () => {
+      global.fetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          JSON.stringify({
+            access_token: 'new-at',
+            refresh_token: 'new-rt',
+            expires_in: 300,
+          }),
+      } as Response);
+
+      const session = {
+        userId: 'u1',
+        refreshToken: 'old-rt',
+        tokenExpiresAt: Date.now() - 1000,
+      } as any;
+
+      await service.refreshTokenIfNeeded(session);
+
+      expect(session.accessToken).toBe('new-at');
+      expect(session.refreshToken).toBe('new-rt');
+      expect(session.tokenExpiresAt).toBeGreaterThan(Date.now());
+    });
+
+    it('should throw UnauthorizedException if refresh fails', async () => {
+      global.fetch = jest.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        text: async () => 'invalid_grant',
+      } as Response);
+
+      const session = {
+        userId: 'u1',
+        refreshToken: 'expired-rt',
+        tokenExpiresAt: Date.now() - 1000,
+      } as any;
+
+      await expect(service.refreshTokenIfNeeded(session)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+    });
   });
 
-  it('login url should use keycloak url', () => {
-    const result = service.getLoginUrl();
-    expect(result.authorizationUrl).toContain('http://localhost:8080');
+  describe('revokeToken', () => {
+    it('should call keycloak logout endpoint', async () => {
+      global.fetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        text: async () => '',
+      } as Response);
+
+      await service.revokeToken('some-rt');
+
+      const call = (global.fetch as jest.Mock).mock.calls[0];
+      expect(call[0]).toContain('/protocol/openid-connect/logout');
+    });
+
+    it('should not throw if revocation fails', async () => {
+      global.fetch = jest.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        text: async () => 'error',
+      } as Response);
+
+      await expect(service.revokeToken('bad-rt')).resolves.toBeUndefined();
+    });
   });
 
-  it('token exchange should call keycloak url and decode id_token', async () => {
-    const idToken = makeJwt({ sub: '123', email: 'a@b.com', name: 'Test' });
+  describe('findUserById', () => {
+    it('should return user', async () => {
+      const user = await service.findUserById('uuid-1');
+      expect(user).toEqual(mockUser);
+    });
 
-    global.fetch = jest.fn().mockResolvedValueOnce({
-      ok: true,
-      text: async () =>
-        JSON.stringify({
-          access_token: 'at-value',
-          id_token: idToken,
-          token_type: 'Bearer',
-          expires_in: 300,
-        }),
-    } as Response);
-
-    await service.exchangeAuthorizationCode('abc');
-
-    const calls = (global.fetch as jest.Mock).mock.calls;
-    expect(calls).toHaveLength(1);
-    expect(calls[0][0]).toContain('localhost:8080');
-  });
-
-  it('should exchange authorization code and return decoded profile', async () => {
-    const idToken = makeJwt({ sub: '123', email: 'user@test.com', name: 'User' });
-
-    global.fetch = jest.fn().mockResolvedValueOnce({
-      ok: true,
-      text: async () =>
-        JSON.stringify({
-          access_token: 'at',
-          id_token: idToken,
-          token_type: 'Bearer',
-          expires_in: 300,
-        }),
-    } as Response);
-
-    const result = await service.exchangeAuthorizationCode('abc', undefined, undefined, 'google');
-
-    expect(result.token.access_token).toBe('at');
-    expect(result.profile.sub).toBe('123');
-    expect(result.profile.email).toBe('user@test.com');
-    expect(result.user).toEqual(mockUser);
-    expect(result.isNewUser).toBe(false);
-    expect(mockUsersService.upsertFromKeycloak).toHaveBeenCalledWith(
-      expect.objectContaining({ sub: '123' }),
-      'google',
-    );
-  });
-
-  it('should fall back to access_token if id_token is missing', async () => {
-    const accessToken = makeJwt({ sub: 'abc', email: 'fallback@test.com' });
-
-    global.fetch = jest.fn().mockResolvedValueOnce({
-      ok: true,
-      text: async () =>
-        JSON.stringify({
-          access_token: accessToken,
-          token_type: 'Bearer',
-          expires_in: 300,
-        }),
-    } as Response);
-
-    const result = await service.exchangeAuthorizationCode('code-xyz');
-
-    expect(result.profile.sub).toBe('abc');
-    expect(mockUsersService.upsertFromKeycloak).toHaveBeenCalledWith(
-      expect.objectContaining({ sub: 'abc' }),
-      'keycloak',
-    );
-  });
-
-  it('should throw if token endpoint fails', async () => {
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: false,
-      status: 400,
-      text: async () => 'invalid_grant',
-    } as Response);
-
-    await expect(service.exchangeAuthorizationCode('bad')).rejects.toBeInstanceOf(
-      BadGatewayException,
-    );
-  });
-
-  it('getUserInfo should return profile from keycloak userinfo endpoint', async () => {
-    global.fetch = jest.fn().mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ sub: 'u1', email: 'a@b.c', name: 'Test' }),
-    } as Response);
-
-    const profile = await service.getUserInfo('valid-token');
-
-    expect(profile.sub).toBe('u1');
-    expect(profile.email).toBe('a@b.c');
-    const call = (global.fetch as jest.Mock).mock.calls[0];
-    expect(call[0]).toContain('/protocol/openid-connect/userinfo');
-    expect(call[1].headers.Authorization).toBe('Bearer valid-token');
-  });
-
-  it('getUserInfo should throw on 401 from keycloak', async () => {
-    global.fetch = jest.fn().mockResolvedValueOnce({
-      ok: false,
-      status: 401,
-      statusText: 'Unauthorized',
-      text: async () => 'Unauthorized',
-    } as Response);
-
-    await expect(service.getUserInfo('bad-token')).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    );
+    it('should throw if user not found', async () => {
+      mockUsersService.findById.mockResolvedValueOnce(null);
+      await expect(service.findUserById('missing')).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+    });
   });
 });

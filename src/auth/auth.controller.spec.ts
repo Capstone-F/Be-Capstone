@@ -1,57 +1,167 @@
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { AppConfigService } from '../config/config.service';
 
 describe('AuthController', () => {
   const authService = {
-    getOidcEndpoints: jest.fn(),
-    getLoginUrl: jest.fn(),
-    exchangeAuthorizationCode: jest.fn(),
-    refreshToken: jest.fn(),
-    logout: jest.fn(),
-    getUserInfo: jest.fn(),
+    buildLoginUrl: jest.fn(),
+    exchangeCodeAndUpsertUser: jest.fn(),
+    revokeToken: jest.fn(),
+    findUserById: jest.fn(),
+    refreshTokenIfNeeded: jest.fn(),
   } as unknown as jest.Mocked<AuthService>;
-  const controller = new AuthController(authService);
+
+  const configService = {
+    frontendUrl: 'http://localhost:5173',
+  } as AppConfigService;
+
+  const controller = new AuthController(authService, configService);
+
+  function mockSession(data: Record<string, unknown> = {}): any {
+    return {
+      ...data,
+      save: jest.fn((cb: (err?: Error) => void) => cb()),
+      destroy: jest.fn((cb: (err?: Error) => void) => cb()),
+    };
+  }
+
+  function mockRes() {
+    const res: Record<string, jest.Mock> = {};
+    res.redirect = jest.fn();
+    res.clearCookie = jest.fn();
+    res.json = jest.fn();
+    return res;
+  }
 
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('should return oidc endpoints', () => {
-    authService.getOidcEndpoints.mockReturnValue({ issuer: 'x' } as never);
-    expect(controller.getEndpoints()).toEqual({ issuer: 'x' });
-  });
+  describe('GET /auth/login', () => {
+    it('should redirect to keycloak auth url', () => {
+      authService.buildLoginUrl.mockReturnValue({
+        url: 'http://kc/auth?params',
+        state: 'state-123',
+      });
 
-  it('should pass idpHint=google to getLoginUrl', () => {
-    authService.getLoginUrl.mockReturnValue({ authorizationUrl: 'http://kc/auth?kc_idp_hint=google' } as never);
-    controller.getLoginUrl(undefined, 'google');
-    expect(authService.getLoginUrl).toHaveBeenCalledWith(undefined, 'google');
-  });
+      const session = mockSession();
+      const req = { session } as any;
+      const res = mockRes() as any;
 
-  it('should throw if callback code is missing', () => {
-    expect(() => controller.exchangeAuthorizationCode(undefined)).toThrow(
-      BadRequestException,
-    );
-  });
+      controller.login(undefined, req, res);
 
-  it('should exchange callback code', async () => {
-    authService.exchangeAuthorizationCode.mockResolvedValue({ ok: true } as never);
-    await expect(controller.exchangeAuthorizationCode('abc')).resolves.toEqual({
-      ok: true,
+      expect(authService.buildLoginUrl).toHaveBeenCalledWith(undefined);
+      expect(session.oauthState).toBe('state-123');
+      expect(res.redirect).toHaveBeenCalledWith('http://kc/auth?params');
+    });
+
+    it('should pass idpHint to buildLoginUrl', () => {
+      authService.buildLoginUrl.mockReturnValue({
+        url: 'http://kc/auth?kc_idp_hint=google',
+        state: 'state-456',
+      });
+
+      const session = mockSession();
+      const req = { session } as any;
+      const res = mockRes() as any;
+
+      controller.login('google', req, res);
+
+      expect(authService.buildLoginUrl).toHaveBeenCalledWith('google');
+      expect(session.idpHint).toBe('google');
     });
   });
 
-  it('should throw if refresh token missing', () => {
-    expect(() => controller.refreshToken({} as never)).toThrow(BadRequestException);
+  describe('GET /auth/callback', () => {
+    it('should redirect to frontend with error on missing params', async () => {
+      const req = { session: mockSession() } as any;
+      const res = mockRes() as any;
+
+      await controller.callback('', '', req, res);
+
+      expect(res.redirect).toHaveBeenCalledWith(
+        'http://localhost:5173/auth/error?reason=missing_params',
+      );
+    });
+
+    it('should redirect to frontend with error on state mismatch', async () => {
+      const req = { session: mockSession({ oauthState: 'expected' }) } as any;
+      const res = mockRes() as any;
+
+      await controller.callback('code', 'wrong-state', req, res);
+
+      expect(res.redirect).toHaveBeenCalledWith(
+        'http://localhost:5173/auth/error?reason=state_mismatch',
+      );
+    });
+
+    it('should exchange code and redirect to frontend on success', async () => {
+      authService.exchangeCodeAndUpsertUser.mockResolvedValue({
+        user: { id: 'u1', keycloakSub: 'kc-sub' } as any,
+        isNewUser: true,
+        accessToken: 'at',
+        refreshToken: 'rt',
+        tokenExpiresAt: Date.now() + 300_000,
+        idpHint: 'keycloak',
+      });
+
+      const session = mockSession({ oauthState: 'state-ok' });
+      const req = { session } as any;
+      const res = mockRes() as any;
+
+      await controller.callback('the-code', 'state-ok', req, res);
+
+      expect(authService.exchangeCodeAndUpsertUser).toHaveBeenCalledWith(
+        'the-code',
+        undefined,
+      );
+      expect(session.userId).toBe('u1');
+      expect(session.accessToken).toBe('at');
+      expect(res.redirect).toHaveBeenCalledWith(
+        expect.stringContaining('isNewUser=true'),
+      );
+    });
   });
 
-  it('should throw when authorization header is missing', () => {
-    const req = { headers: {} } as never;
-    expect(() => controller.getProfile(req)).toThrow(UnauthorizedException);
+  describe('GET /auth/me', () => {
+    it('should return user profile', async () => {
+      const user = { id: 'u1', email: 'a@b.c' };
+      authService.findUserById.mockResolvedValue(user as any);
+
+      const req = { session: { userId: 'u1' } } as any;
+      const result = await controller.getProfile(req);
+
+      expect(result).toEqual(user);
+      expect(authService.findUserById).toHaveBeenCalledWith('u1');
+    });
   });
 
-  it('should throw when authorization header is invalid', () => {
-    const req = { headers: { authorization: 'invalid' } } as never;
-    expect(() => controller.getProfile(req)).toThrow(UnauthorizedException);
+  describe('GET /auth/status', () => {
+    it('should return authenticated true when session has userId', () => {
+      const req = { session: { userId: 'u1' } } as any;
+      expect(controller.getStatus(req)).toEqual({ authenticated: true });
+    });
+
+    it('should return authenticated false when no session', () => {
+      const req = { session: {} } as any;
+      expect(controller.getStatus(req)).toEqual({ authenticated: false });
+    });
+  });
+
+  describe('POST /auth/logout', () => {
+    it('should revoke token and destroy session', async () => {
+      authService.revokeToken.mockResolvedValue(undefined);
+
+      const session = mockSession({ refreshToken: 'rt', userId: 'u1' });
+      const req = { session } as any;
+      const res = mockRes() as any;
+
+      await controller.logout(req, res);
+
+      expect(authService.revokeToken).toHaveBeenCalledWith('rt');
+      expect(session.destroy).toHaveBeenCalled();
+      expect(res.clearCookie).toHaveBeenCalledWith('sid');
+      expect(res.json).toHaveBeenCalledWith({ success: true });
+    });
   });
 });

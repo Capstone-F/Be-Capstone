@@ -1,0 +1,53 @@
+// ── Docker log discovery ──────────────────────────────
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+// ── Relabel: extract container name as "service" label ──
+discovery.relabel "docker_labels" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+// ── Scrape container logs ────────────────────────────
+loki.source.docker "default" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.docker_labels.output
+  labels     = { "job" = "docker" }
+  forward_to = [loki.process.parse.receiver]
+}
+
+// ── Try to parse JSON lines; pass through non-JSON as-is ──
+loki.process "parse" {
+  stage.json {
+    expressions = {
+      level   = "level",
+      msg     = "msg",
+      message = "message",
+    }
+  }
+
+  stage.labels {
+    values = { "level" = "level" }
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+// ── Ship to Loki ─────────────────────────────────────
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

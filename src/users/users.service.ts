@@ -59,6 +59,10 @@ export class UsersService {
     return { user, isNewUser: false };
   }
 
+  async findById(id: string): Promise<User | null> {
+    return this.userRepository.findOneBy({ id });
+  }
+
   async findByKeycloakSub(sub: string): Promise<User | null> {
     return this.userRepository.findOneBy({ keycloakSub: sub });
   }

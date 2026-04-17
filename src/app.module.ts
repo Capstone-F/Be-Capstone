@@ -1,4 +1,5 @@
-import { Logger, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
+import { LoggerModule } from 'nestjs-pino';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -6,14 +7,28 @@ import { HealthController } from './health/health.controller';
 import { HealthService } from './health/health.service';
 import { ConfigModule } from './config/config.module';
 import { AppConfigService } from './config/config.service';
-import { AuthController } from './auth/auth.controller';
-import { AuthService } from './auth/auth.service';
+import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
     ConfigModule,
+    LoggerModule.forRootAsync({
+      inject: [AppConfigService],
+      useFactory: (config: AppConfigService) => ({
+        pinoHttp: {
+          level: config.nodeEnv === 'production' ? 'info' : 'debug',
+          transport:
+            config.nodeEnv !== 'production'
+              ? { target: 'pino-pretty', options: { colorize: true } }
+              : undefined,
+          autoLogging: true,
+          redact: ['req.headers.cookie', 'req.headers.authorization'],
+        },
+      }),
+    }),
     UsersModule,
+    AuthModule,
     TypeOrmModule.forRootAsync({
       inject: [AppConfigService],
       useFactory: (config: AppConfigService) => ({
@@ -24,7 +39,7 @@ import { UsersModule } from './users/users.module';
       }),
     }),
   ],
-  controllers: [AppController, HealthController, AuthController],
-  providers: [AppService, HealthService, AuthService, Logger],
+  controllers: [AppController, HealthController],
+  providers: [AppService, HealthService],
 })
 export class AppModule {}

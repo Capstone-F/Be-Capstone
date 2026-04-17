@@ -1,8 +1,8 @@
-# Authentication Guide
+# Authentication Guide (BFF Pattern)
 
 [Vietnamese version](auth.vi.md)
 
-This guide walks web and mobile frontend clients through every step of integrating with the backend authentication API powered by **Keycloak** (OAuth 2.0 Authorization Code Flow).
+This guide walks frontend clients through integrating with the backend authentication API. The backend uses a **BFF (Backend For Frontend)** pattern — all Keycloak interactions happen server-side. The frontend only deals with **session cookies**, never with tokens.
 
 ---
 
@@ -10,48 +10,48 @@ This guide walks web and mobile frontend clients through every step of integrati
 
 1. [Overview](#1-overview)
 2. [Prerequisites](#2-prerequisites)
-3. [Environment & Base URLs](#3-environment--base-urls)
-4. [Step-by-step: Standard Login (Keycloak account)](#4-step-by-step-standard-login-keycloak-account)
-5. [Step-by-step: Google Login](#5-step-by-step-google-login)
-6. [Step-by-step: Token refresh](#6-step-by-step-token-refresh)
+3. [Step-by-step: Login](#3-step-by-step-login)
+4. [Step-by-step: Google Login](#4-step-by-step-google-login)
+5. [Step-by-step: Get current user](#5-step-by-step-get-current-user)
+6. [Step-by-step: Check auth status](#6-step-by-step-check-auth-status)
 7. [Step-by-step: Logout](#7-step-by-step-logout)
 8. [Calling protected API routes](#8-calling-protected-api-routes)
-9. [Getting current user profile](#9-getting-current-user-profile)
-10. [Endpoint reference](#10-endpoint-reference)
-11. [Token & user model reference](#11-token--user-model-reference)
-12. [PKCE (recommended for SPA & mobile)](#12-pkce-recommended-for-spa--mobile)
-13. [Error reference](#13-error-reference)
+9. [Endpoint reference](#9-endpoint-reference)
+10. [User model reference](#10-user-model-reference)
+11. [CORS & cookie setup](#11-cors--cookie-setup)
+12. [Error reference](#12-error-reference)
 
 ---
 
 ## 1. Overview
 
 ```
-Client (browser / mobile)
+Client (browser)
   │
-  │  1. GET /auth/login[?idpHint=google]
-  │  ◄── { authorizationUrl, state, redirectUri }
+  │  1. window.location.href = '/auth/login'
+  │     (browser navigates to backend)
   │
-  │  2. Redirect browser → authorizationUrl (Keycloak / Google login page)
+  │  2. Backend 302 → Keycloak login page
   │
   │  3. User authenticates on Keycloak (or Google)
-  │     └── First Google login only: Keycloak shows "Review Profile" form
   │
-  │  4. Keycloak redirects → redirectUri?code=...&state=...
+  │  4. Keycloak 302 → Backend /auth/callback?code=...
   │
-  │  5. POST /auth/token  { code, redirectUri [, idpHint] }
-  │  ◄── { token, profile, user, isNewUser }
+  │  5. Backend exchanges code for tokens (server-to-server)
+  │     └── Stores tokens in server-side session
+  │     └── Upserts local user record
   │
-  │  6. Store access_token + refresh_token
+  │  6. Backend 302 → FRONTEND_URL (Set-Cookie: sid=...)
   │
-  │  7. Call protected routes with  Authorization: Bearer <access_token>
+  │  7. Frontend calls /auth/me (cookie sent automatically)
+  │     ◄── { user profile from local DB }
   │
-  │  8. POST /auth/refresh when access_token expires
+  │  8. All subsequent API calls include cookie automatically
   │
   │  9. POST /auth/logout to end session
 ```
 
-The backend acts as the **token broker**: all sensitive exchanges with Keycloak happen server-to-server. The client only ever speaks to the backend API.
+**Key principle:** The frontend never sees or stores any Keycloak tokens. Authentication state is managed entirely through an HTTP-only session cookie (`sid`). Sessions are stored in **Redis** for fast access and easy horizontal scaling.
 
 ---
 
@@ -60,592 +60,240 @@ The backend acts as the **token broker**: all sensitive exchanges with Keycloak 
 | What | Value |
 |---|---|
 | Backend API | Running at `http://localhost:3000` (or deployed URL) |
+| Frontend | Running at `http://localhost:5173` (configured via `FRONTEND_URL`) |
 | Keycloak | Running at `http://localhost:8080` |
 | Realm | `be-capstone` (auto-imported by Docker Compose) |
-| Client ID | `be-capstone-api` |
-| Google OAuth app | Credentials set in Keycloak admin → Identity Providers → Google |
 
-> **Google OAuth app setup (one-time):**
-> 1. Go to [console.cloud.google.com](https://console.cloud.google.com) → APIs & Services → Credentials → Create OAuth 2.0 Client ID
-> 2. Set Authorized redirect URI to: `http://localhost:8080/realms/be-capstone/broker/google/endpoint`
-> 3. Copy Client ID and Client Secret into Keycloak admin → Identity Providers → Google → Edit
+### Required environment variables (backend)
 
----
-
-## 3. Environment & Base URLs
-
-| Variable | Local dev | Description |
-|---|---|---|
-| Backend API | `http://localhost:3000` | NestJS API server |
-| `KEYCLOAK_URL` | `http://localhost:8080` | Keycloak base URL (API + browser) |
-
-All URLs returned by `/auth/login` and `/auth/endpoints` use `KEYCLOAK_URL` — they are safe to open in a browser.
-
----
-
-## 4. Step-by-step: Standard Login (Keycloak account)
-
-### Step 1 — Get the authorization URL
-
-```http
-GET /auth/login
-```
-
-Optional query params:
-
-| Param | Description |
+| Variable | Description |
 |---|---|
-| `redirectUri` | Where Keycloak sends the user back after login. Defaults to `KEYCLOAK_REDIRECT_URI`. |
-
-**Response**
-
-```json
-{
-  "authorizationUrl": "http://localhost:8080/realms/be-capstone/protocol/openid-connect/auth?client_id=be-capstone-api&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fauth%2Fcallback&response_type=code&scope=openid+profile+email&state=550e8400-e29b-41d4-a716-446655440000",
-  "state": "550e8400-e29b-41d4-a716-446655440000",
-  "redirectUri": "http://localhost:3000/auth/callback",
-  "idpHint": null
-}
-```
-
-**Web**
-
-```js
-const { authorizationUrl, state } = await fetch('/auth/login').then(r => r.json());
-sessionStorage.setItem('oauth_state', state); // CSRF protection
-window.location.href = authorizationUrl;       // redirect browser to Keycloak
-```
-
-**Mobile (React Native / Flutter)**
-
-```js
-// Use expo-auth-session or flutter_appauth with a deep link redirect URI
-const { authorizationUrl, state } = await fetch(
-  `/auth/login?redirectUri=${encodeURIComponent('myapp://auth/callback')}`
-).then(r => r.json());
-
-// Open in-app browser
-await openInAppBrowser(authorizationUrl);
-```
+| `KEYCLOAK_PUBLIC_URL` | Keycloak URL reachable by the browser (e.g. `http://localhost:8080`) |
+| `KEYCLOAK_INTERNAL_URL` | Keycloak URL for server-to-server calls inside Docker (e.g. `http://keycloak:8080`). Defaults to `KEYCLOAK_PUBLIC_URL`. |
+| `REDIS_URL` | Redis connection URL for session storage (e.g. `redis://redis:6379`). Defaults to `redis://localhost:6379`. |
+| `SESSION_SECRET` | Secret for signing session cookies |
+| `FRONTEND_URL` | Frontend origin (e.g. `http://localhost:5173`) |
+| `CORS_ORIGIN` | Allowed CORS origin (defaults to `FRONTEND_URL`) |
 
 ---
+
+## 3. Step-by-step: Login
+
+### Step 1 — Redirect to login
+
+Simply navigate the browser to the backend login endpoint:
+
+```js
+window.location.href = 'http://localhost:3000/auth/login';
+```
+
+The backend will:
+1. Generate a CSRF `state` parameter and store it in the session
+2. Redirect (302) to the Keycloak login page
 
 ### Step 2 — User logs in on Keycloak
 
-The browser/in-app browser shows the Keycloak login page. The user enters credentials (or creates an account if `registrationAllowed: true`).
+The browser shows the Keycloak login page. The user enters credentials or creates an account.
 
----
+### Step 3 — Automatic callback handling
 
-### Step 3 — Handle the callback and exchange the code
+After login, Keycloak redirects to the backend's `/auth/callback`. The backend:
+1. Validates the `state` parameter (CSRF protection)
+2. Exchanges the authorization code for tokens (server-to-server)
+3. Upserts the user in the local database
+4. Stores tokens in the server-side session
+5. Redirects (302) to `FRONTEND_URL`
 
-After login Keycloak redirects to `redirectUri?code=...&state=...`.
-
-> **CSRF check:** verify the `state` param matches what you stored in step 1.
-
-**Web SPA** — your frontend catches the redirect:
+If this is the user's first login, the redirect URL includes `?isNewUser=true`:
 
 ```js
-// Running at http://localhost:5173/callback
+// In your frontend router, check for this param:
 const params = new URLSearchParams(window.location.search);
-const code  = params.get('code');
-const state = params.get('state');
-
-if (state !== sessionStorage.getItem('oauth_state')) {
-  throw new Error('State mismatch — possible CSRF attack');
-}
-sessionStorage.removeItem('oauth_state');
-
-const res = await fetch('/auth/token', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    code,
-    redirectUri: window.location.origin + '/callback',
-  }),
-});
-const { token, profile, user, isNewUser } = await res.json();
-
-localStorage.setItem('access_token',  token.access_token);
-localStorage.setItem('refresh_token', token.refresh_token);
-
-if (isNewUser) {
-  // First time login → navigate to onboarding
+if (params.get('isNewUser') === 'true') {
+  // Navigate to onboarding
 } else {
-  // Returning user → navigate to dashboard
+  // Navigate to dashboard
 }
 ```
-
-**Mobile**
-
-```js
-// After in-app browser returns with code:
-const res = await fetch('/auth/token', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    code,
-    redirectUri: 'myapp://auth/callback',
-  }),
-});
-const { token, user, isNewUser } = await res.json();
-await SecureStore.setItemAsync('access_token',  token.access_token);
-await SecureStore.setItemAsync('refresh_token', token.refresh_token);
-```
-
-**Response shape**
-
-```json
-{
-  "token": {
-    "access_token":       "eyJhbGci...",
-    "expires_in":         300,
-    "refresh_expires_in": 1800,
-    "refresh_token":      "eyJhbGci...",
-    "token_type":         "Bearer",
-    "id_token":           "eyJhbGci...",
-    "scope":              "openid profile email"
-  },
-  "profile": {
-    "sub":                "a1b2c3d4-0000-0000-0000-000000000000",
-    "email":              "user@example.com",
-    "name":               "John Doe",
-    "preferred_username": "john",
-    "email_verified":     true
-  },
-  "user": {
-    "id":           "uuid-from-our-db",
-    "keycloakSub":  "a1b2c3d4-0000-0000-0000-000000000000",
-    "email":        "user@example.com",
-    "name":         "John Doe",
-    "provider":     "keycloak",
-    "isActive":     true,
-    "createdAt":    "2026-04-15T10:00:00.000Z",
-    "updatedAt":    "2026-04-15T10:00:00.000Z"
-  },
-  "isNewUser": true
-}
-```
-
-> `isNewUser: true` means this is the **first ever login** — the backend just inserted a new row in the `users` table.
 
 ---
 
-## 5. Step-by-step: Google Login
+## 4. Step-by-step: Google Login
 
-Google login uses the exact same flow as standard login. The only difference is the `idpHint=google` parameter, which tells Keycloak to **skip its own login page** and redirect straight to Google.
+Google login uses the same flow with the `idpHint=google` query parameter:
 
-### First-time Google login — profile review
+```js
+window.location.href = 'http://localhost:3000/auth/login?idpHint=google';
+```
 
-On the **very first** Google login (when no Keycloak user exists for that Google account), Keycloak shows a "Review Profile" form. This lets the user verify/edit their name and email before the account is created. This only happens **once** — all subsequent logins go straight through to the callback.
+This tells Keycloak to skip its own login page and redirect straight to Google.
 
 | Login | What happens |
 |---|---|
-| First time (new user) | Google sign-in → Keycloak "Review Profile" form → account created → callback |
+| First time (new user) | Google sign-in → Keycloak "Review Profile" form → callback |
 | Subsequent logins | Google sign-in → callback (no profile prompt) |
 
-### Step 1 — Get the Google authorization URL
+---
 
-```http
-GET /auth/login?idpHint=google
-```
+## 5. Step-by-step: Get current user
 
-**Response**
+```js
+const res = await fetch('http://localhost:3000/auth/me', {
+  credentials: 'include',  // REQUIRED — sends the session cookie
+});
 
-```json
-{
-  "authorizationUrl": "http://localhost:8080/realms/be-capstone/protocol/openid-connect/auth?...&kc_idp_hint=google",
-  "state": "550e8400-e29b-41d4-a716-446655440001",
-  "redirectUri": "http://localhost:3000/auth/callback",
-  "idpHint": "google"
+if (res.ok) {
+  const user = await res.json();
+  console.log(user);
+  // { id, keycloakSub, email, name, provider, isActive, createdAt, updatedAt }
+} else {
+  // Not authenticated — redirect to login
 }
 ```
 
-```js
-const { authorizationUrl, state } = await fetch('/auth/login?idpHint=google').then(r => r.json());
-sessionStorage.setItem('oauth_state', state);
-window.location.href = authorizationUrl; // opens Google sign-in directly
-```
+The backend reads the session, auto-refreshes the Keycloak token if needed, and returns the user profile from the local database.
 
 ---
 
-### Step 2 — User authenticates on Google
+## 6. Step-by-step: Check auth status
 
-Google shows its own sign-in page. After the user grants access, Google redirects back to Keycloak, which then redirects to your `redirectUri`.
-
-> **First login only:** Keycloak will show a "Review Profile" form between Google sign-in and the callback redirect. The user can verify their name/email and submit. This happens only once per Google account.
-
----
-
-### Step 3 — Exchange the code (pass idpHint)
-
-Same as standard login, but include `idpHint` so the backend records the correct provider on first login:
+A lightweight endpoint that doesn't load the full user profile:
 
 ```js
-const { token, user, isNewUser } = await fetch('/auth/token', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ code, redirectUri, idpHint: 'google' }),
-}).then(r => r.json());
-```
-
-**Response** — same shape as standard login, but `user.provider` will be `"google"`:
-
-```json
-{
-  "user": {
-    "provider": "google",
-    ...
-  },
-  "isNewUser": true
-}
-```
-
----
-
-## 6. Step-by-step: Token refresh
-
-Access tokens expire after `expires_in` seconds (default 300 s / 5 min). Use the refresh token to get a new one without requiring the user to log in again.
-
-### When to refresh
-
-- Proactively: track expiry with `Date.now() + token.expires_in * 1000` and refresh ~30 s before
-- Reactively: catch a `401 Unauthorized` from any protected route and retry once after refreshing
-
-```http
-POST /auth/refresh
-Content-Type: application/json
-
-{ "refreshToken": "<refresh_token>" }
-```
-
-**Response**
-
-```json
-{
-  "access_token":  "eyJhbGci...",
-  "expires_in":    300,
-  "refresh_token": "eyJhbGci...",
-  "token_type":    "Bearer"
-}
-```
-
-**Web**
-
-```js
-async function refreshAccessToken() {
-  const refreshToken = localStorage.getItem('refresh_token');
-  if (!refreshToken) { redirectToLogin(); return null; }
-
-  const res = await fetch('/auth/refresh', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refreshToken }),
-  });
-
-  if (!res.ok) {
-    // Refresh token expired — force re-login
-    localStorage.clear();
-    redirectToLogin();
-    return null;
-  }
-
-  const token = await res.json();
-  localStorage.setItem('access_token',  token.access_token);
-  localStorage.setItem('refresh_token', token.refresh_token);
-  return token.access_token;
-}
-```
-
-**Mobile**
-
-```js
-const token = await fetch('/auth/refresh', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ refreshToken: await SecureStore.getItemAsync('refresh_token') }),
+const { authenticated } = await fetch('http://localhost:3000/auth/status', {
+  credentials: 'include',
 }).then(r => r.json());
 
-await SecureStore.setItemAsync('access_token',  token.access_token);
-await SecureStore.setItemAsync('refresh_token', token.refresh_token);
+if (!authenticated) {
+  window.location.href = 'http://localhost:3000/auth/login';
+}
 ```
 
 ---
 
 ## 7. Step-by-step: Logout
 
-Revoking the refresh token ends the session server-side. The user will need to log in again to get new tokens.
-
-```http
-POST /auth/logout
-Content-Type: application/json
-
-{ "refreshToken": "<refresh_token>" }
-```
-
-**Response**
-
-```json
-{ "success": true }
-```
-
-**Web**
-
 ```js
-async function logout() {
-  const refreshToken = localStorage.getItem('refresh_token');
-  if (refreshToken) {
-    await fetch('/auth/logout', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
-    });
-  }
-  localStorage.removeItem('access_token');
-  localStorage.removeItem('refresh_token');
-  window.location.href = '/login';
-}
-```
-
-**Mobile**
-
-```js
-await fetch('/auth/logout', {
+await fetch('http://localhost:3000/auth/logout', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ refreshToken: await SecureStore.getItemAsync('refresh_token') }),
+  credentials: 'include',
 });
-await SecureStore.deleteItemAsync('access_token');
-await SecureStore.deleteItemAsync('refresh_token');
+
+// Session is destroyed, cookie is cleared
+window.location.href = '/login';
 ```
+
+The backend will:
+1. Revoke the refresh token on Keycloak
+2. Destroy the server-side session
+3. Clear the `sid` cookie
 
 ---
 
 ## 8. Calling protected API routes
 
-Include the access token as a Bearer token in every authenticated request.
-
-```http
-GET /api/some-resource
-Authorization: Bearer <access_token>
-```
-
-**Recommended: reusable fetch wrapper with auto-refresh**
+With the BFF pattern, all API calls just need `credentials: 'include'` — the browser sends the session cookie automatically:
 
 ```js
 async function apiFetch(url, options = {}) {
-  const makeRequest = (token) =>
-    fetch(url, {
-      ...options,
-      headers: {
-        ...options.headers,
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-  let res = await makeRequest(localStorage.getItem('access_token'));
+  const res = await fetch(url, {
+    ...options,
+    credentials: 'include',
+  });
 
   if (res.status === 401) {
-    // Try refreshing once
-    const newToken = await refreshAccessToken();
-    if (!newToken) return res; // already redirected to login
-    res = await makeRequest(newToken);
+    // Session expired — redirect to login
+    window.location.href = '/auth/login';
+    return null;
   }
 
   return res;
 }
 
 // Usage
-const data = await apiFetch('/api/profile').then(r => r.json());
+const data = await apiFetch('http://localhost:3000/api/some-resource').then(r => r.json());
 ```
+
+No `Authorization` header, no token management, no refresh logic needed on the frontend.
 
 ---
 
-## 9. Getting current user profile
-
-Returns the live profile claims from Keycloak for the authenticated user.
-
-```http
-GET /auth/me
-Authorization: Bearer <access_token>
-```
-
-**Response**
-
-```json
-{
-  "sub":                "a1b2c3d4-0000-0000-0000-000000000000",
-  "email":              "user@example.com",
-  "name":               "John Doe",
-  "given_name":         "John",
-  "family_name":        "Doe",
-  "preferred_username": "john",
-  "email_verified":     true,
-  "identity_provider":  "google"
-}
-```
-
-> `identity_provider` is present only when the user logged in via a federated provider (e.g. Google).
-
----
-
-## 10. Endpoint reference
+## 9. Endpoint reference
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `GET` | `/auth/endpoints` | None | OIDC endpoint discovery (public URLs) |
-| `GET` | `/auth/login` | None | Get authorization URL to redirect user |
-| `GET` | `/auth/callback` | None | Exchange code (query param driven, Keycloak redirect target) |
-| `POST` | `/auth/token` | None | Exchange code for tokens (body driven, preferred for SPAs) |
-| `POST` | `/auth/refresh` | None | Refresh access token |
-| `POST` | `/auth/logout` | None | Revoke refresh token / end session |
-| `GET` | `/auth/me` | Bearer token | Get current user's Keycloak profile |
+| `GET` | `/auth/login` | None | Redirects browser to Keycloak login |
+| `GET` | `/auth/callback` | None | OAuth callback (Keycloak redirects here) |
+| `GET` | `/auth/me` | Session cookie | Get current user profile |
+| `GET` | `/auth/status` | None | Check if session is authenticated |
+| `POST` | `/auth/logout` | Session cookie | Destroy session and revoke tokens |
 
 ### `GET /auth/login` — query params
 
-| Param | Required | Default | Description |
-|---|---|---|---|
-| `redirectUri` | No | `KEYCLOAK_REDIRECT_URI` | Callback URL after login |
-| `idpHint` | No | — | `google` to skip Keycloak login page and go straight to Google |
+| Param | Required | Description |
+|---|---|---|
+| `idpHint` | No | `google` to skip Keycloak login page |
 
-### `POST /auth/token` — request body
+### `GET /auth/callback` — query params (set by Keycloak)
 
-```json
-{
-  "code":         "authorization-code-from-keycloak",
-  "redirectUri":  "http://localhost:5173/callback",
-  "codeVerifier": "pkce-verifier (optional)",
-  "idpHint":      "google (optional, for recording provider)"
-}
-```
-
-### `POST /auth/refresh` — request body
-
-```json
-{ "refreshToken": "eyJhbGci..." }
-```
-
-### `POST /auth/logout` — request body
-
-```json
-{ "refreshToken": "eyJhbGci..." }
-```
+| Param | Description |
+|---|---|
+| `code` | Authorization code from Keycloak |
+| `state` | CSRF state parameter |
 
 ---
 
-## 11. Token & user model reference
+## 10. User model reference
 
-### Token fields
-
-| Field | Type | Description |
-|---|---|---|
-| `access_token` | string | JWT for API calls. Pass as `Authorization: Bearer` |
-| `expires_in` | number | Seconds until access token expires (default 300) |
-| `refresh_token` | string | Used to get new access tokens |
-| `refresh_expires_in` | number | Seconds until refresh token expires (default 1800) |
-| `token_type` | string | Always `"Bearer"` |
-| `id_token` | string | OIDC identity token with user claims |
-| `scope` | string | Granted scopes |
-
-### User fields (from our database)
+### User fields (from database, returned by `/auth/me`)
 
 | Field | Type | Description |
 |---|---|---|
 | `id` | UUID | Primary key in our database |
-| `keycloakSub` | string | Immutable Keycloak user ID — use as foreign key for related data |
+| `keycloakSub` | string | Immutable Keycloak user ID — use as foreign key |
 | `email` | string \| null | Refreshed from Keycloak on every login |
 | `name` | string \| null | Refreshed from Keycloak on every login |
-| `provider` | string | `"google"` or `"keycloak"` — set at first login, never changes |
+| `provider` | string | `"google"` or `"keycloak"` — set at first login |
 | `isActive` | boolean | `true` by default |
 | `createdAt` | ISO date | When the user first logged in |
 | `updatedAt` | ISO date | When the user last logged in |
 
-### Important JWT claims
-
-| Claim | Description |
-|---|---|
-| `sub` | **Immutable** Keycloak user ID — always use this as foreign key, never email |
-| `email` | User email (can change) |
-| `preferred_username` | Username (can change) |
-| `exp` | Token expiry (Unix timestamp) |
-| `realm_access.roles` | Array of realm-level Keycloak roles |
-| `identity_provider` | Which IDP was used (`google`, absent for local accounts) |
-
 ---
 
-## 12. PKCE (recommended for SPA & mobile)
+## 11. CORS & cookie setup
 
-PKCE (Proof Key for Code Exchange) prevents authorization code interception attacks. It is strongly recommended for browser SPAs and mobile apps.
+For the session cookie to flow between the frontend and backend (different origins), both sides need correct configuration:
 
-### Step 1 — Generate verifier and challenge before login
+### Backend (already configured)
+
+- CORS: `origin: FRONTEND_URL`, `credentials: true`
+- Cookie: `httpOnly: true`, `sameSite: 'lax'`, `secure: true` (in production)
+- Session store: Redis (via `connect-redis` + `ioredis`)
+
+### Frontend
+
+Every `fetch` call must include `credentials: 'include'`:
 
 ```js
-function generateCodeVerifier() {
-  const array = new Uint8Array(32);
-  crypto.getRandomValues(array);
-  return btoa(String.fromCharCode(...array))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
-
-async function generateCodeChallenge(verifier) {
-  const data = new TextEncoder().encode(verifier);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return btoa(String.fromCharCode(...new Uint8Array(digest)))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
-
-const codeVerifier  = generateCodeVerifier();
-const codeChallenge = await generateCodeChallenge(codeVerifier);
-sessionStorage.setItem('code_verifier', codeVerifier);
+fetch('http://localhost:3000/auth/me', { credentials: 'include' });
 ```
 
-### Step 2 — Append PKCE params to the authorization URL
-
-After calling `GET /auth/login`, append PKCE params before redirecting:
+If using **Axios**:
 
 ```js
-const { authorizationUrl, state } = await fetch('/auth/login').then(r => r.json());
-sessionStorage.setItem('oauth_state', state);
-
-const url = new URL(authorizationUrl);
-url.searchParams.set('code_challenge',        codeChallenge);
-url.searchParams.set('code_challenge_method', 'S256');
-
-window.location.href = url.toString();
-```
-
-### Step 3 — Send verifier with the code exchange
-
-```js
-const { token, user, isNewUser } = await fetch('/auth/token', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    code,
-    redirectUri:  window.location.origin + '/callback',
-    codeVerifier: sessionStorage.getItem('code_verifier'),
-  }),
-}).then(r => r.json());
-
-sessionStorage.removeItem('code_verifier');
+const api = axios.create({
+  baseURL: 'http://localhost:3000',
+  withCredentials: true,
+});
 ```
 
 ---
 
-## 13. Error reference
+## 12. Error reference
 
 | HTTP | Scenario | What to do |
 |---|---|---|
-| `400 Bad Request` | Missing `code` or `refreshToken` field | Check request body / query params |
-| `401 Unauthorized` | Missing or invalid `Authorization` header on `/auth/me` | Re-authenticate |
-| `401 Unauthorized` | Access token expired on a protected route | Call `POST /auth/refresh` then retry |
-| `502 Bad Gateway` | Keycloak returned an error (e.g. invalid code, expired code) | Start login flow again |
-| `502 Bad Gateway` | Keycloak is unreachable | Check Keycloak health at `GET /health` |
-
-### Keycloak error codes (inside 502 message)
-
-| Code | Meaning |
-|---|---|
-| `invalid_grant` | Code already used, expired, or wrong `redirect_uri` |
-| `invalid_client` | Wrong client ID or secret |
-| `invalid_redirect_uri` | `redirectUri` not registered in Keycloak client |
-| `unauthorized_client` | Client not allowed to use this grant type |
+| `401 Unauthorized` | No active session or session expired | Redirect to `GET /auth/login` |
+| `302` to `/auth/error?reason=missing_params` | Callback missing code/state | Start login flow again |
+| `302` to `/auth/error?reason=state_mismatch` | CSRF state mismatch | Start login flow again |
+| `302` to `/auth/error?reason=exchange_failed` | Keycloak code exchange failed | Start login flow again |

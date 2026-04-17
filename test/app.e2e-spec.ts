@@ -1,29 +1,525 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { LoggerModule } from 'nestjs-pino';
 import request from 'supertest';
+import session = require('express-session');
 import { App } from 'supertest/types';
-import { AppModule } from './../src/app.module';
+import { AppController } from '../src/app.controller';
+import { AppService } from '../src/app.service';
+import { HealthController } from '../src/health/health.controller';
+import { HealthService } from '../src/health/health.service';
+import { AuthModule } from '../src/auth/auth.module';
+import { AuthService } from '../src/auth/auth.service';
+import { UsersModule } from '../src/users/users.module';
+import { ConfigModule } from '../src/config/config.module';
+import { AppConfigService } from '../src/config/config.service';
+import { User } from '../src/users/user.entity';
 
-describe('AppController (e2e)', () => {
+const TEST_CONFIG: Record<string, unknown> = {
+  nodeEnv: 'test',
+  port: 3000,
+  databaseUrl: 'sqlite::memory:',
+  keycloakPublicUrl: 'http://localhost:8080',
+  keycloakInternalUrl: 'http://localhost:8080',
+  keycloakHealthUrl: 'http://localhost:9000/health/ready',
+  keycloakRealm: 'be-capstone',
+  keycloakClientId: 'be-capstone-api',
+  keycloakClientSecret: 'be-capstone-secret',
+  keycloakRedirectUri: 'http://localhost:3000/auth/callback',
+  redisUrl: 'redis://localhost:6379',
+  sessionSecret: 'e2e-test-secret',
+  frontendUrl: 'http://localhost:5173',
+  corsOrigin: 'http://localhost:5173',
+  getMissingRequiredKeys: () => [],
+};
+
+function extractSid(res: request.Response): string {
+  const raw = res.headers['set-cookie'] ?? [];
+  const cookies: string[] = Array.isArray(raw) ? raw : [raw];
+  const sidCookie = cookies.find((c: string) => c.startsWith('sid='));
+  return sidCookie ?? '';
+}
+
+describe('BE Capstone API (e2e)', () => {
   let app: INestApplication<App>;
+  let authService: AuthService;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
+      imports: [
+        ConfigModule,
+        LoggerModule.forRoot({ pinoHttp: { level: 'silent' } }),
+        UsersModule,
+        AuthModule,
+        TypeOrmModule.forRoot({
+          type: 'better-sqlite3',
+          database: ':memory:',
+          entities: [User],
+          synchronize: true,
+        }),
+      ],
+      controllers: [AppController, HealthController],
+      providers: [AppService, HealthService],
+    })
+      .overrideProvider(AppConfigService)
+      .useValue(TEST_CONFIG)
+      .overrideProvider(HealthService)
+      .useValue({
+        getHealthStatus: () => ({
+          status: 'ok',
+          timestamp: new Date().toISOString(),
+          api: { status: 'up' },
+          db: { status: 'up' },
+          keycloak: { status: 'up' },
+          redis: { status: 'up' },
+        }),
+      })
+      .compile();
 
     app = moduleFixture.createNestApplication();
+
+    app.use(
+      session({
+        name: 'sid',
+        secret: 'e2e-test-secret',
+        resave: false,
+        saveUninitialized: false,
+        cookie: { httpOnly: true, secure: false, sameSite: 'lax' },
+      }),
+    );
+
     await app.init();
+
+    authService = moduleFixture.get(AuthService);
   });
 
-  it('/ (GET)', () => {
-    return request(app.getHttpServer())
-      .get('/')
-      .expect(200)
-      .expect('Hello World!');
-  });
-
-  afterEach(async () => {
+  afterAll(async () => {
     await app.close();
   });
+
+  // ─── Root ──────────────────────────────────────────────────────
+
+  describe('GET /', () => {
+    it('should return "Hello World!"', () => {
+      return request(app.getHttpServer())
+        .get('/')
+        .expect(200)
+        .expect('Hello World!');
+    });
+  });
+
+  // ─── Health ────────────────────────────────────────────────────
+
+  describe('GET /health', () => {
+    it('should return health status object', async () => {
+      const { body } = await request(app.getHttpServer())
+        .get('/health')
+        .expect(200);
+
+      expect(body).toHaveProperty('status', 'ok');
+      expect(body).toHaveProperty('timestamp');
+      expect(body.api).toEqual({ status: 'up' });
+      expect(body.db).toEqual({ status: 'up' });
+      expect(body.keycloak).toEqual({ status: 'up' });
+      expect(body.redis).toEqual({ status: 'up' });
+    });
+  });
+
+  // ─── Auth: /auth/login ─────────────────────────────────────────
+
+  describe('GET /auth/login', () => {
+    it('should redirect to Keycloak authorization URL', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/auth/login')
+        .expect(302);
+
+      const location = res.headers.location;
+      expect(location).toContain(
+        '/realms/be-capstone/protocol/openid-connect/auth',
+      );
+      expect(location).toContain('client_id=be-capstone-api');
+      expect(location).toContain('response_type=code');
+      expect(location).toContain('state=');
+    });
+
+    it('should include kc_idp_hint when idpHint query is provided', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/auth/login?idpHint=google')
+        .expect(302);
+
+      expect(res.headers.location).toContain('kc_idp_hint=google');
+    });
+
+    it('should set a session cookie', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/auth/login')
+        .expect(302);
+
+      expect(extractSid(res)).toBeTruthy();
+    });
+  });
+
+  // ─── Auth: /auth/callback ──────────────────────────────────────
+
+  describe('GET /auth/callback', () => {
+    it('should redirect to frontend error on missing params', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/auth/callback')
+        .expect(302);
+
+      expect(res.headers.location).toBe(
+        'http://localhost:5173/auth/error?reason=missing_params',
+      );
+    });
+
+    it('should redirect to frontend error on empty code', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/auth/callback?code=&state=abc')
+        .expect(302);
+
+      expect(res.headers.location).toBe(
+        'http://localhost:5173/auth/error?reason=missing_params',
+      );
+    });
+
+    it('should redirect to frontend error on state mismatch', async () => {
+      const loginRes = await request(app.getHttpServer())
+        .get('/auth/login')
+        .expect(302);
+      const sid = extractSid(loginRes);
+
+      const res = await request(app.getHttpServer())
+        .get('/auth/callback?code=test-code&state=wrong-state')
+        .set('Cookie', sid)
+        .expect(302);
+
+      expect(res.headers.location).toBe(
+        'http://localhost:5173/auth/error?reason=state_mismatch',
+      );
+    });
+
+    it('should exchange code and redirect to frontend on success', async () => {
+      const loginRes = await request(app.getHttpServer())
+        .get('/auth/login')
+        .expect(302);
+      const sid = extractSid(loginRes);
+
+      const loginUrl = new URL(loginRes.headers.location);
+      const oauthState = loginUrl.searchParams.get('state')!;
+
+      jest
+        .spyOn(authService, 'exchangeCodeAndUpsertUser')
+        .mockResolvedValueOnce({
+          user: {
+            id: 'e2e-user-id',
+            keycloakSub: 'kc-sub-e2e',
+            email: 'e2e@example.com',
+            name: 'E2E User',
+            provider: 'keycloak',
+            isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+          isNewUser: true,
+          accessToken: 'mock-access-token',
+          refreshToken: 'mock-refresh-token',
+          tokenExpiresAt: Date.now() + 300_000,
+          idpHint: 'keycloak',
+        });
+
+      const res = await request(app.getHttpServer())
+        .get(`/auth/callback?code=valid-code&state=${oauthState}`)
+        .set('Cookie', sid)
+        .expect(302);
+
+      expect(res.headers.location).toContain('http://localhost:5173');
+      expect(res.headers.location).toContain('isNewUser=true');
+      expect(authService.exchangeCodeAndUpsertUser).toHaveBeenCalledWith(
+        'valid-code',
+        undefined,
+      );
+    });
+
+    it('should pass idpHint from session to exchangeCodeAndUpsertUser', async () => {
+      const loginRes = await request(app.getHttpServer())
+        .get('/auth/login?idpHint=google')
+        .expect(302);
+      const sid = extractSid(loginRes);
+
+      const loginUrl = new URL(loginRes.headers.location);
+      const oauthState = loginUrl.searchParams.get('state')!;
+
+      jest
+        .spyOn(authService, 'exchangeCodeAndUpsertUser')
+        .mockResolvedValueOnce({
+          user: {
+            id: 'google-user',
+            keycloakSub: 'kc-google',
+            email: 'google@example.com',
+            name: 'Google User',
+            provider: 'google',
+            isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+          isNewUser: false,
+          accessToken: 'google-at',
+          refreshToken: 'google-rt',
+          tokenExpiresAt: Date.now() + 300_000,
+          idpHint: 'google',
+        });
+
+      await request(app.getHttpServer())
+        .get(`/auth/callback?code=google-code&state=${oauthState}`)
+        .set('Cookie', sid)
+        .expect(302);
+
+      expect(authService.exchangeCodeAndUpsertUser).toHaveBeenCalledWith(
+        'google-code',
+        'google',
+      );
+    });
+
+    it('should redirect to frontend error when exchange fails', async () => {
+      const loginRes = await request(app.getHttpServer())
+        .get('/auth/login')
+        .expect(302);
+      const sid = extractSid(loginRes);
+      const loginUrl = new URL(loginRes.headers.location);
+      const oauthState = loginUrl.searchParams.get('state')!;
+
+      jest
+        .spyOn(authService, 'exchangeCodeAndUpsertUser')
+        .mockRejectedValueOnce(new Error('Keycloak unreachable'));
+
+      const res = await request(app.getHttpServer())
+        .get(`/auth/callback?code=bad-code&state=${oauthState}`)
+        .set('Cookie', sid)
+        .expect(302);
+
+      expect(res.headers.location).toBe(
+        'http://localhost:5173/auth/error?reason=exchange_failed',
+      );
+    });
+  });
+
+  // ─── Auth: /auth/status ────────────────────────────────────────
+
+  describe('GET /auth/status', () => {
+    it('should return authenticated: false without session', async () => {
+      const { body } = await request(app.getHttpServer())
+        .get('/auth/status')
+        .expect(200);
+
+      expect(body).toEqual({ authenticated: false });
+    });
+
+    it('should return authenticated: true after successful login', async () => {
+      const sid = await performMockLogin();
+
+      const { body } = await request(app.getHttpServer())
+        .get('/auth/status')
+        .set('Cookie', sid)
+        .expect(200);
+
+      expect(body).toEqual({ authenticated: true });
+    });
+  });
+
+  // ─── Auth: /auth/me ────────────────────────────────────────────
+
+  describe('GET /auth/me', () => {
+    it('should return 401 without session', async () => {
+      await request(app.getHttpServer()).get('/auth/me').expect(401);
+    });
+
+    it('should return user profile with valid session', async () => {
+      const sid = await performMockLogin();
+
+      jest
+        .spyOn(authService, 'refreshTokenIfNeeded')
+        .mockResolvedValueOnce(undefined);
+
+      jest.spyOn(authService, 'findUserById').mockResolvedValueOnce({
+        id: 'e2e-user-id',
+        keycloakSub: 'kc-sub-e2e',
+        email: 'e2e@example.com',
+        name: 'E2E User',
+        provider: 'keycloak',
+        isActive: true,
+        createdAt: new Date('2026-01-01'),
+        updatedAt: new Date('2026-01-01'),
+      } as User);
+
+      const { body } = await request(app.getHttpServer())
+        .get('/auth/me')
+        .set('Cookie', sid)
+        .expect(200);
+
+      expect(body.id).toBe('e2e-user-id');
+      expect(body.email).toBe('e2e@example.com');
+      expect(body.name).toBe('E2E User');
+      expect(body.provider).toBe('keycloak');
+      expect(body.isActive).toBe(true);
+    });
+  });
+
+  // ─── Auth: /auth/logout ────────────────────────────────────────
+
+  describe('POST /auth/logout', () => {
+    it('should return 401 without session', async () => {
+      await request(app.getHttpServer()).post('/auth/logout').expect(401);
+    });
+
+    it('should destroy session and clear cookie', async () => {
+      const sid = await performMockLogin();
+
+      jest
+        .spyOn(authService, 'refreshTokenIfNeeded')
+        .mockResolvedValueOnce(undefined);
+      jest
+        .spyOn(authService, 'revokeToken')
+        .mockResolvedValueOnce(undefined);
+
+      const logoutRes = await request(app.getHttpServer())
+        .post('/auth/logout')
+        .set('Cookie', sid)
+        .expect(200);
+
+      expect(logoutRes.body).toEqual({ success: true });
+
+      // Session should be destroyed
+      const { body } = await request(app.getHttpServer())
+        .get('/auth/status')
+        .set('Cookie', sid)
+        .expect(200);
+
+      expect(body).toEqual({ authenticated: false });
+    });
+
+    it('should call revokeToken with the session refresh token', async () => {
+      const sid = await performMockLogin();
+
+      const revokeSpy = jest
+        .spyOn(authService, 'revokeToken')
+        .mockResolvedValueOnce(undefined);
+      jest
+        .spyOn(authService, 'refreshTokenIfNeeded')
+        .mockResolvedValueOnce(undefined);
+
+      await request(app.getHttpServer())
+        .post('/auth/logout')
+        .set('Cookie', sid)
+        .expect(200);
+
+      expect(revokeSpy).toHaveBeenCalledWith('mock-rt');
+    });
+  });
+
+  // ─── Full auth lifecycle ───────────────────────────────────────
+
+  describe('Full auth lifecycle', () => {
+    it('login → status → me → logout → status', async () => {
+      // 1. Not authenticated
+      const statusBefore = await request(app.getHttpServer())
+        .get('/auth/status')
+        .expect(200);
+      expect(statusBefore.body.authenticated).toBe(false);
+
+      // 2. Login → get session
+      const sid = await performMockLogin();
+
+      // 3. Authenticated
+      const statusAfter = await request(app.getHttpServer())
+        .get('/auth/status')
+        .set('Cookie', sid)
+        .expect(200);
+      expect(statusAfter.body.authenticated).toBe(true);
+
+      // 4. Get profile
+      jest
+        .spyOn(authService, 'refreshTokenIfNeeded')
+        .mockResolvedValueOnce(undefined);
+      jest.spyOn(authService, 'findUserById').mockResolvedValueOnce({
+        id: 'lifecycle-user',
+        keycloakSub: 'kc-lifecycle',
+        email: 'lifecycle@test.com',
+        name: 'Lifecycle User',
+        provider: 'keycloak',
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as User);
+
+      const meRes = await request(app.getHttpServer())
+        .get('/auth/me')
+        .set('Cookie', sid)
+        .expect(200);
+      expect(meRes.body.email).toBe('lifecycle@test.com');
+
+      // 5. Logout
+      jest
+        .spyOn(authService, 'refreshTokenIfNeeded')
+        .mockResolvedValueOnce(undefined);
+      jest.spyOn(authService, 'revokeToken').mockResolvedValueOnce(undefined);
+
+      const logoutRes = await request(app.getHttpServer())
+        .post('/auth/logout')
+        .set('Cookie', sid)
+        .expect(200);
+      expect(logoutRes.body).toEqual({ success: true });
+
+      // 6. No longer authenticated
+      const statusFinal = await request(app.getHttpServer())
+        .get('/auth/status')
+        .set('Cookie', sid)
+        .expect(200);
+      expect(statusFinal.body.authenticated).toBe(false);
+
+      // 7. /auth/me returns 401 again
+      await request(app.getHttpServer())
+        .get('/auth/me')
+        .set('Cookie', sid)
+        .expect(401);
+    });
+  });
+
+  // ─── Helper: simulate a complete login via mock ────────────────
+
+  async function performMockLogin(): Promise<string> {
+    const loginRes = await request(app.getHttpServer())
+      .get('/auth/login')
+      .expect(302);
+    const sid = extractSid(loginRes);
+    const loginUrl = new URL(loginRes.headers.location);
+    const oauthState = loginUrl.searchParams.get('state')!;
+
+    jest
+      .spyOn(authService, 'exchangeCodeAndUpsertUser')
+      .mockResolvedValueOnce({
+        user: {
+          id: 'e2e-user-id',
+          keycloakSub: 'kc-sub-e2e',
+          email: 'e2e@example.com',
+          name: 'E2E User',
+          provider: 'keycloak',
+          isActive: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        isNewUser: false,
+        accessToken: 'mock-at',
+        refreshToken: 'mock-rt',
+        tokenExpiresAt: Date.now() + 300_000,
+        idpHint: 'keycloak',
+      });
+
+    const callbackRes = await request(app.getHttpServer())
+      .get(`/auth/callback?code=mock-code&state=${oauthState}`)
+      .set('Cookie', sid)
+      .expect(302);
+
+    return extractSid(callbackRes) || sid;
+  }
 });

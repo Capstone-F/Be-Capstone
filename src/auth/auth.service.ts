@@ -7,7 +7,7 @@ import {
 import { randomUUID } from 'crypto';
 import { AppConfigService } from '../config/config.service';
 import { UsersService } from '../users/users.service';
-
+import type { Request } from 'express';
 type TokenResponse = {
   access_token: string;
   expires_in: number;
@@ -16,16 +16,6 @@ type TokenResponse = {
   token_type: string;
   id_token?: string;
   scope?: string;
-};
-
-type OidcEndpoints = {
-  issuer: string;
-  authorizationEndpoint: string;
-  tokenEndpoint: string;
-  userInfoEndpoint: string;
-  jwksUri: string;
-  logoutEndpoint: string;
-  introspectionEndpoint: string;
 };
 
 @Injectable()
@@ -37,28 +27,15 @@ export class AuthService {
     private readonly usersService: UsersService,
   ) {}
 
-  getOidcEndpoints(): OidcEndpoints {
-    const issuer = this.getIssuer();
-    return {
-      issuer,
-      authorizationEndpoint: `${issuer}/protocol/openid-connect/auth`,
-      tokenEndpoint: `${issuer}/protocol/openid-connect/token`,
-      userInfoEndpoint: `${issuer}/protocol/openid-connect/userinfo`,
-      jwksUri: `${issuer}/protocol/openid-connect/certs`,
-      logoutEndpoint: `${issuer}/protocol/openid-connect/logout`,
-      introspectionEndpoint: `${issuer}/protocol/openid-connect/token/introspect`,
-    };
-  }
-
-  getLoginUrl(redirectUri?: string, idpHint?: string) {
-    const authorizationEndpoint = `${this.getIssuer()}/protocol/openid-connect/auth`;
+  /**
+   * Build the Keycloak authorization URL and return a random `state` for CSRF.
+   */
+  buildLoginUrl(idpHint?: string): { url: string; state: string } {
+    const endpoint = `${this.getPublicIssuer()}/protocol/openid-connect/auth`;
     const state = randomUUID();
-    const url = new URL(authorizationEndpoint);
+    const url = new URL(endpoint);
     url.searchParams.set('client_id', this.config.keycloakClientId);
-    url.searchParams.set(
-      'redirect_uri',
-      redirectUri ?? this.config.keycloakRedirectUri,
-    );
+    url.searchParams.set('redirect_uri', this.config.keycloakRedirectUri);
     url.searchParams.set('response_type', 'code');
     url.searchParams.set('scope', 'openid profile email');
     url.searchParams.set('state', state);
@@ -67,28 +44,19 @@ export class AuthService {
       url.searchParams.set('kc_idp_hint', idpHint);
     }
 
-    return {
-      authorizationUrl: url.toString(),
-      state,
-      redirectUri: redirectUri ?? this.config.keycloakRedirectUri,
-      idpHint: idpHint ?? null,
-    };
+    return { url: url.toString(), state };
   }
 
-  async exchangeAuthorizationCode(
-    code: string,
-    redirectUri?: string,
-    codeVerifier?: string,
-    idpHint?: string,
-  ) {
+  /**
+   * Exchange an authorization code with Keycloak and upsert the local user.
+   * Returns everything needed to populate the session.
+   */
+  async exchangeCodeAndUpsertUser(code: string, idpHint?: string) {
     const params = new URLSearchParams({
       grant_type: 'authorization_code',
       code,
-      redirect_uri: redirectUri ?? this.config.keycloakRedirectUri,
+      redirect_uri: this.config.keycloakRedirectUri,
     });
-    if (codeVerifier) {
-      params.set('code_verifier', codeVerifier);
-    }
 
     const token = await this.postForm<TokenResponse>(
       this.getTokenEndpoint(),
@@ -110,43 +78,72 @@ export class AuthService {
       idpHint ?? 'keycloak',
     );
 
-    return { token, profile, user, isNewUser };
+    const tokenExpiresAt = Date.now() + (token.expires_in - 30) * 1000;
+
+    return {
+      user,
+      isNewUser,
+      accessToken: token.access_token,
+      refreshToken: token.refresh_token ?? '',
+      tokenExpiresAt,
+      idpHint: idpHint ?? 'keycloak',
+    };
   }
 
-  async refreshToken(refreshToken: string) {
+  /**
+   * If the access token stored in the session is near expiry, refresh it
+   * via Keycloak and update the session in-place.
+   */
+  async refreshTokenIfNeeded(session: Request['session']): Promise<void> {
+    if (!session.refreshToken) return;
+    if (Date.now() < (session.tokenExpiresAt ?? 0)) return;
+
+    this.logger.debug(`Refreshing token for user ${session.userId}`);
+
     const params = new URLSearchParams({
       grant_type: 'refresh_token',
-      refresh_token: refreshToken,
-    });
-    return this.postForm<TokenResponse>(this.getTokenEndpoint(), params);
-  }
-
-  async logout(refreshToken: string) {
-    const params = new URLSearchParams({ refresh_token: refreshToken });
-    await this.postForm(this.getLogoutEndpoint(), params);
-    return { success: true };
-  }
-
-  async getUserInfo(accessToken: string): Promise<Record<string, unknown>> {
-    const url = `${this.getIssuer()}/protocol/openid-connect/userinfo`;
-    const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      refresh_token: session.refreshToken,
     });
 
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      throw new UnauthorizedException(
-        `Keycloak userinfo failed (${response.status}): ${body || response.statusText}`,
+    try {
+      const token = await this.postForm<TokenResponse>(
+        this.getTokenEndpoint(),
+        params,
       );
-    }
 
-    return (await response.json()) as Record<string, unknown>;
+      session.accessToken = token.access_token;
+      session.refreshToken = token.refresh_token ?? session.refreshToken;
+      session.tokenExpiresAt = Date.now() + (token.expires_in - 30) * 1000;
+    } catch (err) {
+      this.logger.warn('Session token refresh failed — forcing re-login', err);
+      throw new UnauthorizedException('Session expired, please login again');
+    }
+  }
+
+  /**
+   * Revoke the refresh token on Keycloak side.
+   */
+  async revokeToken(refreshToken: string): Promise<void> {
+    if (!refreshToken) return;
+    const params = new URLSearchParams({ refresh_token: refreshToken });
+    try {
+      await this.postForm(this.getLogoutEndpoint(), params);
+    } catch (err) {
+      this.logger.warn('Keycloak token revocation failed (non-fatal)', err);
+    }
+  }
+
+  async findUserById(userId: string) {
+    const user = await this.usersService.findById(userId);
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+    return user;
   }
 
   // ─── Private helpers ───────────────────────────────────────────
 
-  private getIssuer(): string {
-    const raw = this.config.keycloakUrl.trim();
+  private normalizeBase(raw: string): string {
     const base =
       raw.startsWith('http://') || raw.startsWith('https://')
         ? raw
@@ -154,21 +151,24 @@ export class AuthService {
     return `${base.replace(/\/+$/, '')}/realms/${this.config.keycloakRealm}`;
   }
 
+  /** Issuer URL for browser-facing redirects (uses public hostname). */
+  private getPublicIssuer(): string {
+    return this.normalizeBase(this.config.keycloakPublicUrl);
+  }
+
+  /** Issuer URL for server-to-server calls (uses Docker-internal hostname). */
+  private getInternalIssuer(): string {
+    return this.normalizeBase(this.config.keycloakInternalUrl);
+  }
+
   private getTokenEndpoint(): string {
-    return `${this.getIssuer()}/protocol/openid-connect/token`;
+    return `${this.getInternalIssuer()}/protocol/openid-connect/token`;
   }
 
   private getLogoutEndpoint(): string {
-    return `${this.getIssuer()}/protocol/openid-connect/logout`;
+    return `${this.getInternalIssuer()}/protocol/openid-connect/logout`;
   }
 
-  /**
-   * Decode a JWT payload (base64url) without signature verification.
-   * Safe because tokens come directly from Keycloak's token endpoint
-   * (server-to-server) or are checked for expiry in getUserProfile.
-   *
-   * TODO: add JWKS-based signature verification for production.
-   */
   private decodeJwtPayload(token: string): Record<string, unknown> {
     try {
       const parts = token.split('.');

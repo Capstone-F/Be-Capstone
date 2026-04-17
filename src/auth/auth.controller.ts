@@ -1,204 +1,194 @@
 import {
-  BadRequestException,
-  Body,
   Controller,
   Get,
-  Headers,
+  HttpCode,
+  HttpStatus,
   Post,
   Query,
   Req,
+  Res,
   UnauthorizedException,
+  UseGuards,
+  Logger,
 } from '@nestjs/common';
 import {
-  ApiBadRequestResponse,
-  ApiBearerAuth,
-  ApiHeader,
-  ApiHeaders,
+  ApiCookieAuth,
   ApiOkResponse,
   ApiOperation,
   ApiQuery,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
-import { OidcEndpointsDto } from './dto/oidc-endpoints.dto';
-import { LoginUrlDto } from './dto/login-url.dto';
-import { TokenRequestDto } from './dto/token-request.dto';
-import { RefreshRequestDto } from './dto/refresh-request.dto';
-import {
-  AuthCallbackResponseDto,
-  LogoutResponseDto,
-  TokenResponseDto,
-} from './dto/token-response.dto';
-import { type Request } from 'express';
-
+import { SessionGuard } from './guards/session.guard';
+import { AppConfigService } from '../config/config.service';
+import { SessionUserDto } from './dto/session-user.dto';
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) { }
+  private readonly logger = new Logger(AuthController.name);
 
-  @Get('endpoints')
-  @ApiOperation({
-    summary: 'Get OIDC endpoint URLs',
-    description:
-      'Returns all public-facing Keycloak OIDC endpoint URLs for the configured realm. ' +
-      'Frontend clients can use these to build authorization flows directly.',
-  })
-  @ApiOkResponse({ type: OidcEndpointsDto })
-  getEndpoints() {
-    return this.authService.getOidcEndpoints();
-  }
+  constructor(
+    private readonly authService: AuthService,
+    private readonly config: AppConfigService,
+  ) {}
 
   @Get('login')
   @ApiOperation({
-    summary: 'Get Keycloak login URL',
+    summary: 'Start login flow (browser redirect)',
     description:
-      'Builds a Keycloak authorization URL with a random state parameter. ' +
-      'Redirect the user to `authorizationUrl` to start the OIDC login flow. ' +
-      'Pass `idpHint=google` to skip the Keycloak login page and go straight to Google.',
-  })
-  @ApiQuery({
-    name: 'redirectUri',
-    required: false,
-    description: 'Override the default redirect URI after login',
-    example: 'http://localhost:3000/auth/callback',
+      'Redirects the browser to Keycloak login page. ' +
+      'After authentication, Keycloak redirects back to GET /auth/callback. ' +
+      'Pass idpHint=google to skip the Keycloak page and go straight to Google.',
   })
   @ApiQuery({
     name: 'idpHint',
     required: false,
-    description: 'Skip Keycloak login and redirect directly to an identity provider',
+    description: 'Skip Keycloak login and redirect to an identity provider',
     example: 'google',
   })
-  @ApiOkResponse({ type: LoginUrlDto })
-  getLoginUrl(
-    @Query('redirectUri') redirectUri?: string,
-    @Query('idpHint') idpHint?: string,
+  login(
+    @Query('idpHint') idpHint: string | undefined,
+    @Req() req: Request,
+    @Res() res: Response,
   ) {
-    return this.authService.getLoginUrl(redirectUri, idpHint);
+    const { url, state } = this.authService.buildLoginUrl(idpHint);
+
+    req.session.oauthState = state;
+    if (idpHint) {
+      req.session.idpHint = idpHint;
+    }
+
+    req.session.save((err) => {
+      if (err) {
+        this.logger.error('Failed to save session before login redirect', err);
+      }
+      res.redirect(url);
+    });
   }
 
   @Get('callback')
   @ApiOperation({
-    summary: 'Exchange authorization code (via query params)',
+    summary: 'OAuth callback (Keycloak redirects here)',
     description:
-      'Keycloak redirects back here with a `code` query parameter. ' +
-      'The backend exchanges it for tokens, fetches the user profile, and upserts a local user record. ' +
-      'Typically used as the redirect target in browser-based flows.',
+      'Keycloak redirects the browser here after authentication. ' +
+      'The backend exchanges the code for tokens, stores them in the session, ' +
+      'and redirects to the frontend URL.',
   })
-  @ApiQuery({ name: 'code', required: true, description: 'Authorization code from Keycloak' })
-  @ApiQuery({ name: 'redirectUri', required: false, description: 'Must match the URI used during login' })
-  @ApiQuery({ name: 'codeVerifier', required: false, description: 'PKCE code verifier' })
-  @ApiQuery({ name: 'idpHint', required: false, description: 'IDP used (for user upsert provider field)', example: 'google' })
-  @ApiOkResponse({ type: AuthCallbackResponseDto })
-  @ApiBadRequestResponse({ description: 'Missing `code` query parameter' })
-  exchangeAuthorizationCode(
-    @Query('code') code?: string,
-    @Query('redirectUri') redirectUri?: string,
-    @Query('codeVerifier') codeVerifier?: string,
-    @Query('idpHint') idpHint?: string,
+  @ApiQuery({ name: 'code', required: true })
+  @ApiQuery({ name: 'state', required: true })
+  async callback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Req() req: Request,
+    @Res() res: Response,
   ) {
-    if (!code) {
-      throw new BadRequestException('Missing required query param: code');
-    }
-    return this.authService.exchangeAuthorizationCode(code, redirectUri, codeVerifier, idpHint);
-  }
+    const frontendUrl = this.config.frontendUrl;
 
-  @Post('token')
-  @ApiOperation({
-    summary: 'Exchange authorization code (via request body)',
-    description:
-      'Same as GET /auth/callback but accepts parameters in the request body. ' +
-      'Preferred for frontend SPAs that handle the callback themselves and forward the code to the backend.',
-  })
-  @ApiOkResponse({ type: AuthCallbackResponseDto })
-  @ApiBadRequestResponse({ description: 'Missing `code` in request body' })
-  exchangeToken(@Body() body: TokenRequestDto) {
-    if (!body.code) {
-      throw new BadRequestException('Missing required body field: code');
+    if (!code || !state) {
+      res.redirect(`${frontendUrl}/auth/error?reason=missing_params`);
+      return;
     }
-    return this.authService.exchangeAuthorizationCode(
-      body.code,
-      body.redirectUri,
-      body.codeVerifier,
-      body.idpHint,
-    );
-  }
 
-  @Post('refresh')
-  @ApiOperation({
-    summary: 'Refresh access token',
-    description:
-      'Exchange a refresh token for a new access token. ' +
-      'Call this when the current access token expires.',
-  })
-  @ApiOkResponse({ type: TokenResponseDto })
-  @ApiBadRequestResponse({ description: 'Missing `refreshToken` in request body' })
-  refreshToken(@Body() body: RefreshRequestDto) {
-    if (!body.refreshToken) {
-      throw new BadRequestException('Missing required body field: refreshToken');
+    if (state !== req.session.oauthState) {
+      res.redirect(`${frontendUrl}/auth/error?reason=state_mismatch`);
+      return;
     }
-    return this.authService.refreshToken(body.refreshToken);
-  }
 
-  @Post('logout')
-  @ApiOperation({
-    summary: 'Logout and invalidate tokens',
-    description:
-      'Invalidates the refresh token on the Keycloak side, effectively logging out the user. ' +
-      'The client should also discard stored tokens after calling this.',
-  })
-  @ApiOkResponse({ type: LogoutResponseDto })
-  @ApiBadRequestResponse({ description: 'Missing `refreshToken` in request body' })
-  logout(@Body() body: RefreshRequestDto) {
-    if (!body.refreshToken) {
-      throw new BadRequestException('Missing required body field: refreshToken');
+    delete req.session.oauthState;
+
+    try {
+      const idpHint = req.session.idpHint;
+      const result = await this.authService.exchangeCodeAndUpsertUser(
+        code,
+        idpHint,
+      );
+
+      req.session.userId = result.user.id;
+      req.session.keycloakSub = result.user.keycloakSub;
+      req.session.accessToken = result.accessToken;
+      req.session.refreshToken = result.refreshToken;
+      req.session.tokenExpiresAt = result.tokenExpiresAt;
+      req.session.idpHint = result.idpHint;
+
+      const redirectUrl = new URL(frontendUrl);
+      if (result.isNewUser) {
+        redirectUrl.searchParams.set('isNewUser', 'true');
+      }
+
+      req.session.save((err) => {
+        if (err) {
+          this.logger.error('Failed to save session after callback', err);
+        }
+        res.redirect(redirectUrl.toString());
+      });
+    } catch (err) {
+      this.logger.error('OAuth callback failed', err);
+      res.redirect(`${frontendUrl}/auth/error?reason=exchange_failed`);
     }
-    return this.authService.logout(body.refreshToken);
   }
 
   @Get('me')
-  @ApiBearerAuth()
+  @UseGuards(SessionGuard)
+  @ApiCookieAuth()
   @ApiOperation({
     summary: 'Get current user profile',
     description:
-      'Calls Keycloak userinfo endpoint to fetch the authenticated user\'s profile. ' +
-      'Requires a valid access token in the `Authorization: Bearer <token>` header.',
+      'Returns the authenticated user profile from the local database. ' +
+      'Requires a valid session cookie.',
   })
-  @ApiOkResponse({
-    description: 'Keycloak user profile',
-    schema: {
-      type: 'object',
-      example: {
-        sub: '12345678-abcd-efgh-ijkl-123456789012',
-        email: 'user@example.com',
-        email_verified: true,
-        name: 'John Doe',
-        preferred_username: 'john',
-      },
-    },
-  })
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid Bearer token' })
-  getProfile(@Req() request: Request) {
-    const authorization = request.headers['authorization'];
-    if (!authorization) {
-      throw new UnauthorizedException('Missing Authorization header');
-    }
-    const token = this.getBearerToken(authorization);
-    return this.authService.getUserInfo(token);
+  @ApiOkResponse({ type: SessionUserDto })
+  @ApiUnauthorizedResponse({ description: 'No active session' })
+  async getProfile(@Req() req: Request) {
+    return this.authService.findUserById(req.session.userId!);
   }
 
-  private getBearerToken(authorization?: string): string {
-    if (!authorization) {
-      throw new UnauthorizedException('Missing Authorization header');
+  @Get('status')
+  @ApiOperation({
+    summary: 'Check authentication status',
+    description: 'Returns whether the current request has an active session.',
+  })
+  @ApiOkResponse({
+    schema: {
+      type: 'object',
+      properties: { authenticated: { type: 'boolean' } },
+    },
+  })
+  getStatus(@Req() req: Request) {
+    return { authenticated: !!req.session?.userId };
+  }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionGuard)
+  @ApiCookieAuth()
+  @ApiOperation({
+    summary: 'Logout and destroy session',
+    description:
+      'Revokes the Keycloak refresh token and destroys the server session. ' +
+      'The session cookie is cleared.',
+  })
+  @ApiOkResponse({
+    schema: {
+      type: 'object',
+      properties: { success: { type: 'boolean' } },
+    },
+  })
+  @ApiUnauthorizedResponse({ description: 'No active session' })
+  async logout(@Req() req: Request, @Res() res: Response) {
+    const refreshToken = req.session.refreshToken;
+
+    if (refreshToken) {
+      await this.authService.revokeToken(refreshToken);
     }
 
-    const [type, token] = authorization.split(' ');
-    if (type !== 'Bearer' || !token) {
-      throw new UnauthorizedException(
-        'Invalid Authorization header, expected "Bearer <token>"',
-      );
-    }
-
-    return token;
+    req.session.destroy((err) => {
+      if (err) {
+        this.logger.error('Failed to destroy session', err);
+      }
+      res.clearCookie('sid');
+      res.json({ success: true });
+    });
   }
 }

@@ -11,9 +11,26 @@ describe('main bootstrap', () => {
     const log = jest.fn();
     const error = jest.fn();
     const listen = jest.fn().mockResolvedValue(undefined);
-    const get = jest.fn().mockReturnValue({ port: 3000 });
+    const enableCors = jest.fn();
+    const use = jest.fn();
+    const useLogger = jest.fn();
 
-    create.mockResolvedValue({ get, listen });
+    const mockConfig = {
+      port: 3000,
+      corsOrigin: 'http://localhost:5173',
+      sessionSecret: 'test-secret',
+      redisUrl: 'redis://localhost:6379',
+      nodeEnv: 'test',
+    };
+
+    const pinoLogger = { log, error };
+    let PinoLoggerClass: unknown;
+    const get = jest.fn().mockImplementation((token: unknown) => {
+      if (token === PinoLoggerClass) return pinoLogger;
+      return mockConfig;
+    });
+    const set = jest.fn();
+    create.mockResolvedValue({ get, listen, enableCors, use, useLogger, set });
 
     jest.isolateModules(() => {
       jest.doMock('./app.module', () => ({
@@ -25,56 +42,61 @@ describe('main bootstrap', () => {
       jest.doMock('./config/env.config', () => ({
         ENV_DEFINITIONS: {
           DATABASE_URL: { required: true, description: 'db url' },
-          KEYCLOAK_URL: { required: true, description: 'keycloak url' },
+          KEYCLOAK_PUBLIC_URL: { required: true, description: 'keycloak url' },
         },
         getMissingRequiredEnv: () => ['DATABASE_URL'],
       }));
       jest.doMock('@nestjs/core', () => ({
         NestFactory: { create },
       }));
+      jest.doMock('@nestjs/platform-express', () => ({
+        NestExpressApplication: class {},
+      }));
       jest.doMock('@nestjs/swagger', () => ({
         DocumentBuilder: class DocumentBuilderMock {
-          setTitle() {
-            return this;
-          }
-          setDescription() {
-            return this;
-          }
-          setVersion() {
-            return this;
-          }
-          addBearerAuth() {
-            return this;
-          }
-          build() {
-            return { openapi: '3.0.0' };
-          }
+          setTitle() { return this; }
+          setDescription() { return this; }
+          setVersion() { return this; }
+          addCookieAuth() { return this; }
+          build() { return { openapi: '3.0.0' }; }
         },
-        SwaggerModule: {
-          createDocument,
-          setup,
-        },
+        SwaggerModule: { createDocument, setup },
       }));
-      jest.doMock('@nestjs/common', () => ({
-        Logger: jest.fn().mockImplementation(() => ({ log, error })),
+      const pinoMod = { Logger: class PinoLoggerMock {} };
+      PinoLoggerClass = pinoMod.Logger;
+      jest.doMock('nestjs-pino', () => pinoMod);
+      jest.doMock('express-session', () => jest.fn().mockReturnValue(jest.fn()));
+      jest.doMock('connect-redis', () => ({
+        RedisStore: jest.fn().mockImplementation(() => ({})),
+      }));
+      jest.doMock('ioredis', () => ({
+        __esModule: true,
+        default: jest.fn().mockImplementation(() => ({
+          on: jest.fn().mockReturnThis(),
+        })),
       }));
 
       require('./main');
     });
+
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(create).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledWith(expect.anything(), { bufferLogs: true });
+    expect(useLogger).toHaveBeenCalledWith(pinoLogger);
     expect(error).toHaveBeenCalledWith(
       'Missing required environment variables: DATABASE_URL',
+      'Bootstrap',
     );
     expect(log).toHaveBeenCalledWith(
-      'Tracked env keys: DATABASE_URL, KEYCLOAK_URL',
+      'Tracked env keys: DATABASE_URL, KEYCLOAK_PUBLIC_URL',
+      'Bootstrap',
     );
-    expect(createDocument).toHaveBeenCalledTimes(1);
-    expect(setup).toHaveBeenCalledWith('docs', expect.any(Object), {
-      openapi: '3.0.0',
+    expect(enableCors).toHaveBeenCalledWith({
+      origin: 'http://localhost:5173',
+      credentials: true,
     });
-    expect(get).toHaveBeenCalledTimes(1);
+    expect(createDocument).toHaveBeenCalledTimes(1);
     expect(listen).toHaveBeenCalledWith(3000);
   });
 });

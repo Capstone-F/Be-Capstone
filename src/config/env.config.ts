@@ -19,16 +19,23 @@ export const ENV_DEFINITIONS = {
     required: true,
     description: 'Postgres connection URL',
   },
-  KEYCLOAK_URL: {
+  KEYCLOAK_PUBLIC_URL: {
     required: true,
     description:
-      'Base URL of Keycloak (e.g. http://localhost:8080). ' +
-      'Used for both browser redirects and server-to-server calls.',
+      'Public Keycloak base URL reachable by the browser (e.g. http://localhost:8080). ' +
+      'Used for building the login redirect URL that the user visits.',
+  },
+  KEYCLOAK_INTERNAL_URL: {
+    required: false,
+    description:
+      'Internal Keycloak base URL for server-to-server calls (e.g. http://keycloak:8080). ' +
+      'Defaults to KEYCLOAK_PUBLIC_URL. Set this when running inside Docker Compose.',
   },
   KEYCLOAK_HEALTH_URL: {
     required: false,
-    defaultValue: 'http://localhost:9000/health/ready',
-    description: 'Keycloak management health endpoint (port 9000 by default)',
+    description:
+      'Keycloak management health endpoint. ' +
+      'Defaults to KEYCLOAK_INTERNAL_URL on port 9000.',
   },
   KEYCLOAK_REALM: {
     required: false,
@@ -50,6 +57,23 @@ export const ENV_DEFINITIONS = {
     defaultValue: 'http://localhost:3000/auth/callback',
     description: 'Default redirect URI for authorization code flow',
   },
+  REDIS_URL: {
+    required: false,
+    defaultValue: 'redis://localhost:6379',
+    description: 'Redis connection URL for session storage (e.g. redis://redis:6379 inside Docker)',
+  },
+  SESSION_SECRET: {
+    required: true,
+    description: 'Secret used to sign the session cookie',
+  },
+  FRONTEND_URL: {
+    required: true,
+    description: 'Frontend origin URL for post-login redirects (e.g. http://localhost:5173)',
+  },
+  CORS_ORIGIN: {
+    required: false,
+    description: 'Allowed CORS origin. Defaults to FRONTEND_URL if not set.',
+  },
 } as const satisfies Record<string, EnvDefinition>;
 
 export type EnvKey = keyof typeof ENV_DEFINITIONS;
@@ -58,18 +82,34 @@ export type AppEnv = {
   NODE_ENV: string;
   PORT: number;
   DATABASE_URL: string;
-  KEYCLOAK_URL: string;
+  KEYCLOAK_PUBLIC_URL: string;
+  KEYCLOAK_INTERNAL_URL: string;
   KEYCLOAK_HEALTH_URL: string;
   KEYCLOAK_REALM: string;
   KEYCLOAK_CLIENT_ID: string;
   KEYCLOAK_CLIENT_SECRET: string;
   KEYCLOAK_REDIRECT_URI: string;
+  REDIS_URL: string;
+  SESSION_SECRET: string;
+  FRONTEND_URL: string;
+  CORS_ORIGIN: string;
 };
 
 export function getMissingRequiredEnv(raw: NodeJS.ProcessEnv = process.env): string[] {
   return (Object.entries(ENV_DEFINITIONS) as Array<[EnvKey, EnvDefinition]>)
     .filter(([key, definition]) => definition.required && !raw[key]?.trim())
     .map(([key]) => key);
+}
+
+function deriveHealthUrl(keycloakBaseUrl: string): string {
+  try {
+    const url = new URL(keycloakBaseUrl);
+    url.port = '9000';
+    url.pathname = '/health/ready';
+    return url.toString();
+  } catch {
+    return 'http://localhost:9000/health/ready';
+  }
 }
 
 export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
@@ -90,10 +130,12 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
     NODE_ENV: nodeEnv,
     PORT: port,
     DATABASE_URL: raw.DATABASE_URL!.trim(),
-    KEYCLOAK_URL: raw.KEYCLOAK_URL!.trim(),
+    KEYCLOAK_PUBLIC_URL: raw.KEYCLOAK_PUBLIC_URL!.trim(),
+    KEYCLOAK_INTERNAL_URL:
+      raw.KEYCLOAK_INTERNAL_URL?.trim() || raw.KEYCLOAK_PUBLIC_URL!.trim(),
     KEYCLOAK_HEALTH_URL:
       raw.KEYCLOAK_HEALTH_URL?.trim() ||
-      ENV_DEFINITIONS.KEYCLOAK_HEALTH_URL.defaultValue!,
+      deriveHealthUrl(raw.KEYCLOAK_INTERNAL_URL?.trim() || raw.KEYCLOAK_PUBLIC_URL!.trim()),
     KEYCLOAK_REALM:
       raw.KEYCLOAK_REALM?.trim() || ENV_DEFINITIONS.KEYCLOAK_REALM.defaultValue!,
     KEYCLOAK_CLIENT_ID:
@@ -105,5 +147,11 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
     KEYCLOAK_REDIRECT_URI:
       raw.KEYCLOAK_REDIRECT_URI?.trim() ||
       ENV_DEFINITIONS.KEYCLOAK_REDIRECT_URI.defaultValue!,
+    REDIS_URL:
+      raw.REDIS_URL?.trim() || ENV_DEFINITIONS.REDIS_URL.defaultValue!,
+    SESSION_SECRET: raw.SESSION_SECRET!.trim(),
+    FRONTEND_URL: raw.FRONTEND_URL!.trim().replace(/\/+$/, ''),
+    CORS_ORIGIN:
+      raw.CORS_ORIGIN?.trim() || raw.FRONTEND_URL!.trim().replace(/\/+$/, ''),
   };
 }
