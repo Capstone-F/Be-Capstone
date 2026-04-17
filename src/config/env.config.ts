@@ -60,7 +60,8 @@ export const ENV_DEFINITIONS = {
   REDIS_URL: {
     required: false,
     defaultValue: 'redis://localhost:6379',
-    description: 'Redis connection URL for session storage (e.g. redis://redis:6379 inside Docker)',
+    description:
+      'Redis connection URL for session storage (e.g. redis://redis:6379 inside Docker)',
   },
   SESSION_SECRET: {
     required: true,
@@ -68,7 +69,8 @@ export const ENV_DEFINITIONS = {
   },
   FRONTEND_URL: {
     required: true,
-    description: 'Frontend origin URL for post-login redirects (e.g. http://localhost:5173)',
+    description:
+      'Frontend origin URL for post-login redirects (e.g. http://localhost:5173)',
   },
   CORS_ORIGIN: {
     required: false,
@@ -95,7 +97,9 @@ export type AppEnv = {
   CORS_ORIGIN: string;
 };
 
-export function getMissingRequiredEnv(raw: NodeJS.ProcessEnv = process.env): string[] {
+export function getMissingRequiredEnv(
+  raw: NodeJS.ProcessEnv = process.env,
+): string[] {
   return (Object.entries(ENV_DEFINITIONS) as Array<[EnvKey, EnvDefinition]>)
     .filter(([key, definition]) => definition.required && !raw[key]?.trim())
     .map(([key]) => key);
@@ -115,15 +119,19 @@ function deriveHealthUrl(keycloakBaseUrl: string): string {
 export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
   const missingKeys = getMissingRequiredEnv(raw);
   if (missingKeys.length > 0) {
-    throw new Error(`Missing required environment variables: ${missingKeys.join(', ')}`);
+    throw new Error(
+      `Missing required environment variables: ${missingKeys.join(', ')}`,
+    );
   }
 
-  const nodeEnv = raw.NODE_ENV?.trim() || ENV_DEFINITIONS.NODE_ENV.defaultValue!;
-  const portValue = raw.PORT?.trim() || ENV_DEFINITIONS.PORT.defaultValue!;
+  const nodeEnv = raw.NODE_ENV?.trim() || ENV_DEFINITIONS.NODE_ENV.defaultValue;
+  const portValue = raw.PORT?.trim() || ENV_DEFINITIONS.PORT.defaultValue;
   const port = Number.parseInt(portValue, 10);
 
   if (Number.isNaN(port)) {
-    throw new Error(`Invalid PORT value "${portValue}". PORT must be a number.`);
+    throw new Error(
+      `Invalid PORT value "${portValue}". PORT must be a number.`,
+    );
   }
 
   return {
@@ -135,20 +143,21 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
       raw.KEYCLOAK_INTERNAL_URL?.trim() || raw.KEYCLOAK_PUBLIC_URL!.trim(),
     KEYCLOAK_HEALTH_URL:
       raw.KEYCLOAK_HEALTH_URL?.trim() ||
-      deriveHealthUrl(raw.KEYCLOAK_INTERNAL_URL?.trim() || raw.KEYCLOAK_PUBLIC_URL!.trim()),
+      deriveHealthUrl(
+        raw.KEYCLOAK_INTERNAL_URL?.trim() || raw.KEYCLOAK_PUBLIC_URL!.trim(),
+      ),
     KEYCLOAK_REALM:
-      raw.KEYCLOAK_REALM?.trim() || ENV_DEFINITIONS.KEYCLOAK_REALM.defaultValue!,
+      raw.KEYCLOAK_REALM?.trim() || ENV_DEFINITIONS.KEYCLOAK_REALM.defaultValue,
     KEYCLOAK_CLIENT_ID:
       raw.KEYCLOAK_CLIENT_ID?.trim() ||
-      ENV_DEFINITIONS.KEYCLOAK_CLIENT_ID.defaultValue!,
+      ENV_DEFINITIONS.KEYCLOAK_CLIENT_ID.defaultValue,
     KEYCLOAK_CLIENT_SECRET:
       raw.KEYCLOAK_CLIENT_SECRET?.trim() ||
-      ENV_DEFINITIONS.KEYCLOAK_CLIENT_SECRET.defaultValue!,
+      ENV_DEFINITIONS.KEYCLOAK_CLIENT_SECRET.defaultValue,
     KEYCLOAK_REDIRECT_URI:
       raw.KEYCLOAK_REDIRECT_URI?.trim() ||
-      ENV_DEFINITIONS.KEYCLOAK_REDIRECT_URI.defaultValue!,
-    REDIS_URL:
-      raw.REDIS_URL?.trim() || ENV_DEFINITIONS.REDIS_URL.defaultValue!,
+      ENV_DEFINITIONS.KEYCLOAK_REDIRECT_URI.defaultValue,
+    REDIS_URL: raw.REDIS_URL?.trim() || ENV_DEFINITIONS.REDIS_URL.defaultValue,
     SESSION_SECRET: raw.SESSION_SECRET!.trim(),
     FRONTEND_URL: raw.FRONTEND_URL!.trim().replace(/\/+$/, ''),
     CORS_ORIGIN:

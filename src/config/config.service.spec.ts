@@ -37,7 +37,9 @@ describe('AppConfigService', () => {
     expect(service.keycloakRealm).toBe('be-capstone');
     expect(service.keycloakClientId).toBe('be-capstone-api');
     expect(service.keycloakClientSecret).toBe('be-capstone-secret');
-    expect(service.keycloakRedirectUri).toBe('http://localhost:3000/auth/callback');
+    expect(service.keycloakRedirectUri).toBe(
+      'http://localhost:3000/auth/callback',
+    );
   });
 
   it('should expose keycloakHealthUrl from env', () => {

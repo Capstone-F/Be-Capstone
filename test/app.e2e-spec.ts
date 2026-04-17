@@ -173,23 +173,25 @@ describe('BE Capstone API (e2e)', () => {
       const loginUrl = new URL(loginRes.body.login_uri);
       const oauthState = loginUrl.searchParams.get('state')!;
 
-      jest.spyOn(authService, 'exchangeCodeAndUpsertUser').mockResolvedValueOnce({
-        user: {
-          id: 'e2e-user-id',
-          keycloakSub: 'kc-sub-e2e',
-          email: 'e2e@example.com',
-          name: 'E2E User',
-          provider: 'keycloak',
-          isActive: true,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-        isNewUser: false,
-        accessToken: 'at',
-        refreshToken: 'rt',
-        tokenExpiresAt: Date.now() + 300_000,
-        idpHint: 'keycloak',
-      });
+      jest
+        .spyOn(authService, 'exchangeCodeAndUpsertUser')
+        .mockResolvedValueOnce({
+          user: {
+            id: 'e2e-user-id',
+            keycloakSub: 'kc-sub-e2e',
+            email: 'e2e@example.com',
+            name: 'E2E User',
+            provider: 'keycloak',
+            isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+          isNewUser: false,
+          accessToken: 'at',
+          refreshToken: 'rt',
+          tokenExpiresAt: Date.now() + 300_000,
+          idpHint: 'keycloak',
+        });
 
       const cb = await request(app.getHttpServer())
         .get(`/auth/callback?code=c1&state=${oauthState}`)
@@ -425,9 +427,7 @@ describe('BE Capstone API (e2e)', () => {
       jest
         .spyOn(authService, 'refreshTokenIfNeeded')
         .mockResolvedValueOnce(undefined);
-      jest
-        .spyOn(authService, 'revokeToken')
-        .mockResolvedValueOnce(undefined);
+      jest.spyOn(authService, 'revokeToken').mockResolvedValueOnce(undefined);
 
       const logoutRes = await request(app.getHttpServer())
         .post('/auth/logout')
@@ -543,25 +543,23 @@ describe('BE Capstone API (e2e)', () => {
     const loginUrl = new URL(loginRes.body.login_uri);
     const oauthState = loginUrl.searchParams.get('state')!;
 
-    jest
-      .spyOn(authService, 'exchangeCodeAndUpsertUser')
-      .mockResolvedValueOnce({
-        user: {
-          id: 'e2e-user-id',
-          keycloakSub: 'kc-sub-e2e',
-          email: 'e2e@example.com',
-          name: 'E2E User',
-          provider: 'keycloak',
-          isActive: true,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-        isNewUser: false,
-        accessToken: 'mock-at',
-        refreshToken: 'mock-rt',
-        tokenExpiresAt: Date.now() + 300_000,
-        idpHint: 'keycloak',
-      });
+    jest.spyOn(authService, 'exchangeCodeAndUpsertUser').mockResolvedValueOnce({
+      user: {
+        id: 'e2e-user-id',
+        keycloakSub: 'kc-sub-e2e',
+        email: 'e2e@example.com',
+        name: 'E2E User',
+        provider: 'keycloak',
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      isNewUser: false,
+      accessToken: 'mock-at',
+      refreshToken: 'mock-rt',
+      tokenExpiresAt: Date.now() + 300_000,
+      idpHint: 'keycloak',
+    });
 
     const callbackRes = await request(app.getHttpServer())
       .get(`/auth/callback?code=mock-code&state=${oauthState}`)

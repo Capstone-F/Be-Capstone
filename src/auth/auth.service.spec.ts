@@ -9,14 +9,18 @@ import { User } from '../users/user.entity';
 import { AuthService } from './auth.service';
 
 function makeJwt(payload: Record<string, unknown>): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'RS256', typ: 'JWT' }),
+  ).toString('base64url');
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   return `${header}.${body}.fake-signature`;
 }
 
 const mockUser = { id: 'uuid-1', keycloakSub: 'sub-001' } as User;
 const mockUsersService = {
-  upsertFromKeycloak: jest.fn().mockResolvedValue({ user: mockUser, isNewUser: false }),
+  upsertFromKeycloak: jest
+    .fn()
+    .mockResolvedValue({ user: mockUser, isNewUser: false }),
   findById: jest.fn().mockResolvedValue(mockUser),
 } as unknown as jest.Mocked<UsersService>;
 
@@ -46,7 +50,9 @@ describe('AuthService', () => {
 
       expect(url.pathname).toContain('/protocol/openid-connect/auth');
       expect(url.searchParams.get('client_id')).toBe('be-capstone-api');
-      expect(url.searchParams.get('redirect_uri')).toBe('http://localhost:3000/auth/callback');
+      expect(url.searchParams.get('redirect_uri')).toBe(
+        'http://localhost:3000/auth/callback',
+      );
       expect(result.state).toBeTruthy();
     });
 
@@ -59,7 +65,11 @@ describe('AuthService', () => {
 
   describe('exchangeCodeAndUpsertUser', () => {
     it('should exchange code and return session data', async () => {
-      const idToken = makeJwt({ sub: '123', email: 'user@test.com', name: 'User' });
+      const idToken = makeJwt({
+        sub: '123',
+        email: 'user@test.com',
+        name: 'User',
+      });
 
       global.fetch = jest.fn().mockResolvedValueOnce({
         ok: true,
@@ -115,9 +125,9 @@ describe('AuthService', () => {
         text: async () => 'invalid_grant',
       } as Response);
 
-      await expect(service.exchangeCodeAndUpsertUser('bad')).rejects.toBeInstanceOf(
-        BadGatewayException,
-      );
+      await expect(
+        service.exchangeCodeAndUpsertUser('bad'),
+      ).rejects.toBeInstanceOf(BadGatewayException);
     });
   });
 
@@ -171,9 +181,9 @@ describe('AuthService', () => {
         tokenExpiresAt: Date.now() - 1000,
       } as any;
 
-      await expect(service.refreshTokenIfNeeded(session)).rejects.toBeInstanceOf(
-        UnauthorizedException,
-      );
+      await expect(
+        service.refreshTokenIfNeeded(session),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
     });
   });
 
@@ -223,9 +233,9 @@ describe('AuthService', () => {
     });
 
     it('should throw when origin mismatches', () => {
-      expect(() => service.validateClientRedirectUri('http://evil.com/')).toThrow(
-        BadRequestException,
-      );
+      expect(() =>
+        service.validateClientRedirectUri('http://evil.com/'),
+      ).toThrow(BadRequestException);
     });
 
     it('should throw when missing', () => {
@@ -237,9 +247,9 @@ describe('AuthService', () => {
 
   describe('authErrorUrl', () => {
     it('should build error URL on same origin', () => {
-      expect(
-        service.authErrorUrl('http://localhost:5173/dashboard', 'x'),
-      ).toBe('http://localhost:5173/auth/error?reason=x');
+      expect(service.authErrorUrl('http://localhost:5173/dashboard', 'x')).toBe(
+        'http://localhost:5173/auth/error?reason=x',
+      );
     });
   });
 });

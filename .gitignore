@@ -15,6 +15,9 @@ lerna-debug.log*
 # OS
 .DS_Store
 
+# ESLint cache
+.eslintcache
+
 # Tests
 /coverage
 /.nyc_output

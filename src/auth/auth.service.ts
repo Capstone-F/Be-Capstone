@@ -70,9 +70,7 @@ export class AuthService {
       );
     }
 
-    const profile = this.decodeJwtPayload(
-      token.id_token ?? token.access_token,
-    );
+    const profile = this.decodeJwtPayload(token.id_token ?? token.access_token);
 
     const { user, isNewUser } = await this.usersService.upsertFromKeycloak(
       profile,
@@ -157,7 +155,9 @@ export class AuthService {
       throw new BadRequestException('Invalid client_redirect_uri');
     }
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      throw new BadRequestException('client_redirect_uri must use http or https');
+      throw new BadRequestException(
+        'client_redirect_uri must use http or https',
+      );
     }
     const allowed = new URL(this.config.frontendUrl);
     if (url.origin !== allowed.origin) {

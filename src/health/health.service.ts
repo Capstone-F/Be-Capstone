@@ -79,7 +79,12 @@ export class HealthService {
       await this.redis.connect();
       const result = await this.redis.ping();
       this.redis.disconnect();
-      return result === 'PONG' ? { status: 'up' } : { status: 'down', detail: `Unexpected PING response: ${result}` };
+      return result === 'PONG'
+        ? { status: 'up' }
+        : {
+            status: 'down',
+            detail: `Unexpected PING response: ${String(result)}`,
+          };
     } catch (error) {
       const detail =
         error instanceof Error ? error.message : 'Unknown redis error';

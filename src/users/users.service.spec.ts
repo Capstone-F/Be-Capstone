@@ -38,7 +38,9 @@ describe('UsersService', () => {
 
       const result = await service.upsertFromKeycloak(baseProfile, 'google');
 
-      expect(repo.findOneBy).toHaveBeenCalledWith({ keycloakSub: 'kc-sub-001' });
+      expect(repo.findOneBy).toHaveBeenCalledWith({
+        keycloakSub: 'kc-sub-001',
+      });
       expect(repo.create).toHaveBeenCalledWith({
         keycloakSub: 'kc-sub-001',
         email: 'user@example.com',
@@ -113,7 +115,9 @@ describe('UsersService', () => {
       const repo = makeRepo({ findOneBy: jest.fn().mockResolvedValue(user) });
       const service = new UsersService(repo);
 
-      await expect(service.findByKeycloakSub('kc-sub-001')).resolves.toEqual(user);
+      await expect(service.findByKeycloakSub('kc-sub-001')).resolves.toEqual(
+        user,
+      );
     });
 
     it('should return null when not found', async () => {

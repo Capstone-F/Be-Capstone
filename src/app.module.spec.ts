@@ -11,7 +11,10 @@ import { HealthService } from './health/health.service';
 describe('AppModule', () => {
   it('should configure imports, controllers and providers', () => {
     const imports = Reflect.getMetadata(MODULE_METADATA.IMPORTS, AppModule);
-    const controllers = Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, AppModule);
+    const controllers = Reflect.getMetadata(
+      MODULE_METADATA.CONTROLLERS,
+      AppModule,
+    );
     const providers = Reflect.getMetadata(MODULE_METADATA.PROVIDERS, AppModule);
 
     expect(imports).toEqual(
@@ -45,7 +48,9 @@ describe('AppModule', () => {
         typeof entry === 'object' &&
         entry !== null &&
         'module' in entry &&
-        String((entry as { module?: { name?: string } }).module?.name ?? '').includes('Logger'),
+        String(
+          (entry as { module?: { name?: string } }).module?.name ?? '',
+        ).includes('Logger'),
     );
 
     expect(hasPinoImport).toBe(true);

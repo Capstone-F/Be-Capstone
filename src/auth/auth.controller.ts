@@ -50,11 +50,18 @@ export class AuthController {
     schema: {
       type: 'object',
       properties: {
-        login_uri: { type: 'string', description: 'Keycloak authorization URL' },
+        login_uri: {
+          type: 'string',
+          description: 'Keycloak authorization URL',
+        },
       },
     },
   })
-  postLogin(@Body() body: LoginPostDto, @Req() req: Request, @Res() res: Response) {
+  postLogin(
+    @Body() body: LoginPostDto,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
     const clientUri = this.authService.validateClientRedirectUri(
       body?.client_redirect_uri,
     );
@@ -126,7 +133,9 @@ export class AuthController {
       req.session.tokenExpiresAt = result.tokenExpiresAt;
       req.session.idpHint = result.idpHint;
 
-      const redirectUrl = new URL(req.session.clientRedirectUri ?? defaultFront);
+      const redirectUrl = new URL(
+        req.session.clientRedirectUri ?? defaultFront,
+      );
       if (result.isNewUser) {
         redirectUrl.searchParams.set('isNewUser', 'true');
       }
@@ -160,7 +169,11 @@ export class AuthController {
   @ApiOkResponse({ type: SessionUserDto })
   @ApiUnauthorizedResponse({ description: 'No active session' })
   async getProfile(@Req() req: Request) {
-    return this.authService.findUserById(req.session.userId!);
+    const userId = req.session.userId;
+    if (!userId) {
+      throw new UnauthorizedException('No active session');
+    }
+    return this.authService.findUserById(userId);
   }
 
   @Get('status')

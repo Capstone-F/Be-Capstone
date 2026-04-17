@@ -2,7 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger } from 'nestjs-pino';
-import session = require('express-session');
+import session from 'express-session';
 import { RedisStore } from 'connect-redis';
 import Redis from 'ioredis';
 import { AppModule } from './app.module';
@@ -42,9 +42,15 @@ async function bootstrap() {
 
   const redisClient = new Redis(appConfig.redisUrl);
   redisClient.on('error', (err) =>
-    logger.error('Redis connection error', err instanceof Error ? err.stack : String(err), 'Bootstrap'),
+    logger.error(
+      'Redis connection error',
+      err instanceof Error ? err.stack : String(err),
+      'Bootstrap',
+    ),
   );
-  redisClient.on('connect', () => logger.log('Connected to Redis', 'Bootstrap'));
+  redisClient.on('connect', () =>
+    logger.log('Connected to Redis', 'Bootstrap'),
+  );
 
   app.enableCors({
     origin: appConfig.corsOrigin,
@@ -86,4 +92,4 @@ async function bootstrap() {
   logger.log('Swagger docs available at /docs', 'Bootstrap');
   await app.listen(appConfig.port);
 }
-bootstrap();
+void bootstrap();

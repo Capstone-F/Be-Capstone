@@ -32,7 +32,14 @@ describe('env.config', () => {
       PORT: '3000',
     });
 
-    expect(missing).toEqual(expect.arrayContaining(['DATABASE_URL', 'KEYCLOAK_PUBLIC_URL', 'SESSION_SECRET', 'FRONTEND_URL']));
+    expect(missing).toEqual(
+      expect.arrayContaining([
+        'DATABASE_URL',
+        'KEYCLOAK_PUBLIC_URL',
+        'SESSION_SECRET',
+        'FRONTEND_URL',
+      ]),
+    );
   });
 
   it('should resolve env with defaults', () => {
@@ -48,7 +55,9 @@ describe('env.config', () => {
     expect(resolved.DATABASE_URL).toContain('postgresql://');
     expect(resolved.KEYCLOAK_PUBLIC_URL).toBe('http://localhost:8080');
     expect(resolved.KEYCLOAK_INTERNAL_URL).toBe('http://localhost:8080');
-    expect(resolved.KEYCLOAK_HEALTH_URL).toBe('http://localhost:9000/health/ready');
+    expect(resolved.KEYCLOAK_HEALTH_URL).toBe(
+      'http://localhost:9000/health/ready',
+    );
     expect(resolved.KEYCLOAK_REALM).toBe('be-capstone');
     expect(resolved.KEYCLOAK_CLIENT_ID).toBe('be-capstone-api');
     expect(resolved.KEYCLOAK_CLIENT_SECRET).toBe('be-capstone-secret');
@@ -68,7 +77,9 @@ describe('env.config', () => {
 
     expect(resolved.KEYCLOAK_PUBLIC_URL).toBe('http://localhost:8080');
     expect(resolved.KEYCLOAK_INTERNAL_URL).toBe('http://keycloak:8080');
-    expect(resolved.KEYCLOAK_HEALTH_URL).toBe('http://keycloak:9000/health/ready');
+    expect(resolved.KEYCLOAK_HEALTH_URL).toBe(
+      'http://keycloak:9000/health/ready',
+    );
   });
 
   it('should throw when port is not a number', () => {

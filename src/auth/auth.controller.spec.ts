@@ -67,7 +67,9 @@ describe('AuthController', () => {
       );
       expect(session.oauthState).toBe('oauth-state');
       expect(session.clientRedirectUri).toBe('http://localhost:5173/app');
-      expect(res.json).toHaveBeenCalledWith({ login_uri: 'http://kc/auth?state=1' });
+      expect(res.json).toHaveBeenCalledWith({
+        login_uri: 'http://kc/auth?state=1',
+      });
     });
 
     it('should pass idpHint to buildLoginUrl', () => {
@@ -163,7 +165,9 @@ describe('AuthController', () => {
 
       await controller.callback('the-code', 'state-ok', req, res);
 
-      expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173/dashboard');
+      expect(res.redirect).toHaveBeenCalledWith(
+        'http://localhost:5173/dashboard',
+      );
     });
   });
 

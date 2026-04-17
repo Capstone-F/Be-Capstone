@@ -54,18 +54,30 @@ describe('main bootstrap', () => {
       }));
       jest.doMock('@nestjs/swagger', () => ({
         DocumentBuilder: class DocumentBuilderMock {
-          setTitle() { return this; }
-          setDescription() { return this; }
-          setVersion() { return this; }
-          addCookieAuth() { return this; }
-          build() { return { openapi: '3.0.0' }; }
+          setTitle() {
+            return this;
+          }
+          setDescription() {
+            return this;
+          }
+          setVersion() {
+            return this;
+          }
+          addCookieAuth() {
+            return this;
+          }
+          build() {
+            return { openapi: '3.0.0' };
+          }
         },
         SwaggerModule: { createDocument, setup },
       }));
       const pinoMod = { Logger: class PinoLoggerMock {} };
       PinoLoggerClass = pinoMod.Logger;
       jest.doMock('nestjs-pino', () => pinoMod);
-      jest.doMock('express-session', () => jest.fn().mockReturnValue(jest.fn()));
+      jest.doMock('express-session', () =>
+        jest.fn().mockReturnValue(jest.fn()),
+      );
       jest.doMock('connect-redis', () => ({
         RedisStore: jest.fn().mockImplementation(() => ({})),
       }));
@@ -82,7 +94,9 @@ describe('main bootstrap', () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(create).toHaveBeenCalledTimes(1);
-    expect(create).toHaveBeenCalledWith(expect.anything(), { bufferLogs: true });
+    expect(create).toHaveBeenCalledWith(expect.anything(), {
+      bufferLogs: true,
+    });
     expect(useLogger).toHaveBeenCalledWith(pinoLogger);
     expect(error).toHaveBeenCalledWith(
       'Missing required environment variables: DATABASE_URL',
