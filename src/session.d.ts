@@ -8,6 +8,8 @@ interface AppSessionData {
   tokenExpiresAt: number;
   idpHint?: string;
   oauthState?: string;
+  /** Post-login redirect set by POST /auth/login (validated against FRONTEND_URL origin). */
+  clientRedirectUri?: string;
 }
 
 declare module 'express' {

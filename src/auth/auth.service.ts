@@ -1,5 +1,6 @@
 import {
   BadGatewayException,
+  BadRequestException,
   Injectable,
   Logger,
   UnauthorizedException,
@@ -139,6 +140,38 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
     return user;
+  }
+
+  /**
+   * Ensures `client_redirect_uri` is a safe post-login URL: http(s) and same
+   * origin as FRONTEND_URL (open redirect protection).
+   */
+  validateClientRedirectUri(raw: string | undefined): string {
+    if (!raw?.trim()) {
+      throw new BadRequestException('client_redirect_uri is required');
+    }
+    let url: URL;
+    try {
+      url = new URL(raw.trim());
+    } catch {
+      throw new BadRequestException('Invalid client_redirect_uri');
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      throw new BadRequestException('client_redirect_uri must use http or https');
+    }
+    const allowed = new URL(this.config.frontendUrl);
+    if (url.origin !== allowed.origin) {
+      throw new BadRequestException(
+        'client_redirect_uri origin must match FRONTEND_URL',
+      );
+    }
+    return url.toString();
+  }
+
+  /** Build `/auth/error?reason=` on the same origin as the given base URL. */
+  authErrorUrl(frontendBaseUrl: string, reason: string): string {
+    const u = new URL(frontendBaseUrl);
+    return `${u.origin}/auth/error?reason=${encodeURIComponent(reason)}`;
   }
 
   // ─── Private helpers ───────────────────────────────────────────

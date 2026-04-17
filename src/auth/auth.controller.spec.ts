@@ -9,6 +9,14 @@ describe('AuthController', () => {
     revokeToken: jest.fn(),
     findUserById: jest.fn(),
     refreshTokenIfNeeded: jest.fn(),
+    validateClientRedirectUri: jest.fn((u: string | undefined) => {
+      if (!u) throw new Error('client_redirect_uri required');
+      return u;
+    }),
+    authErrorUrl: jest.fn((base: string, reason: string) => {
+      const o = new URL(base);
+      return `${o.origin}/auth/error?reason=${reason}`;
+    }),
   } as unknown as jest.Mocked<AuthService>;
 
   const configService = {
@@ -37,35 +45,49 @@ describe('AuthController', () => {
     jest.clearAllMocks();
   });
 
-  describe('GET /auth/login', () => {
-    it('should redirect to keycloak auth url', () => {
+  describe('POST /auth/login', () => {
+    it('should return login_uri and store client_redirect_uri', () => {
       authService.buildLoginUrl.mockReturnValue({
-        url: 'http://kc/auth?params',
-        state: 'state-123',
+        url: 'http://kc/auth?state=1',
+        state: 'oauth-state',
       });
 
       const session = mockSession();
       const req = { session } as any;
       const res = mockRes() as any;
 
-      controller.login(undefined, req, res);
+      controller.postLogin(
+        { client_redirect_uri: 'http://localhost:5173/app' },
+        req,
+        res,
+      );
 
-      expect(authService.buildLoginUrl).toHaveBeenCalledWith(undefined);
-      expect(session.oauthState).toBe('state-123');
-      expect(res.redirect).toHaveBeenCalledWith('http://kc/auth?params');
+      expect(authService.validateClientRedirectUri).toHaveBeenCalledWith(
+        'http://localhost:5173/app',
+      );
+      expect(session.oauthState).toBe('oauth-state');
+      expect(session.clientRedirectUri).toBe('http://localhost:5173/app');
+      expect(res.json).toHaveBeenCalledWith({ login_uri: 'http://kc/auth?state=1' });
     });
 
     it('should pass idpHint to buildLoginUrl', () => {
       authService.buildLoginUrl.mockReturnValue({
-        url: 'http://kc/auth?kc_idp_hint=google',
-        state: 'state-456',
+        url: 'http://kc/auth',
+        state: 's',
       });
 
       const session = mockSession();
       const req = { session } as any;
       const res = mockRes() as any;
 
-      controller.login('google', req, res);
+      controller.postLogin(
+        {
+          client_redirect_uri: 'http://localhost:5173/',
+          idpHint: 'google',
+        },
+        req,
+        res,
+      );
 
       expect(authService.buildLoginUrl).toHaveBeenCalledWith('google');
       expect(session.idpHint).toBe('google');
@@ -120,6 +142,28 @@ describe('AuthController', () => {
       expect(res.redirect).toHaveBeenCalledWith(
         expect.stringContaining('isNewUser=true'),
       );
+    });
+
+    it('should redirect to client_redirect_uri when set on session', async () => {
+      authService.exchangeCodeAndUpsertUser.mockResolvedValue({
+        user: { id: 'u1', keycloakSub: 'kc-sub' } as any,
+        isNewUser: false,
+        accessToken: 'at',
+        refreshToken: 'rt',
+        tokenExpiresAt: Date.now() + 300_000,
+        idpHint: 'keycloak',
+      });
+
+      const session = mockSession({
+        oauthState: 'state-ok',
+        clientRedirectUri: 'http://localhost:5173/dashboard',
+      });
+      const req = { session } as any;
+      const res = mockRes() as any;
+
+      await controller.callback('the-code', 'state-ok', req, res);
+
+      expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173/dashboard');
     });
   });
 

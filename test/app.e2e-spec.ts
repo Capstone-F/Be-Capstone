@@ -126,37 +126,77 @@ describe('BE Capstone API (e2e)', () => {
     });
   });
 
-  // ─── Auth: /auth/login ─────────────────────────────────────────
+  // ─── Auth: POST /auth/login ──────────────────────────────────────
 
-  describe('GET /auth/login', () => {
-    it('should redirect to Keycloak authorization URL', async () => {
+  describe('POST /auth/login', () => {
+    it('should return login_uri JSON and set session cookie', async () => {
       const res = await request(app.getHttpServer())
-        .get('/auth/login')
-        .expect(302);
+        .post('/auth/login')
+        .send({ client_redirect_uri: 'http://localhost:5173/after-login' })
+        .expect(200);
 
-      const location = res.headers.location;
-      expect(location).toContain(
-        '/realms/be-capstone/protocol/openid-connect/auth',
-      );
-      expect(location).toContain('client_id=be-capstone-api');
-      expect(location).toContain('response_type=code');
-      expect(location).toContain('state=');
-    });
-
-    it('should include kc_idp_hint when idpHint query is provided', async () => {
-      const res = await request(app.getHttpServer())
-        .get('/auth/login?idpHint=google')
-        .expect(302);
-
-      expect(res.headers.location).toContain('kc_idp_hint=google');
-    });
-
-    it('should set a session cookie', async () => {
-      const res = await request(app.getHttpServer())
-        .get('/auth/login')
-        .expect(302);
-
+      const loginUri = new URL(res.body.login_uri);
+      expect(loginUri.pathname).toContain('/protocol/openid-connect/auth');
+      expect(loginUri.searchParams.get('client_id')).toBe('be-capstone-api');
+      expect(loginUri.searchParams.get('response_type')).toBe('code');
+      expect(loginUri.searchParams.get('state')).toBeTruthy();
       expect(extractSid(res)).toBeTruthy();
+    });
+
+    it('should include kc_idp_hint in login_uri when idpHint is in body', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({
+          client_redirect_uri: 'http://localhost:5173/',
+          idpHint: 'google',
+        })
+        .expect(200);
+
+      expect(new URL(res.body.login_uri).searchParams.get('kc_idp_hint')).toBe(
+        'google',
+      );
+    });
+
+    it('should return 400 when client_redirect_uri origin does not match FRONTEND_URL', async () => {
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ client_redirect_uri: 'http://evil.example/' })
+        .expect(400);
+    });
+
+    it('should redirect callback to client_redirect_uri after OAuth', async () => {
+      const loginRes = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ client_redirect_uri: 'http://localhost:5173/custom-path' })
+        .expect(200);
+      const sid = extractSid(loginRes);
+      const loginUrl = new URL(loginRes.body.login_uri);
+      const oauthState = loginUrl.searchParams.get('state')!;
+
+      jest.spyOn(authService, 'exchangeCodeAndUpsertUser').mockResolvedValueOnce({
+        user: {
+          id: 'e2e-user-id',
+          keycloakSub: 'kc-sub-e2e',
+          email: 'e2e@example.com',
+          name: 'E2E User',
+          provider: 'keycloak',
+          isActive: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        isNewUser: false,
+        accessToken: 'at',
+        refreshToken: 'rt',
+        tokenExpiresAt: Date.now() + 300_000,
+        idpHint: 'keycloak',
+      });
+
+      const cb = await request(app.getHttpServer())
+        .get(`/auth/callback?code=c1&state=${oauthState}`)
+        .set('Cookie', sid)
+        .expect(302);
+
+      expect(cb.headers.location).toBe('http://localhost:5173/custom-path');
     });
   });
 
@@ -185,8 +225,9 @@ describe('BE Capstone API (e2e)', () => {
 
     it('should redirect to frontend error on state mismatch', async () => {
       const loginRes = await request(app.getHttpServer())
-        .get('/auth/login')
-        .expect(302);
+        .post('/auth/login')
+        .send({ client_redirect_uri: 'http://localhost:5173/' })
+        .expect(200);
       const sid = extractSid(loginRes);
 
       const res = await request(app.getHttpServer())
@@ -201,11 +242,12 @@ describe('BE Capstone API (e2e)', () => {
 
     it('should exchange code and redirect to frontend on success', async () => {
       const loginRes = await request(app.getHttpServer())
-        .get('/auth/login')
-        .expect(302);
+        .post('/auth/login')
+        .send({ client_redirect_uri: 'http://localhost:5173/' })
+        .expect(200);
       const sid = extractSid(loginRes);
 
-      const loginUrl = new URL(loginRes.headers.location);
+      const loginUrl = new URL(loginRes.body.login_uri);
       const oauthState = loginUrl.searchParams.get('state')!;
 
       jest
@@ -243,11 +285,15 @@ describe('BE Capstone API (e2e)', () => {
 
     it('should pass idpHint from session to exchangeCodeAndUpsertUser', async () => {
       const loginRes = await request(app.getHttpServer())
-        .get('/auth/login?idpHint=google')
-        .expect(302);
+        .post('/auth/login')
+        .send({
+          client_redirect_uri: 'http://localhost:5173/',
+          idpHint: 'google',
+        })
+        .expect(200);
       const sid = extractSid(loginRes);
 
-      const loginUrl = new URL(loginRes.headers.location);
+      const loginUrl = new URL(loginRes.body.login_uri);
       const oauthState = loginUrl.searchParams.get('state')!;
 
       jest
@@ -283,10 +329,11 @@ describe('BE Capstone API (e2e)', () => {
 
     it('should redirect to frontend error when exchange fails', async () => {
       const loginRes = await request(app.getHttpServer())
-        .get('/auth/login')
-        .expect(302);
+        .post('/auth/login')
+        .send({ client_redirect_uri: 'http://localhost:5173/' })
+        .expect(200);
       const sid = extractSid(loginRes);
-      const loginUrl = new URL(loginRes.headers.location);
+      const loginUrl = new URL(loginRes.body.login_uri);
       const oauthState = loginUrl.searchParams.get('state')!;
 
       jest
@@ -489,10 +536,11 @@ describe('BE Capstone API (e2e)', () => {
 
   async function performMockLogin(): Promise<string> {
     const loginRes = await request(app.getHttpServer())
-      .get('/auth/login')
-      .expect(302);
+      .post('/auth/login')
+      .send({ client_redirect_uri: 'http://localhost:5173/' })
+      .expect(200);
     const sid = extractSid(loginRes);
-    const loginUrl = new URL(loginRes.headers.location);
+    const loginUrl = new URL(loginRes.body.login_uri);
     const oauthState = loginUrl.searchParams.get('state')!;
 
     jest

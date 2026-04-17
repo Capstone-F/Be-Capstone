@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   HttpCode,
@@ -12,10 +13,10 @@ import {
   Logger,
 } from '@nestjs/common';
 import {
+  ApiBody,
   ApiCookieAuth,
   ApiOkResponse,
   ApiOperation,
-  ApiQuery,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -23,6 +24,7 @@ import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { SessionGuard } from './guards/session.guard';
 import { AppConfigService } from '../config/config.service';
+import { LoginPostDto } from './dto/login-post.dto';
 import { SessionUserDto } from './dto/session-user.dto';
 @ApiTags('Auth')
 @Controller('auth')
@@ -34,37 +36,46 @@ export class AuthController {
     private readonly config: AppConfigService,
   ) {}
 
-  @Get('login')
+  @Post('login')
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Start login flow (browser redirect)',
+    summary: 'Start login (SPA): return Keycloak login_uri',
     description:
-      'Redirects the browser to Keycloak login page. ' +
-      'After authentication, Keycloak redirects back to GET /auth/callback. ' +
-      'Pass idpHint=google to skip the Keycloak page and go straight to Google.',
+      'Stores client_redirect_uri in the session, returns login_uri for the browser ' +
+      '(e.g. window.location.href = login_uri). After OAuth, GET /auth/callback ' +
+      'redirects the browser to client_redirect_uri.',
   })
-  @ApiQuery({
-    name: 'idpHint',
-    required: false,
-    description: 'Skip Keycloak login and redirect to an identity provider',
-    example: 'google',
+  @ApiBody({ type: LoginPostDto })
+  @ApiOkResponse({
+    schema: {
+      type: 'object',
+      properties: {
+        login_uri: { type: 'string', description: 'Keycloak authorization URL' },
+      },
+    },
   })
-  login(
-    @Query('idpHint') idpHint: string | undefined,
-    @Req() req: Request,
-    @Res() res: Response,
-  ) {
+  postLogin(@Body() body: LoginPostDto, @Req() req: Request, @Res() res: Response) {
+    const clientUri = this.authService.validateClientRedirectUri(
+      body?.client_redirect_uri,
+    );
+    const idpHint =
+      typeof body?.idpHint === 'string' && body.idpHint.trim()
+        ? body.idpHint.trim()
+        : undefined;
+
     const { url, state } = this.authService.buildLoginUrl(idpHint);
 
     req.session.oauthState = state;
+    req.session.clientRedirectUri = clientUri;
     if (idpHint) {
       req.session.idpHint = idpHint;
     }
 
     req.session.save((err) => {
       if (err) {
-        this.logger.error('Failed to save session before login redirect', err);
+        this.logger.error('Failed to save session before login response', err);
       }
-      res.redirect(url);
+      res.json({ login_uri: url });
     });
   }
 
@@ -74,25 +85,28 @@ export class AuthController {
     description:
       'Keycloak redirects the browser here after authentication. ' +
       'The backend exchanges the code for tokens, stores them in the session, ' +
-      'and redirects to the frontend URL.',
+      'and redirects to client_redirect_uri from POST /auth/login.',
   })
-  @ApiQuery({ name: 'code', required: true })
-  @ApiQuery({ name: 'state', required: true })
   async callback(
     @Query('code') code: string,
     @Query('state') state: string,
     @Req() req: Request,
     @Res() res: Response,
   ) {
-    const frontendUrl = this.config.frontendUrl;
+    const defaultFront = this.config.frontendUrl;
+    const postLoginBase = req.session.clientRedirectUri ?? defaultFront;
 
     if (!code || !state) {
-      res.redirect(`${frontendUrl}/auth/error?reason=missing_params`);
+      res.redirect(
+        this.authService.authErrorUrl(postLoginBase, 'missing_params'),
+      );
       return;
     }
 
     if (state !== req.session.oauthState) {
-      res.redirect(`${frontendUrl}/auth/error?reason=state_mismatch`);
+      res.redirect(
+        this.authService.authErrorUrl(postLoginBase, 'state_mismatch'),
+      );
       return;
     }
 
@@ -112,7 +126,7 @@ export class AuthController {
       req.session.tokenExpiresAt = result.tokenExpiresAt;
       req.session.idpHint = result.idpHint;
 
-      const redirectUrl = new URL(frontendUrl);
+      const redirectUrl = new URL(req.session.clientRedirectUri ?? defaultFront);
       if (result.isNewUser) {
         redirectUrl.searchParams.set('isNewUser', 'true');
       }
@@ -125,7 +139,12 @@ export class AuthController {
       });
     } catch (err) {
       this.logger.error('OAuth callback failed', err);
-      res.redirect(`${frontendUrl}/auth/error?reason=exchange_failed`);
+      res.redirect(
+        this.authService.authErrorUrl(
+          req.session.clientRedirectUri ?? defaultFront,
+          'exchange_failed',
+        ),
+      );
     }
   }
 

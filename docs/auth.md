@@ -28,10 +28,9 @@ This guide walks frontend clients through integrating with the backend authentic
 ```
 Client (browser)
   │
-  │  1. window.location.href = '/auth/login'
-  │     (browser navigates to backend)
+  │  1. POST /auth/login { client_redirect_uri } → { login_uri } (Set-Cookie: sid)
   │
-  │  2. Backend 302 → Keycloak login page
+  │  2. window.location.href = login_uri → Keycloak login page
   │
   │  3. User authenticates on Keycloak (or Google)
   │
@@ -41,7 +40,7 @@ Client (browser)
   │     └── Stores tokens in server-side session
   │     └── Upserts local user record
   │
-  │  6. Backend 302 → FRONTEND_URL (Set-Cookie: sid=...)
+  │  6. Backend 302 → client_redirect_uri (same origin as FRONTEND_URL)
   │
   │  7. Frontend calls /auth/me (cookie sent automatically)
   │     ◄── { user profile from local DB }
@@ -72,24 +71,34 @@ Client (browser)
 | `KEYCLOAK_INTERNAL_URL` | Keycloak URL for server-to-server calls inside Docker (e.g. `http://keycloak:8080`). Defaults to `KEYCLOAK_PUBLIC_URL`. |
 | `REDIS_URL` | Redis connection URL for session storage (e.g. `redis://redis:6379`). Defaults to `redis://localhost:6379`. |
 | `SESSION_SECRET` | Secret for signing session cookies |
-| `FRONTEND_URL` | Frontend origin (e.g. `http://localhost:5173`) |
+| `FRONTEND_URL` | Allowed frontend origin — must match `client_redirect_uri` on login (same origin) and CORS |
 | `CORS_ORIGIN` | Allowed CORS origin (defaults to `FRONTEND_URL`) |
 
 ---
 
 ## 3. Step-by-step: Login
 
-### Step 1 — Redirect to login
+### Step 1 — Start login (POST)
 
-Simply navigate the browser to the backend login endpoint:
+Call the backend with the URL you want to land on after OAuth (must be the **same origin** as `FRONTEND_URL`):
 
 ```js
-window.location.href = 'http://localhost:3000/auth/login';
+const res = await fetch('http://localhost:3000/auth/login', {
+  method: 'POST',
+  credentials: 'include',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    client_redirect_uri: `${window.location.origin}${window.location.pathname}`,
+  }),
+});
+const { login_uri } = await res.json();
+window.location.href = login_uri;
 ```
 
 The backend will:
-1. Generate a CSRF `state` parameter and store it in the session
-2. Redirect (302) to the Keycloak login page
+1. Validate `client_redirect_uri` against `FRONTEND_URL` origin (open-redirect protection)
+2. Generate a CSRF `state` parameter and store it in the session (with your redirect URI)
+3. Return JSON `{ login_uri }` — the Keycloak authorization URL
 
 ### Step 2 — User logs in on Keycloak
 
@@ -102,7 +111,7 @@ After login, Keycloak redirects to the backend's `/auth/callback`. The backend:
 2. Exchanges the authorization code for tokens (server-to-server)
 3. Upserts the user in the local database
 4. Stores tokens in the server-side session
-5. Redirects (302) to `FRONTEND_URL`
+5. Redirects (302) to **`client_redirect_uri`** (with `?isNewUser=true` when applicable)
 
 If this is the user's first login, the redirect URL includes `?isNewUser=true`:
 
@@ -120,10 +129,13 @@ if (params.get('isNewUser') === 'true') {
 
 ## 4. Step-by-step: Google Login
 
-Google login uses the same flow with the `idpHint=google` query parameter:
+Google login uses the same POST body with `idpHint`:
 
 ```js
-window.location.href = 'http://localhost:3000/auth/login?idpHint=google';
+body: JSON.stringify({
+  client_redirect_uri: `${window.location.origin}/`,
+  idpHint: 'google',
+}),
 ```
 
 This tells Keycloak to skip its own login page and redirect straight to Google.
@@ -165,7 +177,7 @@ const { authenticated } = await fetch('http://localhost:3000/auth/status', {
 }).then(r => r.json());
 
 if (!authenticated) {
-  window.location.href = 'http://localhost:3000/auth/login';
+  // Trigger POST /auth/login then navigate to login_uri (see section 3)
 }
 ```
 
@@ -202,8 +214,7 @@ async function apiFetch(url, options = {}) {
   });
 
   if (res.status === 401) {
-    // Session expired — redirect to login
-    window.location.href = '/auth/login';
+    // Session expired — start login (POST /auth/login, then login_uri)
     return null;
   }
 
@@ -222,16 +233,17 @@ No `Authorization` header, no token management, no refresh logic needed on the f
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `GET` | `/auth/login` | None | Redirects browser to Keycloak login |
+| `POST` | `/auth/login` | None (sets session cookie) | JSON `{ client_redirect_uri, idpHint? }` → `{ login_uri }` |
 | `GET` | `/auth/callback` | None | OAuth callback (Keycloak redirects here) |
 | `GET` | `/auth/me` | Session cookie | Get current user profile |
 | `GET` | `/auth/status` | None | Check if session is authenticated |
 | `POST` | `/auth/logout` | Session cookie | Destroy session and revoke tokens |
 
-### `GET /auth/login` — query params
+### `POST /auth/login` — JSON body
 
-| Param | Required | Description |
+| Field | Required | Description |
 |---|---|---|
+| `client_redirect_uri` | Yes | Absolute URL to open after login (same origin as `FRONTEND_URL`) |
 | `idpHint` | No | `google` to skip Keycloak login page |
 
 ### `GET /auth/callback` — query params (set by Keycloak)
@@ -293,7 +305,8 @@ const api = axios.create({
 
 | HTTP | Scenario | What to do |
 |---|---|---|
-| `401 Unauthorized` | No active session or session expired | Redirect to `GET /auth/login` |
+| `401 Unauthorized` | No active session or session expired | Start login again (`POST /auth/login`) |
+| `400 Bad Request` | Invalid `client_redirect_uri` | Fix URL or align with `FRONTEND_URL` origin |
 | `302` to `/auth/error?reason=missing_params` | Callback missing code/state | Start login flow again |
 | `302` to `/auth/error?reason=state_mismatch` | CSRF state mismatch | Start login flow again |
 | `302` to `/auth/error?reason=exchange_failed` | Keycloak code exchange failed | Start login flow again |

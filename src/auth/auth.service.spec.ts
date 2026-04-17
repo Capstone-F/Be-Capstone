@@ -1,4 +1,8 @@
-import { BadGatewayException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadGatewayException,
+  BadRequestException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { AppConfigService } from '../config/config.service';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/user.entity';
@@ -25,6 +29,7 @@ describe('AuthService', () => {
     keycloakClientId: 'be-capstone-api',
     keycloakClientSecret: 'be-capstone-secret',
     keycloakRedirectUri: 'http://localhost:3000/auth/callback',
+    frontendUrl: 'http://localhost:5173',
   } as AppConfigService;
   const service = new AuthService(config, mockUsersService);
 
@@ -207,6 +212,34 @@ describe('AuthService', () => {
       await expect(service.findUserById('missing')).rejects.toBeInstanceOf(
         UnauthorizedException,
       );
+    });
+  });
+
+  describe('validateClientRedirectUri', () => {
+    it('should return normalized URL when origin matches FRONTEND_URL', () => {
+      expect(
+        service.validateClientRedirectUri('http://localhost:5173/app'),
+      ).toBe('http://localhost:5173/app');
+    });
+
+    it('should throw when origin mismatches', () => {
+      expect(() => service.validateClientRedirectUri('http://evil.com/')).toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should throw when missing', () => {
+      expect(() => service.validateClientRedirectUri(undefined)).toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
+  describe('authErrorUrl', () => {
+    it('should build error URL on same origin', () => {
+      expect(
+        service.authErrorUrl('http://localhost:5173/dashboard', 'x'),
+      ).toBe('http://localhost:5173/auth/error?reason=x');
     });
   });
 });
