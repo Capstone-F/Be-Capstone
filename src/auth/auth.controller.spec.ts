@@ -46,7 +46,7 @@ describe('AuthController', () => {
   });
 
   describe('POST /auth/login', () => {
-    it('should return login_uri and store client_redirect_uri', () => {
+    it('should return login_uri and store client_redirect_uri', async () => {
       authService.buildLoginUrl.mockReturnValue({
         url: 'http://kc/auth?state=1',
         state: 'oauth-state',
@@ -54,12 +54,10 @@ describe('AuthController', () => {
 
       const session = mockSession();
       const req = { session } as any;
-      const res = mockRes() as any;
 
-      controller.postLogin(
+      const result = await controller.postLogin(
         { client_redirect_uri: 'http://localhost:5173/app' },
         req,
-        res,
       );
 
       expect(authService.validateClientRedirectUri).toHaveBeenCalledWith(
@@ -67,12 +65,12 @@ describe('AuthController', () => {
       );
       expect(session.oauthState).toBe('oauth-state');
       expect(session.clientRedirectUri).toBe('http://localhost:5173/app');
-      expect(res.json).toHaveBeenCalledWith({
+      expect(result).toEqual({
         login_uri: 'http://kc/auth?state=1',
       });
     });
 
-    it('should pass idpHint to buildLoginUrl', () => {
+    it('should pass idpHint to buildLoginUrl', async () => {
       authService.buildLoginUrl.mockReturnValue({
         url: 'http://kc/auth',
         state: 's',
@@ -80,15 +78,13 @@ describe('AuthController', () => {
 
       const session = mockSession();
       const req = { session } as any;
-      const res = mockRes() as any;
 
-      controller.postLogin(
+      await controller.postLogin(
         {
           client_redirect_uri: 'http://localhost:5173/',
           idpHint: 'google',
         },
         req,
-        res,
       );
 
       expect(authService.buildLoginUrl).toHaveBeenCalledWith('google');

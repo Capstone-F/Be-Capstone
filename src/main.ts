@@ -4,7 +4,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger } from 'nestjs-pino';
 import session from 'express-session';
 import { RedisStore } from 'connect-redis';
-import Redis from 'ioredis';
+import { createClient } from 'redis';
 import { AppModule } from './app.module';
 import { AppConfigService } from './config/config.service';
 import { ENV_DEFINITIONS, getMissingRequiredEnv } from './config/env.config';
@@ -40,17 +40,17 @@ async function bootstrap() {
     app.set('trust proxy', 1);
   }
 
-  const redisClient = new Redis(appConfig.redisUrl);
+  // connect-redis v9 expects the official `redis` client API, not ioredis.
+  const redisClient = createClient({ url: appConfig.redisUrl });
   redisClient.on('error', (err) =>
     logger.error(
-      'Redis connection error',
+      'Redis session store connection error',
       err instanceof Error ? err.stack : String(err),
       'Bootstrap',
     ),
   );
-  redisClient.on('connect', () =>
-    logger.log('Connected to Redis', 'Bootstrap'),
-  );
+  await redisClient.connect();
+  logger.log('Connected to Redis (session store)', 'Bootstrap');
 
   app.enableCors({
     origin: appConfig.corsOrigin,
@@ -63,13 +63,15 @@ async function bootstrap() {
       secret: appConfig.sessionSecret,
       resave: false,
       saveUninitialized: false,
+      // Trust X-Forwarded-Proto so Secure cookies work behind nginx TLS termination.
+      proxy: appConfig.nodeEnv === 'production',
       store: new RedisStore({
         client: redisClient,
         prefix: 'sess:',
       }),
       cookie: {
         httpOnly: true,
-        secure: appConfig.nodeEnv === 'production',
+        secure: appConfig.sessionCookieSecure,
         sameSite: 'lax',
         maxAge: 24 * 60 * 60 * 1000,
       },

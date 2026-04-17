@@ -67,6 +67,13 @@ export const ENV_DEFINITIONS = {
     required: true,
     description: 'Secret used to sign the session cookie',
   },
+  SESSION_COOKIE_SECURE: {
+    required: false,
+    description:
+      'If true, session cookie uses Secure flag (HTTPS only). If unset, defaults to ' +
+      'true when NODE_ENV=production. Set false when the public site is HTTP (e.g. local Docker); ' +
+      'otherwise express-session will not emit Set-Cookie.',
+  },
   FRONTEND_URL: {
     required: true,
     description:
@@ -93,6 +100,8 @@ export type AppEnv = {
   KEYCLOAK_REDIRECT_URI: string;
   REDIS_URL: string;
   SESSION_SECRET: string;
+  /** When true, Set-Cookie only over HTTPS (or when proxy sends X-Forwarded-Proto: https if proxy is enabled). */
+  sessionCookieSecure: boolean;
   FRONTEND_URL: string;
   CORS_ORIGIN: string;
 };
@@ -116,6 +125,25 @@ function deriveHealthUrl(keycloakBaseUrl: string): string {
   }
 }
 
+function parseOptionalBool(
+  value: string | undefined,
+  varName: string,
+): boolean | undefined {
+  if (value === undefined || value.trim() === '') {
+    return undefined;
+  }
+  const v = value.trim().toLowerCase();
+  if (['true', '1', 'yes'].includes(v)) {
+    return true;
+  }
+  if (['false', '0', 'no'].includes(v)) {
+    return false;
+  }
+  throw new Error(
+    `Invalid ${varName} value "${value}". Use true/false, 1/0, or yes/no.`,
+  );
+}
+
 export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
   const missingKeys = getMissingRequiredEnv(raw);
   if (missingKeys.length > 0) {
@@ -125,6 +153,14 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
   }
 
   const nodeEnv = raw.NODE_ENV?.trim() || ENV_DEFINITIONS.NODE_ENV.defaultValue;
+  const sessionCookieSecureExplicit = parseOptionalBool(
+    raw.SESSION_COOKIE_SECURE,
+    'SESSION_COOKIE_SECURE',
+  );
+  const sessionCookieSecure =
+    sessionCookieSecureExplicit !== undefined
+      ? sessionCookieSecureExplicit
+      : nodeEnv === 'production';
   const portValue = raw.PORT?.trim() || ENV_DEFINITIONS.PORT.defaultValue;
   const port = Number.parseInt(portValue, 10);
 
@@ -159,6 +195,7 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
       ENV_DEFINITIONS.KEYCLOAK_REDIRECT_URI.defaultValue,
     REDIS_URL: raw.REDIS_URL?.trim() || ENV_DEFINITIONS.REDIS_URL.defaultValue,
     SESSION_SECRET: raw.SESSION_SECRET!.trim(),
+    sessionCookieSecure,
     FRONTEND_URL: raw.FRONTEND_URL!.trim().replace(/\/+$/, ''),
     CORS_ORIGIN:
       raw.CORS_ORIGIN?.trim() || raw.FRONTEND_URL!.trim().replace(/\/+$/, ''),

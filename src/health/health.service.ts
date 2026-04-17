@@ -59,7 +59,11 @@ export class HealthService {
       const url = this.config.keycloakHealthUrl;
       const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
       if (!response.ok) {
-        this.logger.error(`Keycloak URL: ${url}`);
+        // /health/ready often returns 503 until ready — not an application fault; avoid level-50 noise.
+        const st = response.statusText?.trim();
+        this.logger.warn(
+          `Keycloak health check: HTTP ${response.status}${st ? ` ${st}` : ''} (${url})`,
+        );
         return {
           status: 'down',
           detail: `Keycloak responded with status ${response.status}`,

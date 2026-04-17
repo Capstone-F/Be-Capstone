@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  InternalServerErrorException,
   Post,
   Query,
   Req,
@@ -57,11 +58,7 @@ export class AuthController {
       },
     },
   })
-  postLogin(
-    @Body() body: LoginPostDto,
-    @Req() req: Request,
-    @Res() res: Response,
-  ) {
+  async postLogin(@Body() body: LoginPostDto, @Req() req: Request) {
     const clientUri = this.authService.validateClientRedirectUri(
       body?.client_redirect_uri,
     );
@@ -78,12 +75,25 @@ export class AuthController {
       req.session.idpHint = idpHint;
     }
 
-    req.session.save((err) => {
-      if (err) {
-        this.logger.error('Failed to save session before login response', err);
-      }
-      res.json({ login_uri: url });
+    await new Promise<void>((resolve, reject) => {
+      req.session.save((err) => {
+        if (err) {
+          this.logger.error(
+            'Failed to save session before login response',
+            err,
+          );
+          reject(
+            new InternalServerErrorException('Failed to persist login session'),
+          );
+          return;
+        }
+        resolve();
+      });
     });
+
+    // Do not use @Res() + res.json() here: that bypasses Nest's response handling and
+    // express-session often omits Set-Cookie on the outgoing response.
+    return { login_uri: url };
   }
 
   @Get('callback')

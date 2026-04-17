@@ -81,11 +81,11 @@ describe('main bootstrap', () => {
       jest.doMock('connect-redis', () => ({
         RedisStore: jest.fn().mockImplementation(() => ({})),
       }));
-      jest.doMock('ioredis', () => ({
-        __esModule: true,
-        default: jest.fn().mockImplementation(() => ({
+      jest.doMock('redis', () => ({
+        createClient: jest.fn().mockReturnValue({
           on: jest.fn().mockReturnThis(),
-        })),
+          connect: jest.fn().mockResolvedValue(undefined),
+        }),
       }));
 
       require('./main');

@@ -12,16 +12,16 @@ services:
     container_name: capstone-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - '6379:6379'
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       timeout: 5s
       retries: 10
     labels:
-      - "logging=true"
+      - 'logging=true'
 
   postgres:
     image: postgres:16-alpine
@@ -32,26 +32,26 @@ services:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: admin
     command:
-      - "postgres"
-      - "-c"
-      - "log_destination=jsonlog"
-      - "-c"
-      - "logging_collector=on"
-      - "-c"
-      - "log_min_messages=info"
-      - "-c"
-      - "log_statement=ddl"
+      - 'postgres'
+      - '-c'
+      - 'log_destination=jsonlog'
+      - '-c'
+      - 'logging_collector=on'
+      - '-c'
+      - 'log_min_messages=info'
+      - '-c'
+      - 'log_statement=ddl'
     ports:
-      - "5432:5432"
+      - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d be-capstone"]
+      test: ['CMD-SHELL', 'pg_isready -U admin -d be-capstone']
       interval: 5s
       timeout: 5s
       retries: 10
     labels:
-      - "logging=true"
+      - 'logging=true'
 
   # ── Identity ────────────────────────────────────────
 
@@ -66,13 +66,13 @@ services:
       KC_DB_URL_DATABASE: be-capstone
       KC_DB_USERNAME: admin
       KC_DB_PASSWORD: admin
-      KC_HEALTH_ENABLED: "true"
+      KC_HEALTH_ENABLED: 'true'
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
       KC_LOG_CONSOLE_OUTPUT: json
     ports:
-      - "8080:8080"
-      - "9000:9000"
+      - '8080:8080'
+      - '9000:9000'
     volumes:
       - ./keycloak/realm-import:/opt/keycloak/data/import
       - ./keycloak/themes:/opt/keycloak/themes
@@ -80,7 +80,7 @@ services:
       postgres:
         condition: service_healthy
     labels:
-      - "logging=true"
+      - 'logging=true'
 
   # ── Backend API ─────────────────────────────────────
 
@@ -92,7 +92,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      PORT: "3000"
+      PORT: '3000'
       DATABASE_URL: postgresql://admin:admin@postgres:5432/be-capstone
       KEYCLOAK_PUBLIC_URL: http://localhost:8080
       KEYCLOAK_INTERNAL_URL: http://keycloak:8080
@@ -103,10 +103,11 @@ services:
       KEYCLOAK_REDIRECT_URI: http://localhost:3000/auth/callback
       REDIS_URL: redis://redis:6379
       SESSION_SECRET: change-me-to-a-random-secret
+      SESSION_COOKIE_SECURE: 'false'
       FRONTEND_URL: http://localhost:5173
       CORS_ORIGIN: http://localhost:5173
     ports:
-      - "3000:3000"
+      - '3000:3000'
     depends_on:
       postgres:
         condition: service_healthy
@@ -115,12 +116,16 @@ services:
       keycloak:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "wget --quiet --tries=1 --output-document=- http://localhost:3000/health || exit 1"]
+      test:
+        [
+          'CMD-SHELL',
+          'wget --quiet --tries=1 --output-document=- http://localhost:3000/health || exit 1',
+        ]
       interval: 10s
       timeout: 5s
       retries: 10
     labels:
-      - "logging=true"
+      - 'logging=true'
 
   # ── Observability ───────────────────────────────────
 
@@ -128,15 +133,19 @@ services:
     image: grafana/loki:3.4.2
     container_name: capstone-loki
     restart: unless-stopped
-    user: "0"
+    user: '0'
     command: -config.file=/etc/loki/loki-config.yaml
     ports:
-      - "3100:3100"
+      - '3100:3100'
     volumes:
       - ./observability/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
       - loki_data:/loki/data
     healthcheck:
-      test: ["CMD-SHELL", "wget --quiet --tries=1 --output-document=- http://localhost:3100/ready || exit 1"]
+      test:
+        [
+          'CMD-SHELL',
+          'wget --quiet --tries=1 --output-document=- http://localhost:3100/ready || exit 1',
+        ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -146,12 +155,12 @@ services:
     container_name: capstone-alloy
     restart: unless-stopped
     command:
-      - "run"
-      - "/etc/alloy/config.alloy"
-      - "--server.http.listen-addr=0.0.0.0:12345"
-      - "--storage.path=/var/lib/alloy/data"
+      - 'run'
+      - '/etc/alloy/config.alloy'
+      - '--server.http.listen-addr=0.0.0.0:12345'
+      - '--storage.path=/var/lib/alloy/data'
     ports:
-      - "12345:12345"
+      - '12345:12345'
     volumes:
       - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -166,10 +175,10 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
-      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: 'true'
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
     ports:
-      - "3001:3000"
+      - '3001:3000'
     volumes:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana_data:/var/lib/grafana

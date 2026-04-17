@@ -59,6 +59,14 @@ export class AppConfigService {
     return this.env.SESSION_SECRET;
   }
 
+  /**
+   * Secure session cookie (HTTPS). When true on plain HTTP, express-session omits Set-Cookie.
+   * Override with SESSION_COOKIE_SECURE=false for HTTP deployments (e.g. local compose).
+   */
+  get sessionCookieSecure(): boolean {
+    return this.env.sessionCookieSecure;
+  }
+
   get frontendUrl(): string {
     return this.env.FRONTEND_URL;
   }

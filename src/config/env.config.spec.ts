@@ -20,6 +20,7 @@ describe('env.config', () => {
         'KEYCLOAK_REDIRECT_URI',
         'REDIS_URL',
         'SESSION_SECRET',
+        'SESSION_COOKIE_SECURE',
         'FRONTEND_URL',
         'CORS_ORIGIN',
       ]),
@@ -64,6 +65,30 @@ describe('env.config', () => {
     expect(resolved.KEYCLOAK_REDIRECT_URI).toBe(
       'http://localhost:3000/auth/callback',
     );
+    expect(resolved.sessionCookieSecure).toBe(false);
+  });
+
+  it('should default sessionCookieSecure to true in production when unset', () => {
+    const resolved = resolveAppEnv({
+      NODE_ENV: 'production',
+      DATABASE_URL: 'postgresql://admin:admin@localhost:5432/be-capstone',
+      KEYCLOAK_PUBLIC_URL: 'http://localhost:8080',
+      SESSION_SECRET: 'test-secret',
+      FRONTEND_URL: 'http://localhost:5173',
+    });
+    expect(resolved.sessionCookieSecure).toBe(true);
+  });
+
+  it('should parse SESSION_COOKIE_SECURE', () => {
+    const resolved = resolveAppEnv({
+      NODE_ENV: 'production',
+      DATABASE_URL: 'postgresql://admin:admin@localhost:5432/be-capstone',
+      KEYCLOAK_PUBLIC_URL: 'http://localhost:8080',
+      SESSION_SECRET: 'test-secret',
+      FRONTEND_URL: 'http://localhost:5173',
+      SESSION_COOKIE_SECURE: 'false',
+    });
+    expect(resolved.sessionCookieSecure).toBe(false);
   });
 
   it('should use KEYCLOAK_INTERNAL_URL when provided', () => {

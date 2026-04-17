@@ -40,6 +40,7 @@ describe('AppConfigService', () => {
     expect(service.keycloakRedirectUri).toBe(
       'http://localhost:3000/auth/callback',
     );
+    expect(service.sessionCookieSecure).toBe(false);
   });
 
   it('should expose keycloakHealthUrl from env', () => {
