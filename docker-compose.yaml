@@ -100,7 +100,7 @@ services:
       KEYCLOAK_REALM: be-capstone
       KEYCLOAK_CLIENT_ID: be-capstone-api
       KEYCLOAK_CLIENT_SECRET: be-capstone-secret
-      KEYCLOAK_REDIRECT_URI: http://localhost:3000/auth/callback
+      KEYCLOAK_REDIRECT_URI: http://localhost:3001/auth/callback
       REDIS_URL: redis://redis:6379
       SESSION_SECRET: change-me-to-a-random-secret
       SESSION_COOKIE_SECURE: 'false'
@@ -119,7 +119,7 @@ services:
       test:
         [
           'CMD-SHELL',
-          'wget --quiet --tries=1 --output-document=- http://localhost:3000/health || exit 1',
+          'wget --quiet --tries=1 --output-document=- http://localhost:3001/health || exit 1',
         ]
       interval: 10s
       timeout: 5s
