@@ -107,7 +107,7 @@ services:
       FRONTEND_URL: http://localhost:5173
       CORS_ORIGIN: http://localhost:5173
     ports:
-      - '3000:3000'
+      - '3001:3000'
     depends_on:
       postgres:
         condition: service_healthy
@@ -178,7 +178,7 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: 'true'
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
     ports:
-      - '3001:3000'
+      - '3002:3000'
     volumes:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana_data:/var/lib/grafana
