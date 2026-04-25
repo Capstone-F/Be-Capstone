@@ -1,5 +1,6 @@
 // @ts-check
 import eslint from '@eslint/js';
+import noSecrets from 'eslint-plugin-no-secrets';
 import eslintPluginPrettierRecommended from 'eslint-plugin-prettier/recommended';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
@@ -29,7 +30,11 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-floating-promises': 'warn',
       '@typescript-eslint/no-unsafe-argument': 'warn',
-      "prettier/prettier": ["error", { endOfLine: "auto" }],
+      'prettier/prettier': ['error', { endOfLine: 'auto' }],
+      'no-secrets/no-secrets': 'error',
+    },
+    plugins: {
+      'no-secrets': noSecrets,
     },
   },
   {
@@ -43,6 +48,7 @@ export default tseslint.config(
       '@typescript-eslint/unbound-method': 'off',
       '@typescript-eslint/require-await': 'off',
       '@typescript-eslint/no-require-imports': 'off',
+      'no-secrets/no-secrets': 'off',
     },
   },
 );

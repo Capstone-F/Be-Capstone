@@ -54,10 +54,12 @@ services:
     image: postgres:16-alpine
     container_name: capstone-postgres
     restart: unless-stopped
+    env_file:
+      - ./.env.prod
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-be-capstone}
-      POSTGRES_USER: ${POSTGRES_USER:-admin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     command:
       - 'postgres'
       - '-c'
@@ -91,15 +93,17 @@ services:
     container_name: capstone-keycloak
     restart: unless-stopped
     command: start-dev --import-realm
+    env_file:
+      - ./.env.prod
     environment:
       KC_DB: postgres
       KC_DB_URL_HOST: postgres
-      KC_DB_URL_DATABASE: ${POSTGRES_DB:-be-capstone}
-      KC_DB_USERNAME: ${POSTGRES_USER:-admin}
-      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-admin}
+      KC_DB_URL_DATABASE: ${POSTGRES_DB}
+      KC_DB_USERNAME: ${POSTGRES_USER}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
       KC_HEALTH_ENABLED: 'true'
-      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USER:-admin}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:-admin}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USER}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD}
       KC_LOG_CONSOLE_OUTPUT: json
       KC_HTTP_RELATIVE_PATH: /auth
       KC_PROXY_HEADERS: xforwarded
@@ -120,27 +124,29 @@ services:
       dockerfile: Dockerfile
     container_name: capstone-be-api
     restart: unless-stopped
+    env_file:
+      - ./.env.prod
     environment:
       NODE_ENV: production
       PORT: '3000'
-      DATABASE_URL: postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-admin}@postgres:5432/${POSTGRES_DB:-be-capstone}
-      KEYCLOAK_PUBLIC_URL: ${PUBLIC_URL:-http://localhost}/auth
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      KEYCLOAK_PUBLIC_URL: ${PUBLIC_URL}/auth
 
       KEYCLOAK_INTERNAL_URL: http://keycloak:8080/auth
 
       # Keycloak 26+ has a separate health endpoint on port 9000 (with prefix /auth if using KC_HTTP_RELATIVE_PATH).
       # Adjust if using an older Keycloak version.
       KEYCLOAK_HEALTH_URL: http://keycloak:9000/auth/health/ready
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-be-capstone}
-      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-be-capstone-api}
-      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-be-capstone-secret}
-      KEYCLOAK_REDIRECT_URI: ${PUBLIC_URL:-http://localhost}/api/auth/callback
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
+      KEYCLOAK_REDIRECT_URI: ${PUBLIC_URL}/api/auth/callback
       REDIS_URL: redis://redis:6379
-      SESSION_SECRET: ${SESSION_SECRET:-change-me-to-a-random-secret}
+      SESSION_SECRET: ${SESSION_SECRET}
       # false: plain http://localhost (nginx :80). Set true when the public URL is https://...
-      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE}
+      FRONTEND_URL: ${FRONTEND_URL}
+      CORS_ORIGIN: ${CORS_ORIGIN}
     depends_on:
       postgres:
         condition: service_healthy
@@ -201,10 +207,12 @@ services:
     image: grafana/grafana:11.6.0
     container_name: capstone-grafana
     restart: unless-stopped
+    env_file:
+      - ./.env.prod
     environment:
-      GF_SECURITY_ADMIN_USER: ${GF_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD:-admin}
-      GF_SERVER_ROOT_URL: ${PUBLIC_URL:-http://localhost}/gfn/
+      GF_SECURITY_ADMIN_USER: ${GF_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD}
+      GF_SERVER_ROOT_URL: ${PUBLIC_URL}/gfn/
       GF_SERVER_SERVE_FROM_SUB_PATH: 'true'
     volumes:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
