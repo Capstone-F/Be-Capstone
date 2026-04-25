@@ -1,1 +1,8 @@
+#!/usr/bin/env sh
+set -e
+
+# Full repo scan for leaked secrets (fast, blocks commit)
+npm run -s secrets:scan
+
+# Staged-file checks (includes eslint-plugin-no-secrets via eslint)
 npx lint-staged
