@@ -1,0 +1,2 @@
+# Husky shell hooks must use LF; CRLF can break the shebang on Windows.
+.husky/** text eol=lf
