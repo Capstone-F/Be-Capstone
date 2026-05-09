@@ -2,18 +2,19 @@
 
 [English version](README.md)
 
-Backend API viết bằng NestJS, sử dụng PostgreSQL, Keycloak (OIDC / đăng nhập Google), TypeORM và Swagger.
+Backend API viết bằng NestJS, sử dụng PostgreSQL, Auth0 (OIDC / Google social), TypeORM và Swagger.
 
 ---
 
 ## Điều kiện tiên quyết
 
-| Công cụ | Phiên bản | Mục đích |
-|---|---|---|
-| [Node.js](https://nodejs.org) | >= 20 | Runtime |
-| [npm](https://www.npmjs.com) | >= 10 | Trình quản lý package |
-| [Docker](https://docs.docker.com/get-docker/) | >= 24 | Chạy Postgres, Keycloak và production API bằng container |
-| [Docker Compose](https://docs.docker.com/compose/) | >= 2.20 | Điều phối nhiều container |
+| Công cụ                                            | Phiên bản | Mục đích                                             |
+| -------------------------------------------------- | --------- | ---------------------------------------------------- |
+| [Node.js](https://nodejs.org)                      | >= 20     | Runtime                                              |
+| [npm](https://www.npmjs.com)                       | >= 10     | Trình quản lý package                                |
+| [Docker](https://docs.docker.com/get-docker/)      | >= 24     | Chạy Postgres, Redis và API image bằng container     |
+| [Docker Compose](https://docs.docker.com/compose/) | >= 2.20   | Điều phối nhiều container                            |
+| [Auth0 tenant](https://auth0.com/signup)           | —         | Identity provider hosted (free tier đủ dùng cho dev) |
 
 ---
 
@@ -22,19 +23,20 @@ Backend API viết bằng NestJS, sử dụng PostgreSQL, Keycloak (OIDC / đăn
 ```text
 src/
   config/          Quản lý env tập trung (ConfigModule, env.config.ts)
-  auth/            Các endpoint OIDC (login, callback, token, refresh, logout, me)
-  health/          Endpoint kiểm tra sức khỏe API, DB, Keycloak
-  users/           User entity và service insert/update user khi đăng nhập
+  auth/            Endpoint OIDC chạy với Auth0 (login, callback, status, me, logout)
+  health/          Endpoint kiểm tra sức khỏe API, DB, Auth0, Redis
+  users/           User entity và service insert/update khi đăng nhập
   app.module.ts    Root module
   main.ts          Bootstrap, validate env, cấu hình Swagger
-keycloak/
-  realm-import/    File JSON realm để Keycloak tự import khi khởi động
 docs/
   auth.md          Hướng dẫn frontend tích hợp auth (EN)
   auth.vi.md       Hướng dẫn frontend tích hợp auth (VI)
+commitlint.config.cjs      Rule Conventional Commit cho Husky `commit-msg`
+scripts/
+  validate-branch-name.cjs Kiểm tra tên nhánh cho Husky `pre-push`
 .github/
   workflows/
-    ci.yaml        Build + test khi push / pull request
+    ci.yaml        Build + test + secretlint khi push / pull request
     build.yaml     Build image và push lên GHCR khi merge vào main
 ```
 
@@ -42,214 +44,54 @@ docs/
 
 ## Thiết lập ban đầu
 
-### 1. Tạo file `.env`
+### 1. Tạo các file `.env`
 
 ```bash
 cp .env.example .env
+cp .env.dev.example .env.dev
 ```
 
-### 2. Tạo file realm import cho Keycloak
+- **`.env`** — dùng khi chạy API trực tiếp trên máy bằng `npm run start:dev`.
+- **`.env.dev`** — dùng cho `docker compose` (Postgres / Redis local, hoặc API image khi chạy trong Compose).
 
-Thư mục `keycloak/realm-import/` đang được **gitignore** vì có thể chứa secret thật (ví dụ Google OAuth credentials). Bạn cần tự tạo trước khi chạy Keycloak.
+Nếu dùng compose production:
 
 ```bash
-mkdir -p keycloak/realm-import
+cp .env.prod.example .env.prod
 ```
 
-Sau đó tạo file `keycloak/realm-import/be-capstone-realm.json` với nội dung sau:
+### 2. Cấu hình Auth0 tenant
 
-```json
-{
-  "realm": "be-capstone",
-  "enabled": true,
-  "loginTheme": "capstone",
-  "registrationAllowed": true,
-  "resetPasswordAllowed": true,
-  "rememberMe": true,
-  "requiredActions": [
-    {
-      "alias": "VERIFY_PROFILE",
-      "name": "Verify Profile",
-      "providerId": "VERIFY_PROFILE",
-      "enabled": false,
-      "defaultAction": false,
-      "priority": 90
-    }
-  ],
-  "clients": [
-    {
-      "clientId": "be-capstone-api",
-      "name": "be-capstone-api",
-      "enabled": true,
-      "protocol": "openid-connect",
-      "publicClient": false,
-      "standardFlowEnabled": true,
-      "directAccessGrantsEnabled": false,
-      "serviceAccountsEnabled": true,
-      "secret": "be-capstone-secret",
-      "redirectUris": ["*"],
-      "webOrigins": ["*"],
-      "attributes": {
-        "post.logout.redirect.uris": "+"
-      },
-      "protocolMappers": [
-        {
-          "name": "identity-provider-mapper",
-          "protocol": "openid-connect",
-          "protocolMapper": "oidc-usersessionmodel-note-mapper",
-          "consentRequired": false,
-          "config": {
-            "user.session.note": "identity_provider",
-            "id.token.claim": "true",
-            "access.token.claim": "true",
-            "claim.name": "identity_provider",
-            "jsonType.label": "String"
-          }
-        }
-      ]
-    }
-  ],
-  "authenticationFlows": [
-    {
-      "alias": "capstone first broker login",
-      "description": "First broker login flow: review profile then create or link user",
-      "providerId": "basic-flow",
-      "topLevel": true,
-      "builtIn": false,
-      "authenticationExecutions": [
-        {
-          "authenticator": "idp-review-profile",
-          "authenticatorFlow": false,
-          "requirement": "REQUIRED",
-          "priority": 10,
-          "authenticatorConfig": "review profile config"
-        },
-        {
-          "authenticatorFlow": true,
-          "requirement": "REQUIRED",
-          "priority": 20,
-          "flowAlias": "capstone create or link user"
-        }
-      ]
-    },
-    {
-      "alias": "capstone create or link user",
-      "providerId": "basic-flow",
-      "topLevel": false,
-      "builtIn": false,
-      "authenticationExecutions": [
-        {
-          "authenticator": "idp-create-user-if-unique",
-          "requirement": "ALTERNATIVE",
-          "priority": 10
-        },
-        {
-          "authenticatorFlow": true,
-          "requirement": "ALTERNATIVE",
-          "priority": 20,
-          "flowAlias": "capstone handle existing account"
-        }
-      ]
-    },
-    {
-      "alias": "capstone handle existing account",
-      "providerId": "basic-flow",
-      "topLevel": false,
-      "builtIn": false,
-      "authenticationExecutions": [
-        {
-          "authenticator": "idp-confirm-link",
-          "requirement": "REQUIRED",
-          "priority": 10
-        },
-        {
-          "authenticator": "idp-email-verification",
-          "requirement": "ALTERNATIVE",
-          "priority": 20
-        },
-        {
-          "authenticator": "idp-username-password-form",
-          "requirement": "ALTERNATIVE",
-          "priority": 30
-        }
-      ]
-    }
-  ],
-  "authenticatorConfig": [
-    {
-      "alias": "review profile config",
-      "config": {
-        "update.profile.on.first.login": "on"
-      }
-    }
-  ],
-  "identityProviders": [
-    {
-      "alias": "google",
-      "displayName": "Google",
-      "providerId": "google",
-      "enabled": true,
-      "trustEmail": true,
-      "storeToken": false,
-      "addReadTokenRoleOnCreate": false,
-      "authenticateByDefault": false,
-      "linkOnly": false,
-      "firstBrokerLoginFlowAlias": "capstone first broker login",
-      "config": {
-        "clientId": "REPLACE_WITH_GOOGLE_CLIENT_ID",
-        "clientSecret": "REPLACE_WITH_GOOGLE_CLIENT_SECRET",
-        "syncMode": "FORCE",
-        "useJwksUrl": "true"
-      }
-    }
-  ],
-  "identityProviderMappers": [
-    {
-      "name": "google-email-mapper",
-      "identityProviderAlias": "google",
-      "identityProviderMapper": "oidc-user-attribute-idp-mapper",
-      "config": {
-        "syncMode": "INHERIT",
-        "claim": "email",
-        "user.attribute": "email"
-      }
-    },
-    {
-      "name": "google-name-mapper",
-      "identityProviderAlias": "google",
-      "identityProviderMapper": "oidc-user-attribute-idp-mapper",
-      "config": {
-        "syncMode": "INHERIT",
-        "claim": "name",
-        "user.attribute": "name"
-      }
-    }
-  ]
-}
-```
+Trong [Auth0 dashboard](https://manage.auth0.com):
 
-> Hãy thay `REPLACE_WITH_GOOGLE_CLIENT_ID` và `REPLACE_WITH_GOOGLE_CLIENT_SECRET` bằng thông tin thật của Google OAuth. Nếu chưa cần đăng nhập Google, bạn có thể tạm để placeholder và cấu hình sau.
+1. **Tạo Application** → "Regular Web Application". Ghi lại **Domain**, **Client ID**, **Client Secret**.
+2. **Allowed Callback URLs** phải có `http://localhost:3000/auth/callback` (và `http://localhost:3001/auth/callback` nếu dùng `docker-compose.yaml`, kèm URL production nếu cần).
+3. **Allowed Logout URLs** phải có `FRONTEND_URL` (ví dụ `http://localhost:5173`).
+4. **APIs** → **Create API**. Đặt identifier duy nhất, ví dụ `https://api.be-capstone.local`. Đây là giá trị **`AUTH0_AUDIENCE`**.
+5. **Authentication** → **Social** → bật **Google** (connection mặc định là `google-oauth2`). Với tenant non-dev, hãy thêm Google OAuth Client ID / Secret của bạn.
+6. Điền `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_AUDIENCE` tương ứng vào `.env` (và `.env.dev` / `.env.prod` nếu dùng Compose).
+
+> Auth0 phát hành access token với `iss=https://${AUTH0_DOMAIN}/`. Luôn dùng cùng một domain ở browser và server để token validate được khớp.
 
 ---
 
 ## Chạy nhanh
 
-> **Tại sao API chạy trực tiếp trên máy, không chạy trong Docker Compose:**
-> API sử dụng `KEYCLOAK_URL=http://localhost:8080` và `KEYCLOAK_HEALTH_URL=http://localhost:9000/health/ready` để kết nối Keycloak. Điều này đảm bảo issuer (`iss`) trong JWT luôn là `http://localhost:8080/...` cho cả browser lẫn server — tránh lỗi xác thực token do hostname không khớp. Nếu API chạy trong Docker Compose, `localhost` sẽ trỏ tới chính container thay vì máy host, khiến Keycloak và Postgres không thể truy cập được. Docker Compose chỉ dùng để chạy Postgres và Keycloak; API cần chạy trực tiếp trên máy của bạn.
+> **Tại sao API chạy trực tiếp trên máy chứ không chạy trong Compose:**
+> Auth0 là dịch vụ hosted nên API chỉ cần internet là kết nối được — kể cả khi chạy ngay trên máy bạn. Compose ở local chỉ phục vụ Postgres và Redis. Service `be-api` trong `docker-compose.yaml` chỉ tùy chọn khi bạn muốn chạy luôn cả image production.
 
-### 1. Chạy Postgres và Keycloak
+### 1. Chạy Postgres và Redis
 
-> Hãy đảm bảo bạn đã hoàn thành phần [Thiết lập ban đầu](#thiết-lập-ban-đầu).
+> Hãy đảm bảo bạn đã hoàn tất [Thiết lập ban đầu](#thiết-lập-ban-đầu).
 
 ```bash
-docker compose up -d
+docker compose up -d postgres redis
 ```
 
-| Dịch vụ | URL |
-|---|---|
-| Keycloak admin | http://localhost:8080 (`admin` / `admin`) |
-| Keycloak health | http://localhost:9000/health/ready |
+| Dịch vụ  | URL                                                |
+| -------- | -------------------------------------------------- |
 | Postgres | localhost:5432 (`admin` / `admin` / `be-capstone`) |
+| Redis    | localhost:6379                                     |
 
 Dừng container:
 
@@ -257,7 +99,7 @@ Dừng container:
 docker compose down
 ```
 
-Xóa luôn volume database (buộc Keycloak import lại realm):
+Xóa luôn volume (drop bảng `users` cũ — hữu ích sau khi migrate Auth0 để cột `auth0Sub` mới được tạo lại sạch sẽ):
 
 ```bash
 docker compose down -v
@@ -270,10 +112,10 @@ npm install
 npm run start:dev
 ```
 
-| Dịch vụ | URL |
-|---|---|
-| API | http://localhost:3000 |
-| Swagger docs | http://localhost:3000/docs |
+| Dịch vụ      | URL                          |
+| ------------ | ---------------------------- |
+| API          | http://localhost:3000        |
+| Swagger docs | http://localhost:3000/docs   |
 | Health check | http://localhost:3000/health |
 
 API sẽ chạy tại `http://localhost:3000` với hot-reload.
@@ -284,33 +126,58 @@ API sẽ chạy tại `http://localhost:3000` với hot-reload.
 
 Tất cả env được quản lý tập trung trong `src/config/env.config.ts`.
 
-| Biến | Bắt buộc | Mặc định | Mô tả |
-|---|---|---|---|
-| `NODE_ENV` | Không | `development` | Môi trường chạy |
-| `PORT` | Không | `3000` | Port của API |
-| `DATABASE_URL` | Có | — | Chuỗi kết nối Postgres |
-| `KEYCLOAK_URL` | Có | — | URL gốc của Keycloak (dùng cho cả API và browser redirect) |
-| `KEYCLOAK_HEALTH_URL` | Không | `http://localhost:9000/health/ready` | Endpoint health của Keycloak |
-| `KEYCLOAK_REALM` | Không | `be-capstone` | Tên realm Keycloak |
-| `KEYCLOAK_CLIENT_ID` | Không | `be-capstone-api` | OIDC client ID |
-| `KEYCLOAK_CLIENT_SECRET` | Không | `be-capstone-secret` | OIDC client secret |
-| `KEYCLOAK_REDIRECT_URI` | Không | `http://localhost:3000/auth/callback` | Redirect URI mặc định |
+| Biến                      | Bắt buộc | Mặc định                               | Mô tả                                                                       |
+| ------------------------- | -------- | -------------------------------------- | --------------------------------------------------------------------------- |
+| `NODE_ENV`                | Không    | `development`                          | Môi trường chạy                                                             |
+| `PORT`                    | Không    | `3000`                                 | Port của API                                                                |
+| `DATABASE_URL`            | Có       | —                                      | Chuỗi kết nối Postgres                                                      |
+| `AUTH0_DOMAIN`            | Có       | —                                      | Tenant domain (không kèm protocol). Issuer = `https://${AUTH0_DOMAIN}/`     |
+| `AUTH0_CLIENT_ID`         | Có       | —                                      | Auth0 application client id                                                 |
+| `AUTH0_CLIENT_SECRET`     | Có       | —                                      | Auth0 application client secret                                             |
+| `AUTH0_AUDIENCE`          | Có       | —                                      | Auth0 API identifier (truyền vào `audience` để Auth0 cấp access token thật) |
+| `AUTH0_REDIRECT_URI`      | Không    | `http://localhost:3000/auth/callback`  | URL Auth0 redirect về sau authorize. Phải nằm trong Allowed Callback URLs   |
+| `AUTH0_LOGOUT_RETURN_URL` | Không    | `FRONTEND_URL`                         | URL Auth0 redirect về sau v2/logout. Phải nằm trong Allowed Logout URLs     |
+| `REDIS_URL`               | Không    | `redis://localhost:6379`               | URL Redis cho session                                                       |
+| `SESSION_SECRET`          | Có       | —                                      | Secret ký session cookie                                                    |
+| `SESSION_COOKIE_SECURE`   | Không    | `true` ở production, ngược lại `false` | Đặt `false` cho HTTP local để browser nhận cookie                           |
+| `FRONTEND_URL`            | Có       | —                                      | Origin frontend (dùng cho redirect và CORS)                                 |
+| `CORS_ORIGIN`             | Không    | `FRONTEND_URL`                         | Origin CORS được phép                                                       |
 
 ---
 
 ## Các script có sẵn
 
-| Lệnh | Mô tả |
-|---|---|
-| `npm run start:dev` | Chạy ở chế độ watch |
-| `npm run start:debug` | Chạy ở chế độ debug + watch |
-| `npm run start:prod` | Chạy bản build production |
-| `npm run build` | Build TypeScript ra `dist/` |
-| `npm run test` | Chạy unit test |
-| `npm run test:e2e` | Chạy e2e test |
-| `npm run test:cov` | Chạy test và xuất coverage |
-| `npm run lint` | Lint và auto-fix |
-| `npm run format` | Format code bằng Prettier |
+| Lệnh                           | Mô tả                                                                                     |
+| ------------------------------ | ----------------------------------------------------------------------------------------- |
+| `npm run start:dev`            | Chạy ở chế độ watch                                                                       |
+| `npm run start:debug`          | Chạy ở chế độ debug + watch                                                               |
+| `npm run start:prod`           | Chạy bản build production                                                                 |
+| `npm run build`                | Build TypeScript ra `dist/`                                                               |
+| `npm run test`                 | Chạy unit test                                                                            |
+| `npm run test:e2e`             | Chạy e2e test                                                                             |
+| `npm run test:cov`             | Chạy test và xuất coverage                                                                |
+| `npm run lint`                 | Lint và auto-fix                                                                          |
+| `npm run format`               | Format code bằng Prettier                                                                 |
+| `npm run secretlint`           | Quét toàn repo tìm rò rỉ credential (cùng công cụ với CI / pre-commit qua lint-staged)    |
+| `npm run commitlint -- <file>` | Tự lint nội dung commit bằng file (giống Husky `commit-msg`; ví dụ `.git/COMMIT_EDITMSG`) |
+
+---
+
+## Quy ước commit và tên nhánh
+
+Dự án tuân theo [Conventional Commits](https://www.conventionalcommits.org/). Các **type** cho phép: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`. Ví dụ dòng chủ đề: `feat(auth): add google login`.
+
+**Tên nhánh** được kiểm tra khi `git push` (Husky `pre-push`). Dùng `<type>/<mô-tả-ngắn>` với cùng danh **type** như trên — slug chữ thường có thể chứa `-`, `.`, `_` giữa các ký tự chữ/số (tối đa 60 ký tự), ví dụ `feat/auth0-google-login`.
+
+Được **phép không theo pattern** đó: `main`, `release/*`, `hotfix/*`, `dependabot/*`, `cursor/*` (workflow tác tử Cursor).
+
+Hook Husky tự cài khi chạy **`npm install`** (script `prepare`). Trường hợp khẩn cấp: `git commit --no-verify` / `git push --no-verify`.
+
+| Hook         | Nội dung chạy                                |
+| ------------ | -------------------------------------------- |
+| `pre-commit` | lint-staged: secretlint, ESLint, Prettier    |
+| `commit-msg` | commitlint (@commitlint/config-conventional) |
+| `pre-push`   | `scripts/validate-branch-name.cjs`           |
 
 ---
 
@@ -318,136 +185,66 @@ Tất cả env được quản lý tập trung trong `src/config/env.config.ts`.
 
 ### Core
 
-| Method | Path | Mô tả |
-|---|---|---|
-| `GET` | `/` | Hello World |
-| `GET` | `/health` | Kiểm tra sức khỏe API + DB + Keycloak |
-| `GET` | `/docs` | Swagger UI |
+| Method | Path      | Mô tả                                      |
+| ------ | --------- | ------------------------------------------ |
+| `GET`  | `/`       | Hello World                                |
+| `GET`  | `/health` | Kiểm tra sức khỏe API + DB + Auth0 + Redis |
+| `GET`  | `/docs`   | Swagger UI                                 |
 
 ### Auth
 
-| Method | Path | Mô tả |
-|---|---|---|
-| `GET` | `/auth/endpoints` | OIDC discovery endpoints |
-| `GET` | `/auth/login` | Lấy authorization URL (`?idpHint=google` để đăng nhập Google) |
-| `GET` | `/auth/callback` | Exchange code qua query params |
-| `POST` | `/auth/token` | Exchange code qua JSON body |
-| `POST` | `/auth/refresh` | Refresh access token |
-| `POST` | `/auth/logout` | Thu hồi session |
-| `GET` | `/auth/me` | Lấy profile hiện tại (cần Bearer token) |
+| Method | Path             | Mô tả                                                                                                                                                                                                   |
+| ------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST` | `/auth/login`    | Trả về `{ login_uri }` — URL `/authorize` của Auth0 cho browser. Body: `{ client_redirect_uri, idpHint? }`                                                                                              |
+| `GET`  | `/auth/callback` | Auth0 redirect về đây; BFF exchange code, lưu session, rồi 302 về `client_redirect_uri`                                                                                                                 |
+| `GET`  | `/auth/status`   | `{ authenticated: boolean }`                                                                                                                                                                            |
+| `GET`  | `/auth/me`       | Profile user hiện tại (cần session cookie)                                                                                                                                                              |
+| `POST` | `/auth/logout`   | Revoke refresh token, hủy session, trả `{ success, logout_uri }`. Frontend phải redirect tới `logout_uri` để hủy luôn Auth0 SSO. Body (tùy chọn): `{ return_to }` để override `AUTH0_LOGOUT_RETURN_URL` |
 
 > Xem hướng dẫn frontend chi tiết tại [docs/auth.vi.md](docs/auth.vi.md).
 
----
+### Đăng nhập Google
 
-## Cấu hình Keycloak
-
-### Auto-import
-
-Service `keycloak` được cấu hình với `--import-realm`. Khi khởi động lần đầu, nó sẽ tự import:
-
-- Realm `be-capstone`
-- Client bảo mật `be-capstone-api`
-- Google identity provider
-- Protocol mapper để thêm claim `identity_provider` vào token
-- Custom login theme `capstone`
-- Luồng đăng nhập tùy chỉnh cho Google (chỉ yêu cầu cập nhật hồ sơ lần đầu)
-- Vô hiệu hóa `VERIFY_PROFILE` required action (tránh hỏi cập nhật hồ sơ lặp lại)
-
-File realm nằm tại `keycloak/realm-import/be-capstone-realm.json`.
-
-> Thư mục này đang **gitignore**. Xem lại phần [Thiết lập ban đầu](#thiết-lập-ban-đầu) để tạo file nếu máy mới clone repo.
-
-### Luồng xác thực tùy chỉnh
-
-Realm sử dụng luồng `capstone first broker login` cho Google IDP:
-
-```
-capstone first broker login
-├── Review Profile                     REQUIRED  (hiển thị 1 lần khi đăng nhập Google lần đầu)
-└── Create or Link User                REQUIRED  (sub-flow)
-    ├── Create User If Unique          ALTERNATIVE  (email mới → tạo user)
-    └── Handle Existing Account        ALTERNATIVE  (sub-flow, nếu email đã tồn tại)
-        ├── Confirm Link               REQUIRED
-        ├── Email Verification         ALTERNATIVE
-        └── Username/Password Form     ALTERNATIVE
-```
-
-| Tình huống | Hành vi |
-|---|---|
-| Đăng nhập Google lần đầu (user mới) | Hiển thị form cập nhật hồ sơ → tạo user → hoàn tất |
-| Đăng nhập Google lần đầu (email đã đăng ký) | Hiển thị form cập nhật hồ sơ → xác nhận liên kết → xác thực qua email hoặc mật khẩu |
-| Các lần đăng nhập Google tiếp theo | Không hỏi hồ sơ — chuyển thẳng tới callback |
-
-> **Lưu ý:** Keycloak 26.x mặc định bật `VERIFY_PROFILE` required action, khiến mỗi lần đăng nhập đều bị hỏi cập nhật hồ sơ. Realm này đã tắt tính năng đó, chỉ giữ lại form cập nhật hồ sơ trong luồng first broker login (chạy 1 lần duy nhất).
-
-### Custom Keycloak login theme
-
-Dự án hiện có sẵn một custom Keycloak login theme tại:
-
-```text
-keycloak/themes/capstone/login/
-```
-
-Các file chính:
-
-| File | Vai trò |
-|---|---|
-| `theme.properties` | Khai báo theme và parent theme (`keycloak.v2`) |
-| `login.ftl` | Layout trang đăng nhập tùy chỉnh |
-| `resources/css/styles.css` | Màu sắc, spacing, typography, responsive styling |
-
-Theme được mount vào container bằng Docker Compose:
-
-```yaml
-volumes:
-  - ./keycloak/themes:/opt/keycloak/themes
-```
-
-Và realm import đã được cấu hình để dùng theme này:
+`POST /auth/login` chấp nhận `idpHint`. Backend sẽ map `idpHint=google` thành tham số `connection=google-oauth2` của Auth0, bỏ qua màn picker Universal Login:
 
 ```json
-"loginTheme": "capstone"
+{
+  "client_redirect_uri": "http://localhost:5173/dashboard",
+  "idpHint": "google"
+}
 ```
 
-Nếu muốn tùy chỉnh thêm:
+Mọi giá trị `idpHint` khác sẽ được pass nguyên dạng vào tham số Auth0 `connection` (ví dụ `github`, `Username-Password-Authentication`).
 
-1. Sửa `keycloak/themes/capstone/login/login.ftl` để đổi bố cục/nội dung
-2. Sửa `keycloak/themes/capstone/login/resources/css/styles.css` để đổi giao diện
-3. Khởi động lại Keycloak:
+---
 
-```bash
-docker compose restart keycloak
-```
+## Cấu hình Auth0
 
-Nếu giao diện vẫn bị cache, hãy recreate container:
+### Application (trong dashboard)
 
-```bash
-docker compose up -d --force-recreate keycloak
-```
+| Trường                               | Giá trị                                                                |
+| ------------------------------------ | ---------------------------------------------------------------------- |
+| Application type                     | Regular Web Application                                                |
+| Token endpoint authentication method | `Post` (hoặc `Basic`)                                                  |
+| Allowed Callback URLs                | `http://localhost:3000/auth/callback` (và URL deploy nếu có)           |
+| Allowed Logout URLs                  | `http://localhost:5173` (và origin frontend deploy)                    |
+| Allowed Web Origins                  | `http://localhost:5173` (và origin frontend deploy)                    |
+| Refresh Token Rotation               | Bật (khuyến nghị)                                                      |
+| Refresh Token                        | Bật "Allow Offline Access" để scope `offline_access` trả refresh token |
 
-### Google identity provider
+### API (trong dashboard)
 
-Google IDP đã được chuẩn bị sẵn trong realm import với placeholder credentials. Để bật:
+| Trường                | Giá trị                                                                    |
+| --------------------- | -------------------------------------------------------------------------- |
+| Identifier (audience) | `https://api.be-capstone.local` (URI duy nhất, phải khớp `AUTH0_AUDIENCE`) |
+| Signing algorithm     | RS256                                                                      |
+| Allow Offline Access  | Bật                                                                        |
 
-1. Mở [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials
-2. Tạo OAuth 2.0 Client ID
-3. Khai báo redirect URI:
+### Google social connection
 
-```text
-http://localhost:8080/realms/be-capstone/broker/google/endpoint
-```
+Vào Auth0 dashboard → **Authentication → Social → Google** và bật connection. Auth0 dev keys mặc định đủ dùng cho prototype. Với tenant non-dev, điền Google OAuth Client ID / Secret của bạn.
 
-4. Mở Keycloak admin tại `http://localhost:8080`
-5. Vào realm `be-capstone` → Identity Providers → Google
-6. Điền Client ID và Client Secret
-7. Lưu lại
-
-Người dùng có thể đăng nhập Google bằng:
-
-```text
-GET /auth/login?idpHint=google
-```
+> Khi dùng dev keys của Auth0 thì không cần cấu hình redirect URI bên Google. Khi dùng credentials Google riêng, set **Authorized redirect URI** là `https://${AUTH0_DOMAIN}/login/callback`.
 
 ---
 
@@ -458,18 +255,19 @@ GET /auth/login?idpHint=google
 - `synchronize: true` để tự tạo bảng trong môi trường dev
 - Bảng `users` được tạo từ `src/users/user.entity.ts`
 
-| Cột | Kiểu | Mô tả |
-|---|---|---|
-| `id` | UUID | Khóa chính |
-| `keycloakSub` | string (unique) | ID bất biến từ Keycloak |
-| `email` | varchar (nullable) | Đồng bộ lại mỗi lần đăng nhập |
-| `name` | varchar (nullable) | Đồng bộ lại mỗi lần đăng nhập |
-| `provider` | string | `keycloak` hoặc `google` |
-| `isActive` | boolean | Mặc định `true` |
-| `createdAt` | timestamp | Tự động |
-| `updatedAt` | timestamp | Tự động |
+| Cột         | Kiểu               | Mô tả                                         |
+| ----------- | ------------------ | --------------------------------------------- | -------------------- | ----- |
+| `id`        | UUID               | Khóa chính                                    |
+| `auth0Sub`  | string (unique)    | ID bất biến từ Auth0 (sub claim, ví dụ `auth0 | ...`, `google-oauth2 | ...`) |
+| `email`     | varchar (nullable) | Đồng bộ lại mỗi lần đăng nhập                 |
+| `name`      | varchar (nullable) | Đồng bộ lại mỗi lần đăng nhập                 |
+| `isActive`  | boolean            | Mặc định `true`                               |
+| `createdAt` | timestamp          | Tự động                                       |
+| `updatedAt` | timestamp          | Tự động                                       |
 
 > Với production, nên đặt `synchronize: false` và dùng migration.
+
+> **Migrate từ schema Keycloak cũ:** các cột `keycloakSub` và `provider` đã bị xóa. Sau khi pull thay đổi này, hãy chạy `docker compose down -v` một lần để Postgres được tạo lại sạch sẽ với schema mới.
 
 ---
 
@@ -479,13 +277,18 @@ GET /auth/login?idpHint=google
 
 Workflow `ci.yaml` chạy khi push và pull request:
 
+- Job **secretlint**: `npm ci`, sau đó `npm run secretlint` (quét cây file đã track tìm secret).
+- Job **test**: như cũ, chạy song song với secretlint.
+
 1. Khởi tạo Postgres service container (truy cập tại `localhost:5432`)
 2. `npm ci`
 3. `npm run build`
 4. `npm run test`
 5. `npm run test:e2e`
 
-> **Lưu ý:** Keycloak **không** chạy trong CI. Các biến `KEYCLOAK_URL`, v.v. được đặt sẵn để validation env pass, nhưng unit test mock toàn bộ HTTP call tới Keycloak. API chạy trực tiếp trên GitHub Actions runner, không chạy trong Docker.
+> **Các hook:** [Husky](https://typicode.github.io/husky/) — **pre-commit** chạy `lint-staged` (secretlint trên file stage, sau đó ESLint/Prettier); **commit-msg** chạy commitlint (Conventional Commits); **pre-push** kiểm tra tên nhánh. CI chỉ dự phòng cho secret (chứng từ commit/tên nhánh chỉ chạy local, có thể bỏ qua bằng `--no-verify`).
+
+> **Lưu ý:** Auth0 **không** được kết nối trong CI. Các biến `AUTH0_*` được đặt giá trị placeholder để config validation pass; mọi HTTP call tới Auth0 đều được mock trong unit / e2e test.
 
 ### Build & publish image
 
@@ -495,48 +298,49 @@ Workflow `build.yaml` chạy khi push vào `main`:
 2. Push lên GitHub Container Registry `ghcr.io/<owner>/<repo>`
 3. Tag: `latest` và git SHA
 
-> **Image này chỉ dùng cho môi trường deploy** (Kubernetes, ECS, Docker Swarm). **Không** dùng cho local development — xem [Chạy nhanh](#chạy-nhanh).
+> Cùng image này được dùng bởi service `be-api` (tùy chọn) trong `docker-compose.yaml`. Để có hot-reload khi develop, hãy chạy `npm run start:dev` trên máy.
 
 ---
 
-## Docker (chỉ dùng cho production deployment)
+## Docker (image và môi trường deploy)
 
-Dockerfile tạo ra image production. **Không dùng ở local** — các URL `localhost` trong `.env` sẽ không hoạt động bên trong container. Để phát triển, hãy chạy API trực tiếp bằng `npm run start:dev`.
+Dockerfile tạo ra image production. Vì Auth0 ở off-cluster, container chỉ cần kết nối được tới **Postgres**, **Redis** và **`https://${AUTH0_DOMAIN}/`** — các URL kiểu `localhost` thường phải thay bằng hostname thật.
 
 ### Dockerfile nhiều stage
 
-| Stage | Mục đích |
-|---|---|
-| `deps` | Cài toàn bộ dependency |
-| `builder` | Build TypeScript |
-| `runner` | Ảnh production chỉ chứa dependency cần thiết và output đã build |
+| Stage     | Mục đích                                                          |
+| --------- | ----------------------------------------------------------------- |
+| `deps`    | Cài toàn bộ dependency                                            |
+| `builder` | Build TypeScript                                                  |
+| `runner`  | Image production chỉ chứa dependency cần thiết và output đã build |
 
-### Chạy image trong môi trường deploy
-
-Container cần env vars trỏ tới **Postgres và Keycloak thật** (không phải `localhost`):
+### Chạy image trực tiếp
 
 ```bash
 docker run -p 3000:3000 \
   -e DATABASE_URL=postgresql://user:pass@db-host:5432/be-capstone \
-  -e KEYCLOAK_URL=https://auth.example.com \
-  -e KEYCLOAK_HEALTH_URL=https://auth.example.com:9000/health/ready \
-  -e KEYCLOAK_REALM=be-capstone \
-  -e KEYCLOAK_CLIENT_ID=be-capstone-api \
-  -e KEYCLOAK_CLIENT_SECRET=your-secret \
-  -e KEYCLOAK_REDIRECT_URI=https://app.example.com/auth/callback \
+  -e AUTH0_DOMAIN=tenant.us.auth0.com \
+  -e AUTH0_CLIENT_ID=your-client-id \
+  -e AUTH0_CLIENT_SECRET=your-client-secret \
+  -e AUTH0_AUDIENCE=https://api.example.com \
+  -e AUTH0_REDIRECT_URI=https://api.example.com/auth/callback \
+  -e AUTH0_LOGOUT_RETURN_URL=https://app.example.com \
+  -e REDIS_URL=redis://redis-host:6379 \
+  -e SESSION_SECRET=long-random-secret \
+  -e FRONTEND_URL=https://app.example.com \
   -e NODE_ENV=production \
   ghcr.io/<owner>/be-capstone:latest
 ```
 
-| Biến | Mô tả |
-|---|---|
-| `DATABASE_URL` | Chuỗi kết nối Postgres (phải truy cập được từ container) |
-| `KEYCLOAK_URL` | URL gốc Keycloak — phải giống URL mà **browser** dùng để truy cập Keycloak |
-| `KEYCLOAK_HEALTH_URL` | Endpoint health management của Keycloak |
-| `KEYCLOAK_CLIENT_SECRET` | Phải trùng với secret đã cấu hình trong Keycloak |
-| `KEYCLOAK_REDIRECT_URI` | Phải trùng với URL callback public của frontend |
-
-> **Quan trọng:** `KEYCLOAK_URL` phải là URL mà browser dùng để truy cập Keycloak, để claim `iss` trong JWT khớp giữa token phát hành từ browser và server-side validation. Trong môi trường deploy, thường là domain public như `https://auth.example.com`.
+| Biến                                          | Mô tả                                                                         |
+| --------------------------------------------- | ----------------------------------------------------------------------------- |
+| `DATABASE_URL`                                | Chuỗi kết nối Postgres (phải truy cập được từ container)                      |
+| `AUTH0_DOMAIN`                                | Auth0 tenant domain (không kèm protocol). Issuer = `https://${AUTH0_DOMAIN}/` |
+| `AUTH0_CLIENT_SECRET`                         | Phải trùng với secret của application trong Auth0                             |
+| `AUTH0_AUDIENCE`                              | Phải trùng identifier của API trong Auth0                                     |
+| `AUTH0_REDIRECT_URI`                          | Phải nằm trong Allowed Callback URLs của application                          |
+| `AUTH0_LOGOUT_RETURN_URL`                     | Phải nằm trong Allowed Logout URLs của application                            |
+| `REDIS_URL`, `SESSION_SECRET`, `FRONTEND_URL` | Bắt buộc cho session, CORS / redirect                                         |
 
 ### Build thủ công
 

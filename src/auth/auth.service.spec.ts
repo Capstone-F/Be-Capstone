@@ -16,9 +16,9 @@ function makeJwt(payload: Record<string, unknown>): string {
   return `${header}.${body}.fake-signature`;
 }
 
-const mockUser = { id: 'uuid-1', keycloakSub: 'sub-001' } as User;
+const mockUser = { id: 'uuid-1', auth0Sub: 'auth0|abc' } as User;
 const mockUsersService = {
-  upsertFromKeycloak: jest
+  upsertFromAuth0: jest
     .fn()
     .mockResolvedValue({ user: mockUser, isNewUser: false }),
   findById: jest.fn().mockResolvedValue(mockUser),
@@ -27,12 +27,13 @@ const mockUsersService = {
 describe('AuthService', () => {
   const originalFetch = global.fetch;
   const config = {
-    keycloakPublicUrl: 'http://localhost:8080',
-    keycloakInternalUrl: 'http://keycloak:8080',
-    keycloakRealm: 'be-capstone',
-    keycloakClientId: 'be-capstone-api',
-    keycloakClientSecret: 'be-capstone-secret',
-    keycloakRedirectUri: 'http://localhost:3000/auth/callback',
+    auth0Domain: 'tenant.us.auth0.com',
+    auth0Issuer: 'https://tenant.us.auth0.com/',
+    auth0ClientId: 'client-id',
+    auth0ClientSecret: 'client-secret',
+    auth0Audience: 'https://api.be-capstone.local',
+    auth0RedirectUri: 'http://localhost:3000/auth/callback',
+    auth0LogoutReturnUrl: 'http://localhost:5173',
     frontendUrl: 'http://localhost:5173',
   } as AppConfigService;
   const service = new AuthService(config, mockUsersService);
@@ -48,25 +49,40 @@ describe('AuthService', () => {
       const result = service.buildLoginUrl();
       const url = new URL(result.url);
 
-      expect(url.pathname).toContain('/protocol/openid-connect/auth');
-      expect(url.searchParams.get('client_id')).toBe('be-capstone-api');
+      expect(url.origin).toBe('https://tenant.us.auth0.com');
+      expect(url.pathname).toBe('/authorize');
+      expect(url.searchParams.get('client_id')).toBe('client-id');
       expect(url.searchParams.get('redirect_uri')).toBe(
         'http://localhost:3000/auth/callback',
       );
+      expect(url.searchParams.get('audience')).toBe(
+        'https://api.be-capstone.local',
+      );
+      expect(url.searchParams.get('scope')).toBe(
+        'openid profile email offline_access',
+      );
+      expect(url.searchParams.get('response_type')).toBe('code');
+      expect(url.searchParams.has('connection')).toBe(false);
       expect(result.state).toBeTruthy();
     });
 
-    it('should add kc_idp_hint when idpHint is provided', () => {
+    it('should map idpHint=google to connection=google-oauth2', () => {
       const result = service.buildLoginUrl('google');
       const url = new URL(result.url);
-      expect(url.searchParams.get('kc_idp_hint')).toBe('google');
+      expect(url.searchParams.get('connection')).toBe('google-oauth2');
+    });
+
+    it('should pass through other idpHint values as connection name', () => {
+      const result = service.buildLoginUrl('github');
+      const url = new URL(result.url);
+      expect(url.searchParams.get('connection')).toBe('github');
     });
   });
 
   describe('exchangeCodeAndUpsertUser', () => {
     it('should exchange code and return session data', async () => {
       const idToken = makeJwt({
-        sub: '123',
+        sub: 'google-oauth2|123',
         email: 'user@test.com',
         name: 'User',
       });
@@ -90,14 +106,17 @@ describe('AuthService', () => {
       expect(result.user).toEqual(mockUser);
       expect(result.isNewUser).toBe(false);
       expect(result.tokenExpiresAt).toBeGreaterThan(Date.now());
-      expect(mockUsersService.upsertFromKeycloak).toHaveBeenCalledWith(
-        expect.objectContaining({ sub: '123' }),
-        'google',
+      expect(result.idpHint).toBe('google');
+      expect(mockUsersService.upsertFromAuth0).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: 'google-oauth2|123' }),
       );
     });
 
     it('should fall back to access_token if id_token is missing', async () => {
-      const accessToken = makeJwt({ sub: 'abc', email: 'fallback@test.com' });
+      const accessToken = makeJwt({
+        sub: 'auth0|abc',
+        email: 'fallback@test.com',
+      });
 
       global.fetch = jest.fn().mockResolvedValueOnce({
         ok: true,
@@ -112,9 +131,9 @@ describe('AuthService', () => {
       const result = await service.exchangeCodeAndUpsertUser('code-xyz');
 
       expect(result.user).toEqual(mockUser);
-      expect(mockUsersService.upsertFromKeycloak).toHaveBeenCalledWith(
-        expect.objectContaining({ sub: 'abc' }),
-        'keycloak',
+      expect(result.idpHint).toBeNull();
+      expect(mockUsersService.upsertFromAuth0).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: 'auth0|abc' }),
       );
     });
 
@@ -128,6 +147,25 @@ describe('AuthService', () => {
       await expect(
         service.exchangeCodeAndUpsertUser('bad'),
       ).rejects.toBeInstanceOf(BadGatewayException);
+    });
+
+    it('should hit the Auth0 oauth/token endpoint', async () => {
+      const idToken = makeJwt({ sub: 'auth0|x' });
+      global.fetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          JSON.stringify({
+            access_token: 'at',
+            id_token: idToken,
+            token_type: 'Bearer',
+            expires_in: 300,
+          }),
+      } as Response);
+
+      await service.exchangeCodeAndUpsertUser('abc');
+
+      const call = (global.fetch as jest.Mock).mock.calls[0];
+      expect(call[0]).toBe('https://tenant.us.auth0.com/oauth/token');
     });
   });
 
@@ -188,7 +226,7 @@ describe('AuthService', () => {
   });
 
   describe('revokeToken', () => {
-    it('should call keycloak logout endpoint', async () => {
+    it('should call Auth0 oauth/revoke endpoint', async () => {
       global.fetch = jest.fn().mockResolvedValueOnce({
         ok: true,
         text: async () => '',
@@ -197,7 +235,9 @@ describe('AuthService', () => {
       await service.revokeToken('some-rt');
 
       const call = (global.fetch as jest.Mock).mock.calls[0];
-      expect(call[0]).toContain('/protocol/openid-connect/logout');
+      expect(call[0]).toBe('https://tenant.us.auth0.com/oauth/revoke');
+      const body = String(call[1].body);
+      expect(body).toContain('token=some-rt');
     });
 
     it('should not throw if revocation fails', async () => {
@@ -208,6 +248,25 @@ describe('AuthService', () => {
       } as Response);
 
       await expect(service.revokeToken('bad-rt')).resolves.toBeUndefined();
+    });
+  });
+
+  describe('buildLogoutUrl', () => {
+    it('should build Auth0 v2/logout URL with default returnTo', () => {
+      const url = new URL(service.buildLogoutUrl());
+      expect(url.origin).toBe('https://tenant.us.auth0.com');
+      expect(url.pathname).toBe('/v2/logout');
+      expect(url.searchParams.get('client_id')).toBe('client-id');
+      expect(url.searchParams.get('returnTo')).toBe('http://localhost:5173');
+    });
+
+    it('should respect explicit returnTo', () => {
+      const url = new URL(
+        service.buildLogoutUrl('http://localhost:5173/goodbye'),
+      );
+      expect(url.searchParams.get('returnTo')).toBe(
+        'http://localhost:5173/goodbye',
+      );
     });
   });
 

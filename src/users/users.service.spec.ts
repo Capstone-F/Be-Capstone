@@ -11,7 +11,7 @@ const makeRepo = (overrides: Partial<Repository<User>> = {}) =>
   }) as unknown as Repository<User>;
 
 const baseProfile: Record<string, unknown> = {
-  sub: 'kc-sub-001',
+  sub: 'auth0|001',
   email: 'user@example.com',
   name: 'John Doe',
 };
@@ -19,14 +19,13 @@ const baseProfile: Record<string, unknown> = {
 describe('UsersService', () => {
   afterEach(() => jest.clearAllMocks());
 
-  describe('upsertFromKeycloak — new user', () => {
+  describe('upsertFromAuth0 — new user', () => {
     it('should create and return user with isNewUser=true', async () => {
       const saved: Partial<User> = {
         id: 'uuid-1',
-        keycloakSub: 'kc-sub-001',
+        auth0Sub: 'auth0|001',
         email: 'user@example.com',
         name: 'John Doe',
-        provider: 'google',
         isActive: true,
       };
       const repo = makeRepo({
@@ -36,24 +35,21 @@ describe('UsersService', () => {
       });
       const service = new UsersService(repo);
 
-      const result = await service.upsertFromKeycloak(baseProfile, 'google');
+      const result = await service.upsertFromAuth0(baseProfile);
 
-      expect(repo.findOneBy).toHaveBeenCalledWith({
-        keycloakSub: 'kc-sub-001',
-      });
+      expect(repo.findOneBy).toHaveBeenCalledWith({ auth0Sub: 'auth0|001' });
       expect(repo.create).toHaveBeenCalledWith({
-        keycloakSub: 'kc-sub-001',
+        auth0Sub: 'auth0|001',
         email: 'user@example.com',
         name: 'John Doe',
-        provider: 'google',
       });
       expect(repo.save).toHaveBeenCalledTimes(1);
       expect(result.isNewUser).toBe(true);
       expect(result.user).toEqual(saved);
     });
 
-    it('should fall back to preferred_username when name is absent', async () => {
-      const profile = { sub: 'kc-sub-002', preferred_username: 'johnd' };
+    it('should fall back to nickname when name is absent', async () => {
+      const profile = { sub: 'auth0|002', nickname: 'johnd' };
       const repo = makeRepo({
         findOneBy: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockImplementation((v) => v),
@@ -61,14 +57,15 @@ describe('UsersService', () => {
       });
       const service = new UsersService(repo);
 
-      await service.upsertFromKeycloak(profile, 'keycloak');
+      await service.upsertFromAuth0(profile);
 
       expect(repo.create).toHaveBeenCalledWith(
         expect.objectContaining({ name: 'johnd' }),
       );
     });
 
-    it('should default provider to keycloak when not supplied', async () => {
+    it('should fall back to preferred_username when name and nickname are absent', async () => {
+      const profile = { sub: 'auth0|003', preferred_username: 'johnpu' };
       const repo = makeRepo({
         findOneBy: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockImplementation((v) => v),
@@ -76,22 +73,21 @@ describe('UsersService', () => {
       });
       const service = new UsersService(repo);
 
-      await service.upsertFromKeycloak(baseProfile);
+      await service.upsertFromAuth0(profile);
 
       expect(repo.create).toHaveBeenCalledWith(
-        expect.objectContaining({ provider: 'keycloak' }),
+        expect.objectContaining({ name: 'johnpu' }),
       );
     });
   });
 
-  describe('upsertFromKeycloak — existing user', () => {
+  describe('upsertFromAuth0 — existing user', () => {
     it('should update email and name then return isNewUser=false', async () => {
       const existing = {
         id: 'uuid-1',
-        keycloakSub: 'kc-sub-001',
+        auth0Sub: 'auth0|001',
         email: 'old@example.com',
         name: 'Old Name',
-        provider: 'google',
       } as User;
       const repo = makeRepo({
         findOneBy: jest.fn().mockResolvedValue(existing),
@@ -100,7 +96,7 @@ describe('UsersService', () => {
       });
       const service = new UsersService(repo);
 
-      const result = await service.upsertFromKeycloak(baseProfile, 'google');
+      const result = await service.upsertFromAuth0(baseProfile);
 
       expect(repo.create).not.toHaveBeenCalled();
       expect(existing.email).toBe('user@example.com');
@@ -109,22 +105,20 @@ describe('UsersService', () => {
     });
   });
 
-  describe('findByKeycloakSub', () => {
+  describe('findByAuth0Sub', () => {
     it('should return user when found', async () => {
-      const user = { keycloakSub: 'kc-sub-001' } as User;
+      const user = { auth0Sub: 'auth0|001' } as User;
       const repo = makeRepo({ findOneBy: jest.fn().mockResolvedValue(user) });
       const service = new UsersService(repo);
 
-      await expect(service.findByKeycloakSub('kc-sub-001')).resolves.toEqual(
-        user,
-      );
+      await expect(service.findByAuth0Sub('auth0|001')).resolves.toEqual(user);
     });
 
     it('should return null when not found', async () => {
       const repo = makeRepo({ findOneBy: jest.fn().mockResolvedValue(null) });
       const service = new UsersService(repo);
 
-      await expect(service.findByKeycloakSub('missing')).resolves.toBeNull();
+      await expect(service.findByAuth0Sub('missing')).resolves.toBeNull();
     });
   });
 });

@@ -2,18 +2,19 @@
 
 [Vietnamese version](README.vi.md)
 
-NestJS backend API with PostgreSQL, Keycloak (OIDC / Google login), TypeORM, and Swagger.
+NestJS backend API with PostgreSQL, Auth0 (OIDC / Google social), TypeORM, and Swagger.
 
 ---
 
 ## Prerequisites
 
-| Tool | Version | Purpose |
-|---|---|---|
-| [Node.js](https://nodejs.org) | >= 20 | Runtime |
-| [npm](https://www.npmjs.com) | >= 10 | Package manager |
-| [Docker](https://docs.docker.com/get-docker/) | >= 24 | Containers for Postgres, Keycloak, and production API |
-| [Docker Compose](https://docs.docker.com/compose/) | >= 2.20 | Multi-container orchestration |
+| Tool                                               | Version | Purpose                                                |
+| -------------------------------------------------- | ------- | ------------------------------------------------------ |
+| [Node.js](https://nodejs.org)                      | >= 20   | Runtime                                                |
+| [npm](https://www.npmjs.com)                       | >= 10   | Package manager                                        |
+| [Docker](https://docs.docker.com/get-docker/)      | >= 24   | Containers for Postgres, Redis, and the API image      |
+| [Docker Compose](https://docs.docker.com/compose/) | >= 2.20 | Multi-container orchestration                          |
+| [Auth0 tenant](https://auth0.com/signup)           | —       | Hosted identity provider (free tier is enough for dev) |
 
 ---
 
@@ -22,18 +23,19 @@ NestJS backend API with PostgreSQL, Keycloak (OIDC / Google login), TypeORM, and
 ```
 src/
   config/          Centralized env config (ConfigModule, env.config.ts)
-  auth/            OIDC auth endpoints (login, callback, token, refresh, logout, me)
-  health/          Health check endpoint (API, DB, Keycloak)
+  auth/            OIDC auth endpoints against Auth0 (login, callback, status, me, logout)
+  health/          Health check endpoint (API, DB, Auth0, Redis)
   users/           User entity + upsert-on-login service
   app.module.ts    Root module
   main.ts          Bootstrap with env validation + Swagger setup
-keycloak/
-  realm-import/    Keycloak realm JSON auto-imported on startup
 docs/
   auth.md          Frontend auth integration guide
+commitlint.config.cjs      Conventional Commit rules for Husky `commit-msg`
+scripts/
+  validate-branch-name.cjs Branch naming checks for Husky `pre-push`
 .github/
   workflows/
-    ci.yaml        PR/push: lint, build, test (with Postgres service)
+    ci.yaml        PR/push: secretlint, build, test (with Postgres service)
     build.yaml     Push to main: build + publish Docker image to GHCR
 ```
 
@@ -41,214 +43,54 @@ docs/
 
 ## Initial setup
 
-### 1. Create your `.env` file
+### 1. Create your `.env` files
 
 ```bash
 cp .env.example .env
+cp .env.dev.example .env.dev
 ```
 
-### 2. Create the Keycloak realm import file
+- **`.env`** — used when you run the API with Node on your machine (`npm run start:dev`).
+- **`.env.dev`** — used by `docker compose` for local Postgres / Redis (and the API image when run in Compose).
 
-The `keycloak/realm-import/` directory is **gitignored** because it can contain secrets (Google OAuth credentials). You must create it manually before starting Keycloak.
+If you also use the production-style Compose file:
 
 ```bash
-mkdir -p keycloak/realm-import
+cp .env.prod.example .env.prod
 ```
 
-Then create `keycloak/realm-import/be-capstone-realm.json` with the following content:
+### 2. Configure your Auth0 tenant
 
-```json
-{
-  "realm": "be-capstone",
-  "enabled": true,
-  "loginTheme": "capstone",
-  "registrationAllowed": true,
-  "resetPasswordAllowed": true,
-  "rememberMe": true,
-  "requiredActions": [
-    {
-      "alias": "VERIFY_PROFILE",
-      "name": "Verify Profile",
-      "providerId": "VERIFY_PROFILE",
-      "enabled": false,
-      "defaultAction": false,
-      "priority": 90
-    }
-  ],
-  "clients": [
-    {
-      "clientId": "be-capstone-api",
-      "name": "be-capstone-api",
-      "enabled": true,
-      "protocol": "openid-connect",
-      "publicClient": false,
-      "standardFlowEnabled": true,
-      "directAccessGrantsEnabled": false,
-      "serviceAccountsEnabled": true,
-      "secret": "be-capstone-secret",
-      "redirectUris": ["*"],
-      "webOrigins": ["*"],
-      "attributes": {
-        "post.logout.redirect.uris": "+"
-      },
-      "protocolMappers": [
-        {
-          "name": "identity-provider-mapper",
-          "protocol": "openid-connect",
-          "protocolMapper": "oidc-usersessionmodel-note-mapper",
-          "consentRequired": false,
-          "config": {
-            "user.session.note": "identity_provider",
-            "id.token.claim": "true",
-            "access.token.claim": "true",
-            "claim.name": "identity_provider",
-            "jsonType.label": "String"
-          }
-        }
-      ]
-    }
-  ],
-  "authenticationFlows": [
-    {
-      "alias": "capstone first broker login",
-      "description": "First broker login flow: review profile then create or link user",
-      "providerId": "basic-flow",
-      "topLevel": true,
-      "builtIn": false,
-      "authenticationExecutions": [
-        {
-          "authenticator": "idp-review-profile",
-          "authenticatorFlow": false,
-          "requirement": "REQUIRED",
-          "priority": 10,
-          "authenticatorConfig": "review profile config"
-        },
-        {
-          "authenticatorFlow": true,
-          "requirement": "REQUIRED",
-          "priority": 20,
-          "flowAlias": "capstone create or link user"
-        }
-      ]
-    },
-    {
-      "alias": "capstone create or link user",
-      "providerId": "basic-flow",
-      "topLevel": false,
-      "builtIn": false,
-      "authenticationExecutions": [
-        {
-          "authenticator": "idp-create-user-if-unique",
-          "requirement": "ALTERNATIVE",
-          "priority": 10
-        },
-        {
-          "authenticatorFlow": true,
-          "requirement": "ALTERNATIVE",
-          "priority": 20,
-          "flowAlias": "capstone handle existing account"
-        }
-      ]
-    },
-    {
-      "alias": "capstone handle existing account",
-      "providerId": "basic-flow",
-      "topLevel": false,
-      "builtIn": false,
-      "authenticationExecutions": [
-        {
-          "authenticator": "idp-confirm-link",
-          "requirement": "REQUIRED",
-          "priority": 10
-        },
-        {
-          "authenticator": "idp-email-verification",
-          "requirement": "ALTERNATIVE",
-          "priority": 20
-        },
-        {
-          "authenticator": "idp-username-password-form",
-          "requirement": "ALTERNATIVE",
-          "priority": 30
-        }
-      ]
-    }
-  ],
-  "authenticatorConfig": [
-    {
-      "alias": "review profile config",
-      "config": {
-        "update.profile.on.first.login": "on"
-      }
-    }
-  ],
-  "identityProviders": [
-    {
-      "alias": "google",
-      "displayName": "Google",
-      "providerId": "google",
-      "enabled": true,
-      "trustEmail": true,
-      "storeToken": false,
-      "addReadTokenRoleOnCreate": false,
-      "authenticateByDefault": false,
-      "linkOnly": false,
-      "firstBrokerLoginFlowAlias": "capstone first broker login",
-      "config": {
-        "clientId": "REPLACE_WITH_GOOGLE_CLIENT_ID",
-        "clientSecret": "REPLACE_WITH_GOOGLE_CLIENT_SECRET",
-        "syncMode": "FORCE",
-        "useJwksUrl": "true"
-      }
-    }
-  ],
-  "identityProviderMappers": [
-    {
-      "name": "google-email-mapper",
-      "identityProviderAlias": "google",
-      "identityProviderMapper": "oidc-user-attribute-idp-mapper",
-      "config": {
-        "syncMode": "INHERIT",
-        "claim": "email",
-        "user.attribute": "email"
-      }
-    },
-    {
-      "name": "google-name-mapper",
-      "identityProviderAlias": "google",
-      "identityProviderMapper": "oidc-user-attribute-idp-mapper",
-      "config": {
-        "syncMode": "INHERIT",
-        "claim": "name",
-        "user.attribute": "name"
-      }
-    }
-  ]
-}
-```
+In the [Auth0 dashboard](https://manage.auth0.com):
 
-> Replace `REPLACE_WITH_GOOGLE_CLIENT_ID` and `REPLACE_WITH_GOOGLE_CLIENT_SECRET` with your real Google OAuth credentials (see [Google identity provider](#google-identity-provider) below). If you don't need Google login yet, leave the placeholders — Keycloak will import with Google IDP disabled until valid credentials are set.
+1. **Create an Application** → "Regular Web Application". Note the **Domain**, **Client ID**, **Client Secret**.
+2. **Allowed Callback URLs** must include `http://localhost:3000/auth/callback` (and `http://localhost:3001/auth/callback` if using `docker-compose.yaml`, plus the prod URL if applicable).
+3. **Allowed Logout URLs** must include your `FRONTEND_URL` (e.g. `http://localhost:5173`).
+4. **APIs** → **Create API**. Use any unique identifier, e.g. `https://api.be-capstone.local`. This is the **`AUTH0_AUDIENCE`** value.
+5. **Authentication** → **Social** → enable **Google** (default connection name `google-oauth2`). For non-dev tenants supply your own Google OAuth credentials in the connection settings.
+6. Fill in the matching `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, and `AUTH0_AUDIENCE` values in your `.env` (and `.env.dev` / `.env.prod` if you use Compose).
+
+> Auth0 issues access tokens against `iss=https://${AUTH0_DOMAIN}/`. Always use the same domain in both browser and server contexts so token validation matches.
 
 ---
 
 ## Quick start
 
 > **Why the API runs locally, not in Docker Compose:**
-> The API uses `KEYCLOAK_URL=http://localhost:8080` and `KEYCLOAK_HEALTH_URL=http://localhost:9000/health/ready` to reach Keycloak. This ensures the JWT issuer (`iss` claim) is always `http://localhost:8080/...` for both browser and server — avoiding token validation mismatches. If the API ran inside Docker Compose, `localhost` would resolve to the container itself instead of the host machine, making Keycloak and Postgres unreachable. Docker Compose is used only for Postgres and Keycloak; run the API on your host machine.
+> Auth0 is a hosted SaaS, so the API can run anywhere it has internet access — including on your host. Compose is used only for local Postgres and Redis. The optional `be-api` service in `docker-compose.yaml` builds and runs the production image when you want a fully containerized stack.
 
-### 1. Start Postgres and Keycloak
+### 1. Start Postgres and Redis
 
 > Make sure you have completed [Initial setup](#initial-setup) first.
 
 ```bash
-docker compose up -d
+docker compose up -d postgres redis
 ```
 
-| Service | URL |
-|---|---|
-| Keycloak admin | http://localhost:8080 (admin / admin) |
-| Keycloak health | http://localhost:9000/health/ready |
+| Service  | URL                                          |
+| -------- | -------------------------------------------- |
 | Postgres | localhost:5432 (admin / admin / be-capstone) |
+| Redis    | localhost:6379                               |
 
 To stop containers:
 
@@ -256,7 +98,7 @@ To stop containers:
 docker compose down
 ```
 
-To also wipe the database volume (forces fresh Keycloak realm import):
+To also wipe volumes (drops the local `users` table — handy after this Auth0 migration so the renamed `auth0Sub` column takes effect cleanly):
 
 ```bash
 docker compose down -v
@@ -269,10 +111,10 @@ npm install
 npm run start:dev
 ```
 
-| Service | URL |
-|---|---|
-| API | http://localhost:3000 |
-| Swagger docs | http://localhost:3000/docs |
+| Service      | URL                          |
+| ------------ | ---------------------------- |
+| API          | http://localhost:3000        |
+| Swagger docs | http://localhost:3000/docs   |
 | Health check | http://localhost:3000/health |
 
 The API is now running at http://localhost:3000 with hot-reload.
@@ -283,33 +125,58 @@ The API is now running at http://localhost:3000 with hot-reload.
 
 All env vars are centrally managed in `src/config/env.config.ts`. The app validates them at startup and logs any missing required keys.
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `NODE_ENV` | No | `development` | Runtime mode |
-| `PORT` | No | `3000` | API listen port |
-| `DATABASE_URL` | **Yes** | — | Postgres connection URL |
-| `KEYCLOAK_URL` | **Yes** | — | Keycloak base URL (used for both API and browser redirects) |
-| `KEYCLOAK_HEALTH_URL` | No | `http://localhost:9000/health/ready` | Keycloak management health endpoint |
-| `KEYCLOAK_REALM` | No | `be-capstone` | Keycloak realm name |
-| `KEYCLOAK_CLIENT_ID` | No | `be-capstone-api` | OIDC client ID |
-| `KEYCLOAK_CLIENT_SECRET` | No | `be-capstone-secret` | OIDC client secret |
-| `KEYCLOAK_REDIRECT_URI` | No | `http://localhost:3000/auth/callback` | Default OAuth redirect URI |
+| Variable                  | Required | Default                               | Description                                                                                     |
+| ------------------------- | -------- | ------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `NODE_ENV`                | No       | `development`                         | Runtime mode                                                                                    |
+| `PORT`                    | No       | `3000`                                | API listen port                                                                                 |
+| `DATABASE_URL`            | **Yes**  | —                                     | Postgres connection URL                                                                         |
+| `AUTH0_DOMAIN`            | **Yes**  | —                                     | Auth0 tenant domain (no protocol). Issuer = `https://${AUTH0_DOMAIN}/`                          |
+| `AUTH0_CLIENT_ID`         | **Yes**  | —                                     | Auth0 application client id                                                                     |
+| `AUTH0_CLIENT_SECRET`     | **Yes**  | —                                     | Auth0 application client secret                                                                 |
+| `AUTH0_AUDIENCE`          | **Yes**  | —                                     | Auth0 API identifier (passed as `audience` so a real access token is issued)                    |
+| `AUTH0_REDIRECT_URI`      | No       | `http://localhost:3000/auth/callback` | Where Auth0 sends the browser after authorize. Must be allow-listed in the Application settings |
+| `AUTH0_LOGOUT_RETURN_URL` | No       | `FRONTEND_URL`                        | Where `v2/logout` sends the browser back. Must be allow-listed in the Application settings      |
+| `REDIS_URL`               | No       | `redis://localhost:6379`              | Redis URL for sessions                                                                          |
+| `SESSION_SECRET`          | **Yes**  | —                                     | Secret for signing the session cookie                                                           |
+| `SESSION_COOKIE_SECURE`   | No       | `true` in production, else `false`    | Set to `false` for local HTTP setups so the browser accepts the cookie                          |
+| `FRONTEND_URL`            | **Yes**  | —                                     | Frontend origin (used for redirects and CORS)                                                   |
+| `CORS_ORIGIN`             | No       | `FRONTEND_URL`                        | Allowed CORS origin                                                                             |
 
 ---
 
 ## Available scripts
 
-| Command | Description |
-|---|---|
-| `npm run start:dev` | Start in watch mode (development) |
-| `npm run start:debug` | Start in debug + watch mode |
-| `npm run start:prod` | Start compiled production build |
-| `npm run build` | Compile TypeScript to `dist/` |
-| `npm run test` | Run unit tests |
-| `npm run test:e2e` | Run end-to-end tests |
-| `npm run test:cov` | Run tests with coverage report |
-| `npm run lint` | Lint and auto-fix with ESLint |
-| `npm run format` | Format code with Prettier |
+| Command                        | Description                                                                                  |
+| ------------------------------ | -------------------------------------------------------------------------------------------- |
+| `npm run start:dev`            | Start in watch mode (development)                                                            |
+| `npm run start:debug`          | Start in debug + watch mode                                                                  |
+| `npm run start:prod`           | Start compiled production build                                                              |
+| `npm run build`                | Compile TypeScript to `dist/`                                                                |
+| `npm run test`                 | Run unit tests                                                                               |
+| `npm run test:e2e`             | Run end-to-end tests                                                                         |
+| `npm run test:cov`             | Run tests with coverage report                                                               |
+| `npm run lint`                 | Lint and auto-fix with ESLint                                                                |
+| `npm run format`               | Format code with Prettier                                                                    |
+| `npm run secretlint`           | Scan the repo for leaked credentials (same engine as CI / pre-commit via lint-staged)        |
+| `npm run commitlint -- <file>` | Manually lint a commit message file (same as Husky `commit-msg`; e.g. `.git/COMMIT_EDITMSG`) |
+
+---
+
+## Commit & branch conventions
+
+This repo follows [Conventional Commits](https://www.conventionalcommits.org/). Allowed **types**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`. Example header: `feat(auth): add google login`.
+
+**Branch names** are checked on `git push` (Husky `pre-push`). Use `<type>/<short-description>` with the same **type** list as above — lowercase slug with hyphens, dots, underscores between alphanumerics (max 60 characters), e.g. `feat/auth0-google-login`.
+
+Also allowed **without** that pattern: `main`, `release/*`, `hotfix/*`, `dependabot/*`, `cursor/*` (Cursor agent workflows).
+
+Husky hooks install automatically when you run **`npm install`** (`prepare` script). Escape hatch for emergencies: `git commit --no-verify` / `git push --no-verify`.
+
+| Hook         | What runs                                    |
+| ------------ | -------------------------------------------- |
+| `pre-commit` | lint-staged: secretlint, ESLint, Prettier    |
+| `commit-msg` | commitlint (@commitlint/config-conventional) |
+| `pre-push`   | `scripts/validate-branch-name.cjs`           |
 
 ---
 
@@ -317,133 +184,66 @@ All env vars are centrally managed in `src/config/env.config.ts`. The app valida
 
 ### Core
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/` | Hello World |
-| `GET` | `/health` | Health check (API + DB + Keycloak) |
-| `GET` | `/docs` | Swagger UI |
+| Method | Path      | Description                             |
+| ------ | --------- | --------------------------------------- |
+| `GET`  | `/`       | Hello World                             |
+| `GET`  | `/health` | Health check (API + DB + Auth0 + Redis) |
+| `GET`  | `/docs`   | Swagger UI                              |
 
 ### Auth
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/auth/endpoints` | OIDC discovery endpoints |
-| `GET` | `/auth/login` | Get authorization URL (`?idpHint=google` for Google login) |
-| `GET` | `/auth/callback` | Exchange code via query params (Keycloak redirect target) |
-| `POST` | `/auth/token` | Exchange code via JSON body (preferred for SPAs) |
-| `POST` | `/auth/refresh` | Refresh access token |
-| `POST` | `/auth/logout` | Revoke session |
-| `GET` | `/auth/me` | Current user profile (requires `Authorization: Bearer`) |
+| Method | Path             | Description                                                                                                                                                                                                                                    |
+| ------ | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST` | `/auth/login`    | Returns `{ login_uri }` — Auth0 `/authorize` URL the browser must visit. Body: `{ client_redirect_uri, idpHint? }`                                                                                                                             |
+| `GET`  | `/auth/callback` | Auth0 redirects here; the BFF exchanges the code, sets the session cookie, then 302s to `client_redirect_uri`                                                                                                                                  |
+| `GET`  | `/auth/status`   | `{ authenticated: boolean }`                                                                                                                                                                                                                   |
+| `GET`  | `/auth/me`       | Current user profile (requires session cookie)                                                                                                                                                                                                 |
+| `POST` | `/auth/logout`   | Revokes the refresh token, destroys the local session, returns `{ success, logout_uri }`. The frontend must redirect to `logout_uri` to also end the Auth0 SSO session. Body (optional): `{ return_to }` to override `AUTH0_LOGOUT_RETURN_URL` |
 
 > For full frontend integration details, see [docs/auth.md](docs/auth.md).
 
----
+### Google login
 
-## Keycloak setup
-
-### Auto-import (Docker Compose)
-
-The `keycloak` service is configured with `--import-realm`. On first start it automatically imports:
-
-- Realm: `be-capstone`
-- Confidential client: `be-capstone-api`
-- Google identity provider (requires manual credential setup — see below)
-- Protocol mapper to expose `identity_provider` claim in tokens
-- Custom login theme: `capstone`
-- Custom first broker login flow (profile review on first Google login only)
-- Disabled `VERIFY_PROFILE` required action (prevents repeated profile prompts)
-
-The realm file is at `keycloak/realm-import/be-capstone-realm.json`.
-
-> This directory is **gitignored** because it can contain real OAuth secrets. See [Initial setup](#initial-setup) for how to create it.
-
-### Custom authentication flow
-
-The realm uses a custom `capstone first broker login` flow for Google IDP:
-
-```
-capstone first broker login
-├── Review Profile                     REQUIRED  (shows once on first Google login)
-└── Create or Link User                REQUIRED  (sub-flow)
-    ├── Create User If Unique          ALTERNATIVE  (new email → create user)
-    └── Handle Existing Account        ALTERNATIVE  (sub-flow, if email exists)
-        ├── Confirm Link               REQUIRED
-        ├── Email Verification         ALTERNATIVE
-        └── Username/Password Form     ALTERNATIVE
-```
-
-| Scenario | Behavior |
-|---|---|
-| First Google login (new user) | Profile review form → user created → done |
-| First Google login (email already registered) | Profile review form → confirm link → verify via email or password |
-| Subsequent Google logins | No profile prompt — straight to callback |
-
-> **Important:** Keycloak 26.x has a `VERIFY_PROFILE` required action enabled by default that prompts profile review on every login. This realm disables it so that only the first broker login flow triggers the one-time review.
-
-### Custom Keycloak login theme
-
-This project now includes a custom Keycloak login theme located at:
-
-```text
-keycloak/themes/capstone/login/
-```
-
-Key files:
-
-| File | Purpose |
-|---|---|
-| `theme.properties` | Declares the theme and its parent (`keycloak.v2`) |
-| `login.ftl` | Custom login page layout |
-| `resources/css/styles.css` | Branding, layout, colors, responsive styling |
-
-The theme is mounted into the container by Docker Compose:
-
-```yaml
-volumes:
-  - ./keycloak/themes:/opt/keycloak/themes
-```
-
-And the imported realm is configured to use it:
+`POST /auth/login` accepts `idpHint`. The backend translates `idpHint=google` into Auth0's `connection=google-oauth2` query param, skipping the Universal Login picker:
 
 ```json
-"loginTheme": "capstone"
+{
+  "client_redirect_uri": "http://localhost:5173/dashboard",
+  "idpHint": "google"
+}
 ```
 
-If you want to customize the login page further:
+Any other `idpHint` value is passed through unchanged as the Auth0 `connection` name (e.g. `github`, `Username-Password-Authentication`).
 
-1. Edit `keycloak/themes/capstone/login/login.ftl` for layout/content
-2. Edit `keycloak/themes/capstone/login/resources/css/styles.css` for colors, spacing, typography
-3. Restart Keycloak:
+---
 
-```bash
-docker compose restart keycloak
-```
+## Auth0 setup
 
-If the UI still looks cached, recreate the Keycloak container:
+### Application configuration (Auth0 dashboard)
 
-```bash
-docker compose up -d --force-recreate keycloak
-```
+| Field                                | Value                                                                              |
+| ------------------------------------ | ---------------------------------------------------------------------------------- |
+| Application type                     | Regular Web Application                                                            |
+| Token endpoint authentication method | `Post` (or `Basic`)                                                                |
+| Allowed Callback URLs                | `http://localhost:3000/auth/callback` (and any other deployed redirect URIs)       |
+| Allowed Logout URLs                  | `http://localhost:5173` (and any deployed frontend origin)                         |
+| Allowed Web Origins                  | `http://localhost:5173` (and any deployed frontend origin)                         |
+| Refresh Token Rotation               | Enabled (recommended)                                                              |
+| Refresh Token                        | "Allow Offline Access" enabled (so `offline_access` scope returns a refresh token) |
 
-### Google identity provider
+### API configuration (Auth0 dashboard)
 
-Google IDP is pre-configured in the realm import with placeholder credentials. To enable it:
+| Field                 | Value                                                                         |
+| --------------------- | ----------------------------------------------------------------------------- |
+| Identifier (audience) | `https://api.be-capstone.local` (any unique URI, must match `AUTH0_AUDIENCE`) |
+| Signing algorithm     | RS256                                                                         |
+| Allow Offline Access  | Enabled                                                                       |
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials
-2. Create an OAuth 2.0 Client ID (Web application)
-3. Set **Authorized redirect URI** to:
-   ```
-   http://localhost:8080/realms/be-capstone/broker/google/endpoint
-   ```
-4. Open Keycloak admin at http://localhost:8080 → `be-capstone` realm → Identity Providers → Google
-5. Enter the Google Client ID and Client Secret
-6. Save
+### Google social connection
 
-Users can now log in via Google using:
+In Auth0 dashboard → **Authentication → Social → Google**: enable the connection. The default Auth0 dev keys work for prototypes; for non-dev tenants, supply your own Google OAuth Client ID / Secret in the connection settings.
 
-```
-GET /auth/login?idpHint=google
-```
+> No Google redirect URI to configure on Google's side: with the default Auth0 dev keys it just works. With your own Google OAuth credentials, set the **Authorized redirect URI** to `https://${AUTH0_DOMAIN}/login/callback`.
 
 ---
 
@@ -453,18 +253,19 @@ GET /auth/login?idpHint=google
 - **ORM:** TypeORM with `synchronize: true` (auto-creates tables from entities in dev)
 - **User table:** Auto-created from `src/users/user.entity.ts` on first boot
 
-| Column | Type | Description |
-|---|---|---|
-| `id` | UUID | Primary key |
-| `keycloakSub` | string (unique) | Immutable Keycloak user ID |
-| `email` | varchar (nullable) | Refreshed on every login |
-| `name` | varchar (nullable) | Refreshed on every login |
-| `provider` | string | `keycloak` or `google` — set at first login |
-| `isActive` | boolean | Default `true` |
-| `createdAt` | timestamp | Auto-managed |
-| `updatedAt` | timestamp | Auto-managed |
+| Column      | Type               | Description                                     |
+| ----------- | ------------------ | ----------------------------------------------- | -------------------- | ----- |
+| `id`        | UUID               | Primary key                                     |
+| `auth0Sub`  | string (unique)    | Immutable Auth0 user ID (sub claim, e.g. `auth0 | ...`, `google-oauth2 | ...`) |
+| `email`     | varchar (nullable) | Refreshed on every login                        |
+| `name`      | varchar (nullable) | Refreshed on every login                        |
+| `isActive`  | boolean            | Default `true`                                  |
+| `createdAt` | timestamp          | Auto-managed                                    |
+| `updatedAt` | timestamp          | Auto-managed                                    |
 
 > **Production:** Set `synchronize: false` and use TypeORM migrations instead.
+
+> **Migrating from the old Keycloak schema:** the `keycloakSub` and `provider` columns no longer exist. Run `docker compose down -v` once after pulling this change so Postgres is recreated from scratch and the new column layout is applied.
 
 ---
 
@@ -474,13 +275,18 @@ GET /auth/login?idpHint=google
 
 Runs on every push and pull request:
 
+- **secretlint** job: `npm ci`, then `npm run secretlint` (full-tree scan for secrets).
+- **test** job: same as before, in parallel with secretlint.
+
 1. Spins up a Postgres service container (accessible at `localhost:5432`)
 2. Installs dependencies (`npm ci`)
 3. Builds the project (`npm run build`)
 4. Runs unit tests (`npm run test`)
 5. Runs e2e tests (`npm run test:e2e`)
 
-> **Note:** Keycloak is **not** running in CI. All Keycloak-related env vars (`KEYCLOAK_URL`, etc.) are set so the app config validation passes, but unit tests mock all Keycloak HTTP calls. The API runs directly on the GitHub Actions runner, not in a Docker container.
+> **Hooks:** [Husky](https://typicode.github.io/husky/) runs `lint-staged` on **pre-commit** (secretlint on staged files, then ESLint/Prettier). **commit-msg** runs commitlint (Conventional Commits). **pre-push** validates branch names. CI is a backstop for secrets only; commit/branch rules are local (skippable with `--no-verify`).
+
+> **Note:** Auth0 is **not** contacted in CI. All `AUTH0_*` env vars are set to placeholder values so the app config validation passes, and unit / e2e tests mock all Auth0 HTTP calls.
 
 ### Build & Publish (`.github/workflows/build.yaml`)
 
@@ -490,48 +296,49 @@ Runs on push to `main` only:
 2. Pushes to GitHub Container Registry (`ghcr.io/<owner>/<repo>`)
 3. Tags: `latest` + git SHA
 
-> **This image is for deployed environments only** (e.g. Kubernetes, ECS, Docker Swarm). It is **not** meant for local development — see [Quick start](#quick-start).
+> The same image is used by the optional `be-api` service in `docker-compose.yaml`. For a hot-reload dev API, run `npm run start:dev` on the host instead.
 
 ---
 
-## Docker (production deployment only)
+## Docker (image and deployed environments)
 
-The Dockerfile produces a production image. **Do not use it locally** — `localhost` URLs in `.env` won't resolve inside a container. For local development, run the API directly with `npm run start:dev`.
+The Dockerfile produces a production image. With Auth0 hosted off-cluster, you only need the container to reach **Postgres**, **Redis**, and **`https://${AUTH0_DOMAIN}/`** — `localhost` style URLs typically need to be replaced with real hostnames.
 
 ### Multi-stage Dockerfile
 
-| Stage | Purpose |
-|---|---|
-| `deps` | Install all dependencies |
-| `builder` | Compile TypeScript |
-| `runner` | Production image with only production deps + compiled output |
+| Stage     | Purpose                                                      |
+| --------- | ------------------------------------------------------------ |
+| `deps`    | Install all dependencies                                     |
+| `builder` | Compile TypeScript                                           |
+| `runner`  | Production image with only production deps + compiled output |
 
-### Running the image in a deployed environment
-
-The container requires env vars pointing to **real** Postgres and Keycloak instances (not `localhost`):
+### Running the image directly
 
 ```bash
 docker run -p 3000:3000 \
   -e DATABASE_URL=postgresql://user:pass@db-host:5432/be-capstone \
-  -e KEYCLOAK_URL=https://auth.example.com \
-  -e KEYCLOAK_HEALTH_URL=https://auth.example.com:9000/health/ready \
-  -e KEYCLOAK_REALM=be-capstone \
-  -e KEYCLOAK_CLIENT_ID=be-capstone-api \
-  -e KEYCLOAK_CLIENT_SECRET=your-secret \
-  -e KEYCLOAK_REDIRECT_URI=https://app.example.com/auth/callback \
+  -e AUTH0_DOMAIN=tenant.us.auth0.com \
+  -e AUTH0_CLIENT_ID=your-client-id \
+  -e AUTH0_CLIENT_SECRET=your-client-secret \
+  -e AUTH0_AUDIENCE=https://api.example.com \
+  -e AUTH0_REDIRECT_URI=https://api.example.com/auth/callback \
+  -e AUTH0_LOGOUT_RETURN_URL=https://app.example.com \
+  -e REDIS_URL=redis://redis-host:6379 \
+  -e SESSION_SECRET=long-random-secret \
+  -e FRONTEND_URL=https://app.example.com \
   -e NODE_ENV=production \
   ghcr.io/<owner>/be-capstone:latest
 ```
 
-| Variable | Description |
-|---|---|
-| `DATABASE_URL` | Postgres connection URL (must be reachable from the container) |
-| `KEYCLOAK_URL` | Keycloak base URL as seen by **both** the browser and the API container |
-| `KEYCLOAK_HEALTH_URL` | Keycloak management health endpoint |
-| `KEYCLOAK_CLIENT_SECRET` | Must match the secret configured in Keycloak |
-| `KEYCLOAK_REDIRECT_URI` | Must match the public URL of your frontend callback |
-
-> **Important:** `KEYCLOAK_URL` must be the same URL the browser uses to reach Keycloak, so the JWT `iss` claim matches between browser-issued tokens and server-side validation. In a deployed environment, this is typically a public domain like `https://auth.example.com`.
+| Variable                                      | Description                                                            |
+| --------------------------------------------- | ---------------------------------------------------------------------- |
+| `DATABASE_URL`                                | Postgres connection URL (must be reachable from the container)         |
+| `AUTH0_DOMAIN`                                | Auth0 tenant domain (no protocol). Issuer = `https://${AUTH0_DOMAIN}/` |
+| `AUTH0_CLIENT_SECRET`                         | Must match the application secret in Auth0                             |
+| `AUTH0_AUDIENCE`                              | Must match the API identifier in Auth0                                 |
+| `AUTH0_REDIRECT_URI`                          | Must be in the application's Allowed Callback URLs                     |
+| `AUTH0_LOGOUT_RETURN_URL`                     | Must be in the application's Allowed Logout URLs                       |
+| `REDIS_URL`, `SESSION_SECRET`, `FRONTEND_URL` | Required for sessions and CORS / redirects                             |
 
 ### Build manually
 

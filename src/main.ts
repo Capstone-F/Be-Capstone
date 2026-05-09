@@ -65,6 +65,8 @@ async function bootstrap() {
       saveUninitialized: false,
       // Trust X-Forwarded-Proto so Secure cookies work behind nginx TLS termination.
       proxy: appConfig.nodeEnv === 'production',
+      // All `req.session` fields (including OAuth `oauthState` and `clientRedirectUri`
+      // from POST /auth/login) are persisted in Redis under prefix `sess:`.
       store: new RedisStore({
         client: redisClient,
         prefix: 'sess:',

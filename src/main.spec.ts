@@ -42,7 +42,7 @@ describe('main bootstrap', () => {
       jest.doMock('./config/env.config', () => ({
         ENV_DEFINITIONS: {
           DATABASE_URL: { required: true, description: 'db url' },
-          KEYCLOAK_PUBLIC_URL: { required: true, description: 'keycloak url' },
+          AUTH0_DOMAIN: { required: true, description: 'auth0 tenant domain' },
         },
         getMissingRequiredEnv: () => ['DATABASE_URL'],
       }));
@@ -103,7 +103,7 @@ describe('main bootstrap', () => {
       'Bootstrap',
     );
     expect(log).toHaveBeenCalledWith(
-      'Tracked env keys: DATABASE_URL, KEYCLOAK_PUBLIC_URL',
+      'Tracked env keys: DATABASE_URL, AUTH0_DOMAIN',
       'Bootstrap',
     );
     expect(enableCors).toHaveBeenCalledWith({

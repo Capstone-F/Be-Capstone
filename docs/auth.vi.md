@@ -2,7 +2,7 @@
 
 [English version](auth.md)
 
-Tài liệu này hướng dẫn frontend tích hợp với backend authentication API. Backend sử dụng **BFF (Backend For Frontend)** pattern — mọi tương tác với Keycloak đều diễn ra ở phía server. Frontend chỉ cần làm việc với **session cookie**, không bao giờ phải xử lý token.
+Tài liệu này hướng dẫn frontend tích hợp với backend authentication API. Backend sử dụng **BFF (Backend For Frontend)** pattern — mọi tương tác với Auth0 đều diễn ra ở phía server. Frontend chỉ cần làm việc với **session cookie**, không bao giờ phải xử lý token.
 
 ---
 
@@ -30,11 +30,11 @@ Client (browser)
   │
   │  1. POST /auth/login { client_redirect_uri } → { login_uri } (Set-Cookie: sid)
   │
-  │  2. window.location.href = login_uri → Keycloak login page
+  │  2. window.location.href = login_uri → Auth0 Universal Login
   │
-  │  3. User đăng nhập trên Keycloak (hoặc Google)
+  │  3. User đăng nhập trên Auth0 (hoặc Google qua social connection)
   │
-  │  4. Keycloak 302 → Backend /auth/callback?code=...
+  │  4. Auth0 302 → Backend /auth/callback?code=...&state=...
   │
   │  5. Backend đổi code lấy token (server-to-server)
   │     └── Lưu token vào server session
@@ -47,32 +47,35 @@ Client (browser)
   │
   │  8. Mọi API call tiếp theo đều tự động gửi cookie
   │
-  │  9. POST /auth/logout để đăng xuất
+  │  9. POST /auth/logout → { success, logout_uri }
+  │     └── Frontend chuyển browser tới logout_uri để hủy luôn Auth0 SSO session
 ```
 
-**Nguyên tắc chính:** Frontend không bao giờ nhìn thấy hay lưu trữ token Keycloak. Trạng thái xác thực được quản lý hoàn toàn qua HTTP-only session cookie (`sid`). Session được lưu trữ trong **Redis** để truy xuất nhanh và dễ scale ngang.
+**Nguyên tắc chính:** Frontend không bao giờ nhìn thấy hay lưu trữ token Auth0. Trạng thái xác thực được quản lý hoàn toàn qua HTTP-only session cookie (`sid`). Session được lưu trữ trong **Redis** để truy xuất nhanh và dễ scale ngang.
 
 ---
 
 ## 2. Điều kiện tiên quyết
 
-| Thành phần | Giá trị |
-|---|---|
-| Backend API | Chạy tại `http://localhost:3000` |
-| Frontend | Chạy tại `http://localhost:5173` (cấu hình qua `FRONTEND_URL`) |
-| Keycloak (public) | `http://localhost:8080` — browser truy cập |
-| Keycloak (internal) | `http://keycloak:8080` — backend gọi qua Docker network |
-| Realm | `be-capstone` |
+| Thành phần   | Giá trị                                                        |
+| ------------ | -------------------------------------------------------------- |
+| Backend API  | Chạy tại `http://localhost:3000`                               |
+| Frontend     | Chạy tại `http://localhost:5173` (cấu hình qua `FRONTEND_URL`) |
+| Auth0 tenant | Đã cấu hình theo phần "Auth0 setup" trong README               |
 
 ### Biến môi trường bắt buộc (backend)
 
-| Biến | Mô tả |
-|---|---|
-| `KEYCLOAK_PUBLIC_URL` | URL Keycloak browser truy cập được (vd: `http://localhost:8080`) |
-| `KEYCLOAK_INTERNAL_URL` | URL Keycloak cho server-to-server trong Docker (vd: `http://keycloak:8080`). Mặc định = `KEYCLOAK_PUBLIC_URL`. |
-| `REDIS_URL` | URL kết nối Redis để lưu session (vd: `redis://redis:6379`). Mặc định `redis://localhost:6379`. |
-| `SESSION_SECRET` | Secret để ký session cookie |
-| `FRONTEND_URL` | Origin frontend được phép — phải trùng origin với `client_redirect_uri` khi đăng nhập và CORS |
+| Biến                                      | Mô tả                                                                                              |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `AUTH0_DOMAIN`                            | Auth0 tenant domain (ví dụ `tenant.us.auth0.com`). Issuer = `https://${AUTH0_DOMAIN}/`             |
+| `AUTH0_CLIENT_ID` / `AUTH0_CLIENT_SECRET` | Credentials của Auth0 application                                                                  |
+| `AUTH0_AUDIENCE`                          | Auth0 API identifier — bắt buộc để Auth0 cấp access token thật                                     |
+| `AUTH0_REDIRECT_URI`                      | URL Auth0 redirect tới sau khi authorize. Phải nằm trong Allowed Callback URLs                     |
+| `AUTH0_LOGOUT_RETURN_URL`                 | `returnTo` mặc định cho `v2/logout`. Phải nằm trong Allowed Logout URLs. Mặc định = `FRONTEND_URL` |
+| `REDIS_URL`                               | URL kết nối Redis để lưu session (vd `redis://redis:6379`). Mặc định `redis://localhost:6379`      |
+| `SESSION_SECRET`                          | Secret để ký session cookie                                                                        |
+| `FRONTEND_URL`                            | Origin frontend được phép — phải trùng origin với `client_redirect_uri` khi đăng nhập và CORS      |
+| `CORS_ORIGIN`                             | Origin CORS (mặc định = `FRONTEND_URL`)                                                            |
 
 ---
 
@@ -96,20 +99,22 @@ window.location.href = login_uri;
 ```
 
 Backend sẽ:
+
 1. Kiểm tra `client_redirect_uri` (chống open redirect)
 2. Tạo `state` CSRF, lưu vào session kèm redirect URI
-3. Trả JSON `{ login_uri }` — URL ủy quyền Keycloak
+3. Trả JSON `{ login_uri }` — URL `/authorize` của Auth0 (đã kèm `audience` để được cấp access token thật)
 
-### Bước 2 — User đăng nhập trên Keycloak
+### Bước 2 — User đăng nhập trên Auth0
 
-Browser hiển thị trang login Keycloak. User nhập thông tin đăng nhập.
+Browser hiển thị trang Auth0 Universal Login. User đăng nhập bằng email/password hoặc social connection.
 
 ### Bước 3 — Xử lý callback tự động
 
-Sau khi đăng nhập, Keycloak redirect về `/auth/callback` của backend. Backend sẽ:
+Sau khi đăng nhập, Auth0 redirect về `/auth/callback` của backend. Backend sẽ:
+
 1. Validate `state` parameter
 2. Đổi authorization code lấy token (server-to-server)
-3. Upsert user vào database
+3. Upsert user vào database (key theo `auth0Sub`)
 4. Lưu token vào session
 5. Redirect (302) về **`client_redirect_uri`** (có thể thêm `?isNewUser=true`)
 
@@ -137,10 +142,14 @@ body: JSON.stringify({
 }),
 ```
 
-| Lần đăng nhập | Điều gì xảy ra |
-|---|---|
-| Lần đầu (user mới) | Google sign-in → Keycloak "Review Profile" → callback |
-| Các lần sau | Google sign-in → callback |
+Backend sẽ map `idpHint=google` thành tham số `connection=google-oauth2` của Auth0. Browser sẽ bỏ qua màn picker Universal Login và đi thẳng sang Google.
+
+> Mọi giá trị `idpHint` khác sẽ được pass nguyên dạng vào tham số Auth0 `connection` (vd `github`, `Username-Password-Authentication`).
+
+| Lần đăng nhập           | Điều gì xảy ra                             |
+| ----------------------- | ------------------------------------------ |
+| Lần đầu (user mới)      | Google sign-in → Auth0 tạo user → callback |
+| User đã có sẵn (Google) | Google sign-in → callback                  |
 
 ---
 
@@ -148,14 +157,16 @@ body: JSON.stringify({
 
 ```js
 const res = await fetch('http://localhost:3000/auth/me', {
-  credentials: 'include',  // BẮT BUỘC — gửi session cookie
+  credentials: 'include', // BẮT BUỘC — gửi session cookie
 });
 
 if (res.ok) {
   const user = await res.json();
-  // { id, keycloakSub, email, name, provider, isActive, createdAt, updatedAt }
+  // { id, auth0Sub, email, name, isActive, createdAt, updatedAt }
 }
 ```
+
+Backend sẽ đọc session, tự refresh access token nếu sắp hết hạn, rồi trả profile từ database local.
 
 ---
 
@@ -164,7 +175,7 @@ if (res.ok) {
 ```js
 const { authenticated } = await fetch('http://localhost:3000/auth/status', {
   credentials: 'include',
-}).then(r => r.json());
+}).then((r) => r.json());
 
 if (!authenticated) {
   // Gọi POST /auth/login rồi chuyển tới login_uri (xem mục 3)
@@ -176,12 +187,29 @@ if (!authenticated) {
 ## 7. Từng bước: Đăng xuất
 
 ```js
-await fetch('http://localhost:3000/auth/logout', {
+const res = await fetch('http://localhost:3000/auth/logout', {
   method: 'POST',
   credentials: 'include',
+  headers: { 'Content-Type': 'application/json' },
+  // Tùy chọn: override URL Auth0 redirect về sau logout (phải nằm trong Allowed Logout URLs)
+  body: JSON.stringify({ return_to: `${window.location.origin}/goodbye` }),
 });
-window.location.href = '/login';
+
+const { logout_uri } = await res.json();
+
+// Chuyển browser tới Auth0 v2/logout để hủy luôn SSO session.
+// Auth0 sẽ redirect về AUTH0_LOGOUT_RETURN_URL (hoặc return_to bạn truyền).
+window.location.href = logout_uri;
 ```
+
+Backend sẽ:
+
+1. Revoke refresh token tại Auth0 (`oauth/revoke`)
+2. Hủy session phía server
+3. Xóa cookie `sid`
+4. Trả `{ success: true, logout_uri }` — URL `v2/logout` của Auth0
+
+> Nếu bỏ qua bước `window.location.href = logout_uri`, session local đã mất nhưng cookie SSO của Auth0 vẫn còn — lần `POST /auth/login` tiếp theo sẽ tự động đăng nhập lại không cần qua Universal Login.
 
 ---
 
@@ -211,35 +239,42 @@ Không cần `Authorization` header, không cần quản lý token, không cần
 
 ## 9. Danh sách endpoint
 
-| Method | Path | Auth | Mô tả |
-|---|---|---|---|
-| `POST` | `/auth/login` | Không (set session cookie) | JSON `{ client_redirect_uri, idpHint? }` → `{ login_uri }` |
-| `GET` | `/auth/callback` | Không | OAuth callback (Keycloak redirect về đây) |
-| `GET` | `/auth/me` | Session cookie | Lấy thông tin user hiện tại |
-| `GET` | `/auth/status` | Không | Kiểm tra session có authenticated không |
-| `POST` | `/auth/logout` | Session cookie | Hủy session và thu hồi token |
+| Method | Path             | Auth                       | Mô tả                                                            |
+| ------ | ---------------- | -------------------------- | ---------------------------------------------------------------- |
+| `POST` | `/auth/login`    | Không (set session cookie) | JSON `{ client_redirect_uri, idpHint? }` → `{ login_uri }`       |
+| `GET`  | `/auth/callback` | Không                      | OAuth callback (Auth0 redirect về đây)                           |
+| `GET`  | `/auth/me`       | Session cookie             | Lấy thông tin user hiện tại                                      |
+| `GET`  | `/auth/status`   | Không                      | Kiểm tra session có authenticated không                          |
+| `POST` | `/auth/logout`   | Session cookie             | Hủy session, revoke refresh token, trả `{ success, logout_uri }` |
 
 ### `POST /auth/login` — JSON body
 
-| Field | Bắt buộc | Mô tả |
-|---|---|---|
-| `client_redirect_uri` | Có | URL tuyệt đối sau khi đăng nhập (cùng origin với `FRONTEND_URL`) |
-| `idpHint` | Không | `google` để bỏ qua trang login Keycloak |
+| Field                 | Bắt buộc | Mô tả                                                                                                           |
+| --------------------- | -------- | --------------------------------------------------------------------------------------------------------------- |
+| `client_redirect_uri` | Có       | URL tuyệt đối sau khi đăng nhập (cùng origin với `FRONTEND_URL`)                                                |
+| `idpHint`             | Không    | `google` để bỏ qua Universal Login và đi thẳng sang Google. Giá trị khác sẽ map vào tham số Auth0 `connection`. |
+
+### `POST /auth/logout` — JSON body
+
+| Field       | Bắt buộc | Mô tả                                                                      |
+| ----------- | -------- | -------------------------------------------------------------------------- |
+| `return_to` | Không    | Override `AUTH0_LOGOUT_RETURN_URL`. Cùng origin với `client_redirect_uri`. |
 
 ---
 
 ## 10. User model
 
-| Field | Type | Mô tả |
-|---|---|---|
-| `id` | UUID | Primary key trong database |
-| `keycloakSub` | string | ID cố định từ Keycloak — dùng làm foreign key |
-| `email` | string \| null | Cập nhật từ Keycloak mỗi lần đăng nhập |
-| `name` | string \| null | Cập nhật từ Keycloak mỗi lần đăng nhập |
-| `provider` | string | `"google"` hoặc `"keycloak"` — set lần đăng nhập đầu |
-| `isActive` | boolean | Mặc định `true` |
-| `createdAt` | ISO date | Thời điểm đăng nhập lần đầu |
-| `updatedAt` | ISO date | Thời điểm đăng nhập gần nhất |
+| Field       | Type           | Mô tả                                            |
+| ----------- | -------------- | ------------------------------------------------ | -------------------- | ---------------------------- |
+| `id`        | UUID           | Primary key trong database                       |
+| `auth0Sub`  | string         | Auth0 user ID cố định (`sub` claim, ví dụ `auth0 | ...`, `google-oauth2 | ...`) — dùng làm foreign key |
+| `email`     | string \| null | Cập nhật từ Auth0 mỗi lần đăng nhập              |
+| `name`      | string \| null | Cập nhật từ Auth0 mỗi lần đăng nhập              |
+| `isActive`  | boolean        | Mặc định `true`                                  |
+| `createdAt` | ISO date       | Thời điểm đăng nhập lần đầu                      |
+| `updatedAt` | ISO date       | Thời điểm đăng nhập gần nhất                     |
+
+> Schema cũ có cột `keycloakSub` và `provider`. Cả hai đã bị xóa. `sub` của Auth0 đã encode connection (`auth0|...` cho database user, `google-oauth2|...` cho Google, …) nên không cần cột `provider` riêng.
 
 ---
 
@@ -268,10 +303,10 @@ const api = axios.create({
 
 ## 12. Bảng lỗi
 
-| HTTP | Tình huống | Cách xử lý |
-|---|---|---|
-| `401 Unauthorized` | Không có session hoặc session hết hạn | Đăng nhập lại (`POST /auth/login`) |
-| `400 Bad Request` | `client_redirect_uri` không hợp lệ | Sửa URL hoặc trùng origin với `FRONTEND_URL` |
-| `302` → `/auth/error?reason=missing_params` | Callback thiếu code/state | Bắt đầu lại login flow |
-| `302` → `/auth/error?reason=state_mismatch` | CSRF state không khớp | Bắt đầu lại login flow |
-| `302` → `/auth/error?reason=exchange_failed` | Keycloak code exchange thất bại | Bắt đầu lại login flow |
+| HTTP                                         | Tình huống                            | Cách xử lý                                   |
+| -------------------------------------------- | ------------------------------------- | -------------------------------------------- |
+| `401 Unauthorized`                           | Không có session hoặc session hết hạn | Đăng nhập lại (`POST /auth/login`)           |
+| `400 Bad Request`                            | `client_redirect_uri` không hợp lệ    | Sửa URL hoặc trùng origin với `FRONTEND_URL` |
+| `302` → `/auth/error?reason=missing_params`  | Callback thiếu code/state             | Bắt đầu lại login flow                       |
+| `302` → `/auth/error?reason=state_mismatch`  | CSRF state không khớp                 | Bắt đầu lại login flow                       |
+| `302` → `/auth/error?reason=exchange_failed` | Auth0 code exchange thất bại          | Bắt đầu lại login flow                       |

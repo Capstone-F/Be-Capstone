@@ -21,34 +21,34 @@ export class AppConfigService {
     return this.env.DATABASE_URL;
   }
 
-  /** Public Keycloak URL reachable by the browser (login page redirects). */
-  get keycloakPublicUrl(): string {
-    return this.env.KEYCLOAK_PUBLIC_URL;
+  /** Auth0 tenant domain (no protocol, no trailing slash), e.g. dev-xyz.us.auth0.com. */
+  get auth0Domain(): string {
+    return this.env.AUTH0_DOMAIN;
   }
 
-  /** Internal Keycloak URL for server-to-server calls (token exchange, etc.). */
-  get keycloakInternalUrl(): string {
-    return this.env.KEYCLOAK_INTERNAL_URL;
+  /** Auth0 issuer URL with trailing slash, e.g. https://dev-xyz.us.auth0.com/ */
+  get auth0Issuer(): string {
+    return this.env.AUTH0_ISSUER;
   }
 
-  get keycloakHealthUrl(): string {
-    return this.env.KEYCLOAK_HEALTH_URL;
+  get auth0ClientId(): string {
+    return this.env.AUTH0_CLIENT_ID;
   }
 
-  get keycloakRealm(): string {
-    return this.env.KEYCLOAK_REALM;
+  get auth0ClientSecret(): string {
+    return this.env.AUTH0_CLIENT_SECRET;
   }
 
-  get keycloakClientId(): string {
-    return this.env.KEYCLOAK_CLIENT_ID;
+  get auth0Audience(): string {
+    return this.env.AUTH0_AUDIENCE;
   }
 
-  get keycloakClientSecret(): string {
-    return this.env.KEYCLOAK_CLIENT_SECRET;
+  get auth0RedirectUri(): string {
+    return this.env.AUTH0_REDIRECT_URI;
   }
 
-  get keycloakRedirectUri(): string {
-    return this.env.KEYCLOAK_REDIRECT_URI;
+  get auth0LogoutReturnUrl(): string {
+    return this.env.AUTH0_LOGOUT_RETURN_URL;
   }
 
   get redisUrl(): string {

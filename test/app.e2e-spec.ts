@@ -20,13 +20,13 @@ const TEST_CONFIG: Record<string, unknown> = {
   nodeEnv: 'test',
   port: 3000,
   databaseUrl: 'sqlite::memory:',
-  keycloakPublicUrl: 'http://localhost:8080',
-  keycloakInternalUrl: 'http://localhost:8080',
-  keycloakHealthUrl: 'http://localhost:9000/health/ready',
-  keycloakRealm: 'be-capstone',
-  keycloakClientId: 'be-capstone-api',
-  keycloakClientSecret: 'be-capstone-secret',
-  keycloakRedirectUri: 'http://localhost:3000/auth/callback',
+  auth0Domain: 'tenant.us.auth0.com',
+  auth0Issuer: 'https://tenant.us.auth0.com/',
+  auth0ClientId: 'client-id',
+  auth0ClientSecret: 'client-secret',
+  auth0Audience: 'https://api.be-capstone.local',
+  auth0RedirectUri: 'http://localhost:3000/auth/callback',
+  auth0LogoutReturnUrl: 'http://localhost:5173',
   redisUrl: 'redis://localhost:6379',
   sessionSecret: 'e2e-test-secret',
   frontendUrl: 'http://localhost:5173',
@@ -71,7 +71,7 @@ describe('BE Capstone API (e2e)', () => {
           timestamp: new Date().toISOString(),
           api: { status: 'up' },
           db: { status: 'up' },
-          keycloak: { status: 'up' },
+          auth0: { status: 'up' },
           redis: { status: 'up' },
         }),
       })
@@ -121,7 +121,7 @@ describe('BE Capstone API (e2e)', () => {
       expect(body).toHaveProperty('timestamp');
       expect(body.api).toEqual({ status: 'up' });
       expect(body.db).toEqual({ status: 'up' });
-      expect(body.keycloak).toEqual({ status: 'up' });
+      expect(body.auth0).toEqual({ status: 'up' });
       expect(body.redis).toEqual({ status: 'up' });
     });
   });
@@ -136,14 +136,18 @@ describe('BE Capstone API (e2e)', () => {
         .expect(200);
 
       const loginUri = new URL(res.body.login_uri);
-      expect(loginUri.pathname).toContain('/protocol/openid-connect/auth');
-      expect(loginUri.searchParams.get('client_id')).toBe('be-capstone-api');
+      expect(loginUri.origin).toBe('https://tenant.us.auth0.com');
+      expect(loginUri.pathname).toBe('/authorize');
+      expect(loginUri.searchParams.get('client_id')).toBe('client-id');
       expect(loginUri.searchParams.get('response_type')).toBe('code');
+      expect(loginUri.searchParams.get('audience')).toBe(
+        'https://api.be-capstone.local',
+      );
       expect(loginUri.searchParams.get('state')).toBeTruthy();
       expect(extractSid(res)).toBeTruthy();
     });
 
-    it('should include kc_idp_hint in login_uri when idpHint is in body', async () => {
+    it('should map idpHint=google to connection=google-oauth2 in login_uri', async () => {
       const res = await request(app.getHttpServer())
         .post('/auth/login')
         .send({
@@ -152,8 +156,8 @@ describe('BE Capstone API (e2e)', () => {
         })
         .expect(200);
 
-      expect(new URL(res.body.login_uri).searchParams.get('kc_idp_hint')).toBe(
-        'google',
+      expect(new URL(res.body.login_uri).searchParams.get('connection')).toBe(
+        'google-oauth2',
       );
     });
 
@@ -178,10 +182,9 @@ describe('BE Capstone API (e2e)', () => {
         .mockResolvedValueOnce({
           user: {
             id: 'e2e-user-id',
-            keycloakSub: 'kc-sub-e2e',
+            auth0Sub: 'auth0|e2e',
             email: 'e2e@example.com',
             name: 'E2E User',
-            provider: 'keycloak',
             isActive: true,
             createdAt: new Date(),
             updatedAt: new Date(),
@@ -190,7 +193,7 @@ describe('BE Capstone API (e2e)', () => {
           accessToken: 'at',
           refreshToken: 'rt',
           tokenExpiresAt: Date.now() + 300_000,
-          idpHint: 'keycloak',
+          idpHint: null,
         });
 
       const cb = await request(app.getHttpServer())
@@ -257,10 +260,9 @@ describe('BE Capstone API (e2e)', () => {
         .mockResolvedValueOnce({
           user: {
             id: 'e2e-user-id',
-            keycloakSub: 'kc-sub-e2e',
+            auth0Sub: 'auth0|e2e',
             email: 'e2e@example.com',
             name: 'E2E User',
-            provider: 'keycloak',
             isActive: true,
             createdAt: new Date(),
             updatedAt: new Date(),
@@ -269,7 +271,7 @@ describe('BE Capstone API (e2e)', () => {
           accessToken: 'mock-access-token',
           refreshToken: 'mock-refresh-token',
           tokenExpiresAt: Date.now() + 300_000,
-          idpHint: 'keycloak',
+          idpHint: null,
         });
 
       const res = await request(app.getHttpServer())
@@ -303,10 +305,9 @@ describe('BE Capstone API (e2e)', () => {
         .mockResolvedValueOnce({
           user: {
             id: 'google-user',
-            keycloakSub: 'kc-google',
+            auth0Sub: 'google-oauth2|123',
             email: 'google@example.com',
             name: 'Google User',
-            provider: 'google',
             isActive: true,
             createdAt: new Date(),
             updatedAt: new Date(),
@@ -340,7 +341,7 @@ describe('BE Capstone API (e2e)', () => {
 
       jest
         .spyOn(authService, 'exchangeCodeAndUpsertUser')
-        .mockRejectedValueOnce(new Error('Keycloak unreachable'));
+        .mockRejectedValueOnce(new Error('Auth0 unreachable'));
 
       const res = await request(app.getHttpServer())
         .get(`/auth/callback?code=bad-code&state=${oauthState}`)
@@ -392,10 +393,9 @@ describe('BE Capstone API (e2e)', () => {
 
       jest.spyOn(authService, 'findUserById').mockResolvedValueOnce({
         id: 'e2e-user-id',
-        keycloakSub: 'kc-sub-e2e',
+        auth0Sub: 'auth0|e2e',
         email: 'e2e@example.com',
         name: 'E2E User',
-        provider: 'keycloak',
         isActive: true,
         createdAt: new Date('2026-01-01'),
         updatedAt: new Date('2026-01-01'),
@@ -407,9 +407,9 @@ describe('BE Capstone API (e2e)', () => {
         .expect(200);
 
       expect(body.id).toBe('e2e-user-id');
+      expect(body.auth0Sub).toBe('auth0|e2e');
       expect(body.email).toBe('e2e@example.com');
       expect(body.name).toBe('E2E User');
-      expect(body.provider).toBe('keycloak');
       expect(body.isActive).toBe(true);
     });
   });
@@ -421,7 +421,7 @@ describe('BE Capstone API (e2e)', () => {
       await request(app.getHttpServer()).post('/auth/logout').expect(401);
     });
 
-    it('should destroy session and clear cookie', async () => {
+    it('should destroy session, clear cookie, and return logout_uri', async () => {
       const sid = await performMockLogin();
 
       jest
@@ -434,9 +434,12 @@ describe('BE Capstone API (e2e)', () => {
         .set('Cookie', sid)
         .expect(200);
 
-      expect(logoutRes.body).toEqual({ success: true });
+      expect(logoutRes.body.success).toBe(true);
+      expect(logoutRes.body.logout_uri).toContain(
+        'https://tenant.us.auth0.com/v2/logout',
+      );
+      expect(logoutRes.body.logout_uri).toContain('client_id=client-id');
 
-      // Session should be destroyed
       const { body } = await request(app.getHttpServer())
         .get('/auth/status')
         .set('Cookie', sid)
@@ -468,32 +471,27 @@ describe('BE Capstone API (e2e)', () => {
 
   describe('Full auth lifecycle', () => {
     it('login → status → me → logout → status', async () => {
-      // 1. Not authenticated
       const statusBefore = await request(app.getHttpServer())
         .get('/auth/status')
         .expect(200);
       expect(statusBefore.body.authenticated).toBe(false);
 
-      // 2. Login → get session
       const sid = await performMockLogin();
 
-      // 3. Authenticated
       const statusAfter = await request(app.getHttpServer())
         .get('/auth/status')
         .set('Cookie', sid)
         .expect(200);
       expect(statusAfter.body.authenticated).toBe(true);
 
-      // 4. Get profile
       jest
         .spyOn(authService, 'refreshTokenIfNeeded')
         .mockResolvedValueOnce(undefined);
       jest.spyOn(authService, 'findUserById').mockResolvedValueOnce({
         id: 'lifecycle-user',
-        keycloakSub: 'kc-lifecycle',
+        auth0Sub: 'auth0|lifecycle',
         email: 'lifecycle@test.com',
         name: 'Lifecycle User',
-        provider: 'keycloak',
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -505,7 +503,6 @@ describe('BE Capstone API (e2e)', () => {
         .expect(200);
       expect(meRes.body.email).toBe('lifecycle@test.com');
 
-      // 5. Logout
       jest
         .spyOn(authService, 'refreshTokenIfNeeded')
         .mockResolvedValueOnce(undefined);
@@ -515,16 +512,15 @@ describe('BE Capstone API (e2e)', () => {
         .post('/auth/logout')
         .set('Cookie', sid)
         .expect(200);
-      expect(logoutRes.body).toEqual({ success: true });
+      expect(logoutRes.body.success).toBe(true);
+      expect(logoutRes.body.logout_uri).toContain('/v2/logout');
 
-      // 6. No longer authenticated
       const statusFinal = await request(app.getHttpServer())
         .get('/auth/status')
         .set('Cookie', sid)
         .expect(200);
       expect(statusFinal.body.authenticated).toBe(false);
 
-      // 7. /auth/me returns 401 again
       await request(app.getHttpServer())
         .get('/auth/me')
         .set('Cookie', sid)
@@ -546,10 +542,9 @@ describe('BE Capstone API (e2e)', () => {
     jest.spyOn(authService, 'exchangeCodeAndUpsertUser').mockResolvedValueOnce({
       user: {
         id: 'e2e-user-id',
-        keycloakSub: 'kc-sub-e2e',
+        auth0Sub: 'auth0|e2e',
         email: 'e2e@example.com',
         name: 'E2E User',
-        provider: 'keycloak',
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -558,7 +553,7 @@ describe('BE Capstone API (e2e)', () => {
       accessToken: 'mock-at',
       refreshToken: 'mock-rt',
       tokenExpiresAt: Date.now() + 300_000,
-      idpHint: 'keycloak',
+      idpHint: null,
     });
 
     const callbackRes = await request(app.getHttpServer())

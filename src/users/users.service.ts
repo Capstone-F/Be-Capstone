@@ -18,41 +18,38 @@ export class UsersService {
   ) {}
 
   /**
-   * Upsert a user from a Keycloak profile.
+   * Upsert a user from an Auth0 ID/access token profile.
    * On first login the user row is created; on subsequent logins
    * mutable fields (email, name) are refreshed from the latest claims.
    *
-   * @param profile  Raw claims from Keycloak /userinfo endpoint
-   * @param provider Identity provider hint ('google', 'keycloak', …)
+   * @param profile  Decoded JWT claims (id_token preferred, access_token fallback)
    */
-  async upsertFromKeycloak(
+  async upsertFromAuth0(
     profile: Record<string, unknown>,
-    provider = 'keycloak',
   ): Promise<UpsertResult> {
     const sub = profile.sub as string;
     const email = (profile.email as string | undefined) ?? null;
     const name =
       (profile.name as string | undefined) ??
+      (profile.nickname as string | undefined) ??
       (profile.preferred_username as string | undefined) ??
       null;
 
-    const existing = await this.userRepository.findOneBy({ keycloakSub: sub });
+    const existing = await this.userRepository.findOneBy({ auth0Sub: sub });
 
     if (!existing) {
       this.logger.log(
-        `New user registered — provider: ${provider}, email: ${email ?? sub}`,
+        `New user registered — sub: ${sub}, email: ${email ?? '∅'}`,
       );
       const created = this.userRepository.create({
-        keycloakSub: sub,
+        auth0Sub: sub,
         email,
         name,
-        provider,
       });
       const user = await this.userRepository.save(created);
       return { user, isNewUser: true };
     }
 
-    // Refresh mutable fields on every login
     existing.email = email ?? existing.email;
     existing.name = name ?? existing.name;
     const user = await this.userRepository.save(existing);
@@ -63,7 +60,7 @@ export class UsersService {
     return this.userRepository.findOneBy({ id });
   }
 
-  async findByKeycloakSub(sub: string): Promise<User | null> {
-    return this.userRepository.findOneBy({ keycloakSub: sub });
+  async findByAuth0Sub(sub: string): Promise<User | null> {
+    return this.userRepository.findOneBy({ auth0Sub: sub });
   }
 }

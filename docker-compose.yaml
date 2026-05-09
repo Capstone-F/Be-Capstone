@@ -53,36 +53,11 @@ services:
     labels:
       - 'logging=true'
 
-  # ── Identity ────────────────────────────────────────
-
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.2
-    container_name: capstone-keycloak
-    restart: unless-stopped
-    command: start-dev --import-realm
-    environment:
-      KC_DB: postgres
-      KC_DB_URL_HOST: postgres
-      KC_DB_URL_DATABASE: be-capstone
-      KC_DB_USERNAME: admin
-      KC_DB_PASSWORD: admin
-      KC_HEALTH_ENABLED: 'true'
-      KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
-      KC_LOG_CONSOLE_OUTPUT: json
-    ports:
-      - '8080:8080'
-      - '9000:9000'
-    volumes:
-      - ./keycloak/realm-import:/opt/keycloak/data/import
-      - ./keycloak/themes:/opt/keycloak/themes
-    depends_on:
-      postgres:
-        condition: service_healthy
-    labels:
-      - 'logging=true'
-
   # ── Backend API ─────────────────────────────────────
+  #
+  # Identity is delegated to Auth0 (a hosted SaaS), so there is no Keycloak
+  # service in this compose file. The API needs an Auth0 tenant configured
+  # outside this stack — see README "Auth0 setup".
 
   be-api:
     build:
@@ -94,15 +69,14 @@ services:
       NODE_ENV: production
       PORT: '3000'
       DATABASE_URL: postgresql://admin:admin@postgres:5432/be-capstone
-      KEYCLOAK_PUBLIC_URL: http://localhost:8080
-      KEYCLOAK_INTERNAL_URL: http://keycloak:8080
-      KEYCLOAK_HEALTH_URL: http://keycloak:9000/health/ready
-      KEYCLOAK_REALM: be-capstone
-      KEYCLOAK_CLIENT_ID: be-capstone-api
-      KEYCLOAK_CLIENT_SECRET: be-capstone-secret
-      KEYCLOAK_REDIRECT_URI: http://localhost:3001/auth/callback
+      AUTH0_DOMAIN: ${AUTH0_DOMAIN}
+      AUTH0_CLIENT_ID: ${AUTH0_CLIENT_ID}
+      AUTH0_CLIENT_SECRET: ${AUTH0_CLIENT_SECRET}
+      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE}
+      AUTH0_REDIRECT_URI: http://localhost:3001/auth/callback
+      AUTH0_LOGOUT_RETURN_URL: http://localhost:3000
       REDIS_URL: redis://redis:6379
-      SESSION_SECRET: change-me-to-a-random-secret
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-to-a-random-secret}
       SESSION_COOKIE_SECURE: 'false'
       FRONTEND_URL: http://localhost:3000
       CORS_ORIGIN: http://localhost:3000
@@ -113,13 +87,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      keycloak:
-        condition: service_started
     healthcheck:
       test:
         [
           'CMD-SHELL',
-          'wget --quiet --tries=1 --output-document=- http://localhost:3001/health || exit 1',
+          'wget --quiet --tries=1 --output-document=- http://localhost:3000/health || exit 1',
         ]
       interval: 10s
       timeout: 5s

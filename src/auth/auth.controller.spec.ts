@@ -7,6 +7,7 @@ describe('AuthController', () => {
     buildLoginUrl: jest.fn(),
     exchangeCodeAndUpsertUser: jest.fn(),
     revokeToken: jest.fn(),
+    buildLogoutUrl: jest.fn(),
     findUserById: jest.fn(),
     refreshTokenIfNeeded: jest.fn(),
     validateClientRedirectUri: jest.fn((u: string | undefined) => {
@@ -48,7 +49,7 @@ describe('AuthController', () => {
   describe('POST /auth/login', () => {
     it('should return login_uri and store client_redirect_uri', async () => {
       authService.buildLoginUrl.mockReturnValue({
-        url: 'http://kc/auth?state=1',
+        url: 'https://tenant.us.auth0.com/authorize?state=1',
         state: 'oauth-state',
       });
 
@@ -66,13 +67,13 @@ describe('AuthController', () => {
       expect(session.oauthState).toBe('oauth-state');
       expect(session.clientRedirectUri).toBe('http://localhost:5173/app');
       expect(result).toEqual({
-        login_uri: 'http://kc/auth?state=1',
+        login_uri: 'https://tenant.us.auth0.com/authorize?state=1',
       });
     });
 
     it('should pass idpHint to buildLoginUrl', async () => {
       authService.buildLoginUrl.mockReturnValue({
-        url: 'http://kc/auth',
+        url: 'https://tenant.us.auth0.com/authorize',
         state: 's',
       });
 
@@ -117,12 +118,12 @@ describe('AuthController', () => {
 
     it('should exchange code and redirect to frontend on success', async () => {
       authService.exchangeCodeAndUpsertUser.mockResolvedValue({
-        user: { id: 'u1', keycloakSub: 'kc-sub' } as any,
+        user: { id: 'u1', auth0Sub: 'auth0|abc' } as any,
         isNewUser: true,
         accessToken: 'at',
         refreshToken: 'rt',
         tokenExpiresAt: Date.now() + 300_000,
-        idpHint: 'keycloak',
+        idpHint: null,
       });
 
       const session = mockSession({ oauthState: 'state-ok' });
@@ -136,6 +137,7 @@ describe('AuthController', () => {
         undefined,
       );
       expect(session.userId).toBe('u1');
+      expect(session.auth0Sub).toBe('auth0|abc');
       expect(session.accessToken).toBe('at');
       expect(res.redirect).toHaveBeenCalledWith(
         expect.stringContaining('isNewUser=true'),
@@ -144,12 +146,12 @@ describe('AuthController', () => {
 
     it('should redirect to client_redirect_uri when set on session', async () => {
       authService.exchangeCodeAndUpsertUser.mockResolvedValue({
-        user: { id: 'u1', keycloakSub: 'kc-sub' } as any,
+        user: { id: 'u1', auth0Sub: 'auth0|abc' } as any,
         isNewUser: false,
         accessToken: 'at',
         refreshToken: 'rt',
         tokenExpiresAt: Date.now() + 300_000,
-        idpHint: 'keycloak',
+        idpHint: null,
       });
 
       const session = mockSession({
@@ -193,19 +195,49 @@ describe('AuthController', () => {
   });
 
   describe('POST /auth/logout', () => {
-    it('should revoke token and destroy session', async () => {
+    it('should revoke token, build Auth0 logout URL, and destroy session', async () => {
       authService.revokeToken.mockResolvedValue(undefined);
+      authService.buildLogoutUrl.mockReturnValue(
+        'https://tenant.us.auth0.com/v2/logout?client_id=client-id&returnTo=http%3A%2F%2Flocalhost%3A5173',
+      );
 
       const session = mockSession({ refreshToken: 'rt', userId: 'u1' });
       const req = { session } as any;
       const res = mockRes() as any;
 
-      await controller.logout(req, res);
+      await controller.logout({}, req, res);
 
       expect(authService.revokeToken).toHaveBeenCalledWith('rt');
+      expect(authService.buildLogoutUrl).toHaveBeenCalledWith(undefined);
       expect(session.destroy).toHaveBeenCalled();
       expect(res.clearCookie).toHaveBeenCalledWith('sid');
-      expect(res.json).toHaveBeenCalledWith({ success: true });
+      expect(res.json).toHaveBeenCalledWith({
+        success: true,
+        logout_uri:
+          'https://tenant.us.auth0.com/v2/logout?client_id=client-id&returnTo=http%3A%2F%2Flocalhost%3A5173',
+      });
+    });
+
+    it('should pass validated return_to to buildLogoutUrl when provided', async () => {
+      authService.revokeToken.mockResolvedValue(undefined);
+      authService.buildLogoutUrl.mockReturnValue('https://tenant/v2/logout');
+
+      const session = mockSession({ refreshToken: 'rt', userId: 'u1' });
+      const req = { session } as any;
+      const res = mockRes() as any;
+
+      await controller.logout(
+        { return_to: 'http://localhost:5173/goodbye' },
+        req,
+        res,
+      );
+
+      expect(authService.validateClientRedirectUri).toHaveBeenCalledWith(
+        'http://localhost:5173/goodbye',
+      );
+      expect(authService.buildLogoutUrl).toHaveBeenCalledWith(
+        'http://localhost:5173/goodbye',
+      );
     });
   });
 });

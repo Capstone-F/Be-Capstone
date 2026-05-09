@@ -19,43 +19,36 @@ export const ENV_DEFINITIONS = {
     required: true,
     description: 'Postgres connection URL',
   },
-  KEYCLOAK_PUBLIC_URL: {
+  AUTH0_DOMAIN: {
     required: true,
     description:
-      'Public Keycloak base URL reachable by the browser (e.g. http://localhost:8080). ' +
-      'Used for building the login redirect URL that the user visits.',
+      'Auth0 tenant domain, e.g. dev-xyz.us.auth0.com (without protocol or trailing slash). ' +
+      'Used to derive the issuer https://${AUTH0_DOMAIN}/ for both browser redirects and server calls.',
   },
-  KEYCLOAK_INTERNAL_URL: {
-    required: false,
+  AUTH0_CLIENT_ID: {
+    required: true,
+    description: 'Auth0 application client id (Regular Web Application)',
+  },
+  AUTH0_CLIENT_SECRET: {
+    required: true,
+    description: 'Auth0 application client secret',
+  },
+  AUTH0_AUDIENCE: {
+    required: true,
     description:
-      'Internal Keycloak base URL for server-to-server calls (e.g. http://keycloak:8080). ' +
-      'Defaults to KEYCLOAK_PUBLIC_URL. Set this when running inside Docker Compose.',
+      'Auth0 API identifier (audience) the backend exchanges access tokens for, ' +
+      'e.g. https://api.be-capstone.local',
   },
-  KEYCLOAK_HEALTH_URL: {
-    required: false,
-    description:
-      'Keycloak management health endpoint. ' +
-      'Defaults to KEYCLOAK_INTERNAL_URL on port 9000.',
-  },
-  KEYCLOAK_REALM: {
-    required: false,
-    defaultValue: 'be-capstone',
-    description: 'Keycloak realm used by the backend',
-  },
-  KEYCLOAK_CLIENT_ID: {
-    required: false,
-    defaultValue: 'be-capstone-api',
-    description: 'OIDC client id for backend integration',
-  },
-  KEYCLOAK_CLIENT_SECRET: {
-    required: false,
-    defaultValue: 'be-capstone-secret',
-    description: 'OIDC client secret for backend integration',
-  },
-  KEYCLOAK_REDIRECT_URI: {
+  AUTH0_REDIRECT_URI: {
     required: false,
     defaultValue: 'http://localhost:3000/auth/callback',
-    description: 'Default redirect URI for authorization code flow',
+    description: 'Default redirect URI for the authorization code flow',
+  },
+  AUTH0_LOGOUT_RETURN_URL: {
+    required: false,
+    description:
+      'Where Auth0 v2/logout sends the browser back to after sign-out. ' +
+      'Defaults to FRONTEND_URL.',
   },
   REDIS_URL: {
     required: false,
@@ -91,13 +84,13 @@ export type AppEnv = {
   NODE_ENV: string;
   PORT: number;
   DATABASE_URL: string;
-  KEYCLOAK_PUBLIC_URL: string;
-  KEYCLOAK_INTERNAL_URL: string;
-  KEYCLOAK_HEALTH_URL: string;
-  KEYCLOAK_REALM: string;
-  KEYCLOAK_CLIENT_ID: string;
-  KEYCLOAK_CLIENT_SECRET: string;
-  KEYCLOAK_REDIRECT_URI: string;
+  AUTH0_DOMAIN: string;
+  AUTH0_ISSUER: string;
+  AUTH0_CLIENT_ID: string;
+  AUTH0_CLIENT_SECRET: string;
+  AUTH0_AUDIENCE: string;
+  AUTH0_REDIRECT_URI: string;
+  AUTH0_LOGOUT_RETURN_URL: string;
   REDIS_URL: string;
   SESSION_SECRET: string;
   /** When true, Set-Cookie only over HTTPS (or when proxy sends X-Forwarded-Proto: https if proxy is enabled). */
@@ -114,15 +107,15 @@ export function getMissingRequiredEnv(
     .map(([key]) => key);
 }
 
-function deriveHealthUrl(keycloakBaseUrl: string): string {
-  try {
-    const url = new URL(keycloakBaseUrl);
-    url.port = '9000';
-    url.pathname = '/health/ready';
-    return url.toString();
-  } catch {
-    return 'http://localhost:9000/health/ready';
-  }
+function normalizeAuth0Domain(raw: string): string {
+  let value = raw.trim();
+  value = value.replace(/^https?:\/\//, '');
+  value = value.replace(/\/+$/, '');
+  return value;
+}
+
+function buildAuth0Issuer(domain: string): string {
+  return `https://${domain}/`;
 }
 
 function parseOptionalBool(
@@ -170,33 +163,27 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
     );
   }
 
+  const auth0Domain = normalizeAuth0Domain(raw.AUTH0_DOMAIN!);
+  const frontendUrl = raw.FRONTEND_URL!.trim().replace(/\/+$/, '');
+
   return {
     NODE_ENV: nodeEnv,
     PORT: port,
     DATABASE_URL: raw.DATABASE_URL!.trim(),
-    KEYCLOAK_PUBLIC_URL: raw.KEYCLOAK_PUBLIC_URL!.trim(),
-    KEYCLOAK_INTERNAL_URL:
-      raw.KEYCLOAK_INTERNAL_URL?.trim() || raw.KEYCLOAK_PUBLIC_URL!.trim(),
-    KEYCLOAK_HEALTH_URL:
-      raw.KEYCLOAK_HEALTH_URL?.trim() ||
-      deriveHealthUrl(
-        raw.KEYCLOAK_INTERNAL_URL?.trim() || raw.KEYCLOAK_PUBLIC_URL!.trim(),
-      ),
-    KEYCLOAK_REALM:
-      raw.KEYCLOAK_REALM?.trim() || ENV_DEFINITIONS.KEYCLOAK_REALM.defaultValue,
-    KEYCLOAK_CLIENT_ID:
-      raw.KEYCLOAK_CLIENT_ID?.trim() ||
-      ENV_DEFINITIONS.KEYCLOAK_CLIENT_ID.defaultValue,
-    KEYCLOAK_CLIENT_SECRET:
-      raw.KEYCLOAK_CLIENT_SECRET?.trim() ||
-      ENV_DEFINITIONS.KEYCLOAK_CLIENT_SECRET.defaultValue,
-    KEYCLOAK_REDIRECT_URI:
-      raw.KEYCLOAK_REDIRECT_URI?.trim() ||
-      ENV_DEFINITIONS.KEYCLOAK_REDIRECT_URI.defaultValue,
+    AUTH0_DOMAIN: auth0Domain,
+    AUTH0_ISSUER: buildAuth0Issuer(auth0Domain),
+    AUTH0_CLIENT_ID: raw.AUTH0_CLIENT_ID!.trim(),
+    AUTH0_CLIENT_SECRET: raw.AUTH0_CLIENT_SECRET!.trim(),
+    AUTH0_AUDIENCE: raw.AUTH0_AUDIENCE!.trim(),
+    AUTH0_REDIRECT_URI:
+      raw.AUTH0_REDIRECT_URI?.trim() ||
+      ENV_DEFINITIONS.AUTH0_REDIRECT_URI.defaultValue,
+    AUTH0_LOGOUT_RETURN_URL:
+      raw.AUTH0_LOGOUT_RETURN_URL?.trim().replace(/\/+$/, '') || frontendUrl,
     REDIS_URL: raw.REDIS_URL?.trim() || ENV_DEFINITIONS.REDIS_URL.defaultValue,
     SESSION_SECRET: raw.SESSION_SECRET!.trim(),
     sessionCookieSecure,
-    FRONTEND_URL: raw.FRONTEND_URL!.trim().replace(/\/+$/, ''),
+    FRONTEND_URL: frontendUrl,
     CORS_ORIGIN:
       raw.CORS_ORIGIN?.trim() || raw.FRONTEND_URL!.trim().replace(/\/+$/, ''),
   };

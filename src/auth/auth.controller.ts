@@ -26,7 +26,9 @@ import { AuthService } from './auth.service';
 import { SessionGuard } from './guards/session.guard';
 import { AppConfigService } from '../config/config.service';
 import { LoginPostDto } from './dto/login-post.dto';
+import { LogoutPostDto } from './dto/logout-post.dto';
 import { SessionUserDto } from './dto/session-user.dto';
+
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
@@ -40,7 +42,7 @@ export class AuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Start login (SPA): return Keycloak login_uri',
+    summary: 'Start login (SPA): return Auth0 login_uri',
     description:
       'Stores client_redirect_uri in the session, returns login_uri for the browser ' +
       '(e.g. window.location.href = login_uri). After OAuth, GET /auth/callback ' +
@@ -53,7 +55,7 @@ export class AuthController {
       properties: {
         login_uri: {
           type: 'string',
-          description: 'Keycloak authorization URL',
+          description: 'Auth0 authorization URL',
         },
       },
     },
@@ -69,6 +71,8 @@ export class AuthController {
 
     const { url, state } = this.authService.buildLoginUrl(idpHint);
 
+    // These live in Redis via the RedisStore in main.ts. `save()` below flushes
+    // the session so GET /auth/callback can read state + redirect after Auth0.
     req.session.oauthState = state;
     req.session.clientRedirectUri = clientUri;
     if (idpHint) {
@@ -98,9 +102,9 @@ export class AuthController {
 
   @Get('callback')
   @ApiOperation({
-    summary: 'OAuth callback (Keycloak redirects here)',
+    summary: 'OAuth callback (Auth0 redirects here)',
     description:
-      'Keycloak redirects the browser here after authentication. ' +
+      'Auth0 redirects the browser here after authentication. ' +
       'The backend exchanges the code for tokens, stores them in the session, ' +
       'and redirects to client_redirect_uri from POST /auth/login.',
   })
@@ -137,11 +141,13 @@ export class AuthController {
       );
 
       req.session.userId = result.user.id;
-      req.session.keycloakSub = result.user.keycloakSub;
+      req.session.auth0Sub = result.user.auth0Sub;
       req.session.accessToken = result.accessToken;
       req.session.refreshToken = result.refreshToken;
       req.session.tokenExpiresAt = result.tokenExpiresAt;
-      req.session.idpHint = result.idpHint;
+      if (result.idpHint) {
+        req.session.idpHint = result.idpHint;
+      }
 
       const redirectUrl = new URL(
         req.session.clientRedirectUri ?? defaultFront,
@@ -208,29 +214,48 @@ export class AuthController {
   @ApiOperation({
     summary: 'Logout and destroy session',
     description:
-      'Revokes the Keycloak refresh token and destroys the server session. ' +
-      'The session cookie is cleared.',
+      'Revokes the Auth0 refresh token, destroys the server session, clears the ' +
+      'session cookie, and returns logout_uri — the Auth0 v2/logout URL the ' +
+      'frontend should send the browser to so the Auth0 SSO session is also ended.',
   })
   @ApiOkResponse({
     schema: {
       type: 'object',
-      properties: { success: { type: 'boolean' } },
+      properties: {
+        success: { type: 'boolean' },
+        logout_uri: {
+          type: 'string',
+          description:
+            'Auth0 v2/logout URL; redirect the browser here to complete sign-out.',
+        },
+      },
     },
   })
   @ApiUnauthorizedResponse({ description: 'No active session' })
-  async logout(@Req() req: Request, @Res() res: Response) {
+  async logout(
+    @Body() body: LogoutPostDto,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
     const refreshToken = req.session.refreshToken;
 
     if (refreshToken) {
       await this.authService.revokeToken(refreshToken);
     }
 
+    const returnTo =
+      typeof body?.return_to === 'string' && body.return_to.trim()
+        ? this.authService.validateClientRedirectUri(body.return_to)
+        : undefined;
+
+    const logoutUri = this.authService.buildLogoutUrl(returnTo);
+
     req.session.destroy((err) => {
       if (err) {
         this.logger.error('Failed to destroy session', err);
       }
       res.clearCookie('sid');
-      res.json({ success: true });
+      res.json({ success: true, logout_uri: logoutUri });
     });
   }
 }

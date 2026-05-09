@@ -25,20 +25,20 @@ export class HealthService {
 
   async getHealthStatus() {
     const api: ComponentHealth = { status: 'up' };
-    const [db, keycloak, redis] = await Promise.all([
+    const [db, auth0, redis] = await Promise.all([
       this.checkDatabase(),
-      this.checkKeycloak(),
+      this.checkAuth0(),
       this.checkRedis(),
     ]);
     const allUp =
-      db.status === 'up' && keycloak.status === 'up' && redis.status === 'up';
+      db.status === 'up' && auth0.status === 'up' && redis.status === 'up';
 
     return {
       status: allUp ? 'ok' : 'degraded',
       timestamp: new Date().toISOString(),
       api,
       db,
-      keycloak,
+      auth0,
       redis,
     };
   }
@@ -54,26 +54,25 @@ export class HealthService {
     }
   }
 
-  private async checkKeycloak(): Promise<ComponentHealth> {
+  private async checkAuth0(): Promise<ComponentHealth> {
+    const url = `${this.config.auth0Issuer}.well-known/openid-configuration`;
     try {
-      const url = this.config.keycloakHealthUrl;
       const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
       if (!response.ok) {
-        // /health/ready often returns 503 until ready — not an application fault; avoid level-50 noise.
         const st = response.statusText?.trim();
         this.logger.warn(
-          `Keycloak health check: HTTP ${response.status}${st ? ` ${st}` : ''} (${url})`,
+          `Auth0 health check: HTTP ${response.status}${st ? ` ${st}` : ''} (${url})`,
         );
         return {
           status: 'down',
-          detail: `Keycloak responded with status ${response.status}`,
+          detail: `Auth0 responded with status ${response.status}`,
         };
       }
 
       return { status: 'up' };
     } catch (error) {
       const detail =
-        error instanceof Error ? error.message : 'Unknown keycloak error';
+        error instanceof Error ? error.message : 'Unknown auth0 error';
       return { status: 'down', detail };
     }
   }

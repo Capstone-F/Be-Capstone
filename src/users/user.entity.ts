@@ -11,22 +11,15 @@ export class User {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  /** Immutable Keycloak user ID (sub claim). Always use this as foreign key. */
+  /** Immutable Auth0 user ID (sub claim, e.g. "auth0|abc" or "google-oauth2|123"). Always use this as foreign key. */
   @Column({ unique: true })
-  keycloakSub: string;
+  auth0Sub: string;
 
   @Column({ nullable: true, type: 'varchar' })
   email: string | null;
 
   @Column({ nullable: true, type: 'varchar' })
   name: string | null;
-
-  /**
-   * Identity provider used on first login.
-   * e.g. 'google', 'keycloak' (local account).
-   */
-  @Column({ default: 'keycloak' })
-  provider: string;
 
   @Column({ default: true })
   isActive: boolean;

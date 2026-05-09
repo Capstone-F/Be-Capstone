@@ -23,7 +23,7 @@ describe('HealthService', () => {
 
   function makeConfig(overrides?: Partial<AppConfigService>) {
     return {
-      keycloakHealthUrl: 'http://localhost:9000/health/ready',
+      auth0Issuer: 'https://tenant.us.auth0.com/',
       redisUrl: 'redis://localhost:6379',
       ...overrides,
     } as AppConfigService;
@@ -43,13 +43,13 @@ describe('HealthService', () => {
 
     expect(dataSource.query).toHaveBeenCalledWith('SELECT 1');
     expect(global.fetch).toHaveBeenCalledWith(
-      'http://localhost:9000/health/ready',
+      'https://tenant.us.auth0.com/.well-known/openid-configuration',
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(result.status).toBe('ok');
     expect(result.api.status).toBe('up');
     expect(result.db.status).toBe('up');
-    expect(result.keycloak.status).toBe('up');
+    expect(result.auth0.status).toBe('up');
     expect(result.redis.status).toBe('up');
   });
 
@@ -68,10 +68,10 @@ describe('HealthService', () => {
     expect(result.status).toBe('degraded');
     expect(result.db.status).toBe('down');
     expect(result.db.detail).toContain('db is down');
-    expect(result.keycloak.status).toBe('up');
+    expect(result.auth0.status).toBe('up');
   });
 
-  it('should return degraded when keycloak is down', async () => {
+  it('should return degraded when auth0 is down', async () => {
     const dataSource = {
       query: jest.fn().mockResolvedValue([{ ok: 1 }]),
     } as unknown as DataSource;
@@ -85,7 +85,7 @@ describe('HealthService', () => {
 
     expect(result.status).toBe('degraded');
     expect(result.db.status).toBe('up');
-    expect(result.keycloak.status).toBe('down');
-    expect(result.keycloak.detail).toContain('503');
+    expect(result.auth0.status).toBe('down');
+    expect(result.auth0.detail).toContain('503');
   });
 });

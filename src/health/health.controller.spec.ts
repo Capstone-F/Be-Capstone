@@ -8,7 +8,8 @@ describe('HealthController', () => {
       timestamp: new Date().toISOString(),
       api: { status: 'up' },
       db: { status: 'up' },
-      keycloak: { status: 'up' },
+      auth0: { status: 'up' },
+      redis: { status: 'up' },
     };
     const healthService = {
       getHealthStatus: jest.fn().mockResolvedValue(healthPayload),

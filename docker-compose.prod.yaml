@@ -18,8 +18,6 @@ services:
     depends_on:
       be-api:
         condition: service_healthy
-      keycloak:
-        condition: service_started
       grafana:
         condition: service_started
     healthcheck:
@@ -84,35 +82,11 @@ services:
     labels:
       - 'logging=true'
 
-  # ── Identity ────────────────────────────────────────
-
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.2
-    container_name: capstone-keycloak
-    restart: unless-stopped
-    command: start-dev --import-realm
-    environment:
-      KC_DB: postgres
-      KC_DB_URL_HOST: postgres
-      KC_DB_URL_DATABASE: ${POSTGRES_DB:-be-capstone}
-      KC_DB_USERNAME: ${POSTGRES_USER:-admin}
-      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-admin}
-      KC_HEALTH_ENABLED: 'true'
-      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USER:-admin}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:-admin}
-      KC_LOG_CONSOLE_OUTPUT: json
-      KC_HTTP_RELATIVE_PATH: /auth
-      KC_PROXY_HEADERS: xforwarded
-    volumes:
-      - ./keycloak/realm-import:/opt/keycloak/data/import
-      - ./keycloak/themes:/opt/keycloak/themes
-    depends_on:
-      postgres:
-        condition: service_healthy
-    labels:
-      - 'logging=true'
-
   # ── Backend API ─────────────────────────────────────
+  #
+  # Identity is delegated to Auth0 (a hosted SaaS), so there is no Keycloak
+  # service in this compose file. The API needs an Auth0 tenant configured
+  # outside this stack — see README "Auth0 setup".
 
   be-api:
     build:
@@ -124,17 +98,12 @@ services:
       NODE_ENV: production
       PORT: '3000'
       DATABASE_URL: postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-admin}@postgres:5432/${POSTGRES_DB:-be-capstone}
-      KEYCLOAK_PUBLIC_URL: ${PUBLIC_URL:-http://localhost}/auth
-
-      KEYCLOAK_INTERNAL_URL: http://keycloak:8080/auth
-
-      # Keycloak 26+ has a separate health endpoint on port 9000 (with prefix /auth if using KC_HTTP_RELATIVE_PATH).
-      # Adjust if using an older Keycloak version.
-      KEYCLOAK_HEALTH_URL: http://keycloak:9000/auth/health/ready
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-be-capstone}
-      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-be-capstone-api}
-      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-be-capstone-secret}
-      KEYCLOAK_REDIRECT_URI: ${PUBLIC_URL:-http://localhost}/api/auth/callback
+      AUTH0_DOMAIN: ${AUTH0_DOMAIN}
+      AUTH0_CLIENT_ID: ${AUTH0_CLIENT_ID}
+      AUTH0_CLIENT_SECRET: ${AUTH0_CLIENT_SECRET}
+      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE}
+      AUTH0_REDIRECT_URI: ${PUBLIC_URL:-http://localhost}/api/auth/callback
+      AUTH0_LOGOUT_RETURN_URL: ${FRONTEND_URL:-http://localhost:5173}
       REDIS_URL: redis://redis:6379
       SESSION_SECRET: ${SESSION_SECRET:-change-me-to-a-random-secret}
       # false: plain http://localhost (nginx :80). Set true when the public URL is https://...
@@ -146,8 +115,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      keycloak:
-        condition: service_started
     healthcheck:
       test:
         [

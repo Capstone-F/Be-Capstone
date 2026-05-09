@@ -4,17 +4,19 @@ export class SessionUserDto {
   @ApiProperty({ example: 'a1b2c3d4-0000-0000-0000-000000000000' })
   id: string;
 
-  @ApiProperty({ example: 'kc-sub-uuid' })
-  keycloakSub: string;
+  @ApiProperty({
+    example: 'auth0|65f0d3f1c2b3a4e5d6f7a8b9',
+    description:
+      'Immutable Auth0 user ID (sub claim). Format depends on the connection: ' +
+      '"auth0|..." for database users, "google-oauth2|..." for Google social, etc.',
+  })
+  auth0Sub: string;
 
   @ApiPropertyOptional({ example: 'user@example.com', nullable: true })
   email: string | null;
 
   @ApiPropertyOptional({ example: 'John Doe', nullable: true })
   name: string | null;
-
-  @ApiProperty({ example: 'google' })
-  provider: string;
 
   @ApiProperty({ example: true })
   isActive: boolean;
