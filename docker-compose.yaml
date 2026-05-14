@@ -91,7 +91,7 @@ services:
     container_name: capstone-be-api
     restart: unless-stopped
     environment:
-      NODE_ENV: production
+      NODE_ENV: development
       PORT: '3000'
       DATABASE_URL: postgresql://admin:admin@postgres:5432/be-capstone
       KEYCLOAK_PUBLIC_URL: http://localhost:8080

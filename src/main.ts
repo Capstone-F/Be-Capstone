@@ -38,6 +38,22 @@ async function bootstrap() {
 
   if (appConfig.nodeEnv === 'production') {
     app.set('trust proxy', 1);
+    app.setGlobalPrefix('api');
+  } else {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('BE Capstone API')
+      .setDescription('API documentation for BE Capstone service')
+      .setVersion('1.0')
+      .addCookieAuth('sid', {
+        type: 'apiKey',
+        in: 'cookie',
+        name: 'sid',
+      })
+      .build();
+    const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('docs', app, swaggerDocument);
+
+    logger.log('Swagger docs available at /docs', 'Bootstrap');
   }
 
   // connect-redis v9 expects the official `redis` client API, not ioredis.
@@ -78,20 +94,6 @@ async function bootstrap() {
     }),
   );
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('BE Capstone API')
-    .setDescription('API documentation for BE Capstone service')
-    .setVersion('1.0')
-    .addCookieAuth('sid', {
-      type: 'apiKey',
-      in: 'cookie',
-      name: 'sid',
-    })
-    .build();
-  const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('docs', app, swaggerDocument);
-
-  logger.log('Swagger docs available at /docs', 'Bootstrap');
   await app.listen(appConfig.port);
 }
 void bootstrap();
