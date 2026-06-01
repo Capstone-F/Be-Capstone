@@ -56,23 +56,23 @@ Client (browser)
 
 ## 2. Prerequisites
 
-| What | Value |
-|---|---|
-| Backend API | Running at `http://localhost:3000` (or deployed URL) |
-| Frontend | Running at `http://localhost:5173` (configured via `FRONTEND_URL`) |
-| Keycloak | Running at `http://localhost:8080` |
-| Realm | `be-capstone` (auto-imported by Docker Compose) |
+| What        | Value                                                              |
+| ----------- | ------------------------------------------------------------------ |
+| Backend API | Running at `http://localhost:3001` (or deployed URL)               |
+| Frontend    | Running at `http://localhost:3000` (configured via `FRONTEND_URL`) |
+| Keycloak    | Running at `http://localhost:8080`                                 |
+| Realm       | `be-capstone` (auto-imported by Docker Compose)                    |
 
 ### Required environment variables (backend)
 
-| Variable | Description |
-|---|---|
-| `KEYCLOAK_PUBLIC_URL` | Keycloak URL reachable by the browser (e.g. `http://localhost:8080`) |
+| Variable                | Description                                                                                                             |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `KEYCLOAK_PUBLIC_URL`   | Keycloak URL reachable by the browser (e.g. `http://localhost:8080`)                                                    |
 | `KEYCLOAK_INTERNAL_URL` | Keycloak URL for server-to-server calls inside Docker (e.g. `http://keycloak:8080`). Defaults to `KEYCLOAK_PUBLIC_URL`. |
-| `REDIS_URL` | Redis connection URL for session storage (e.g. `redis://redis:6379`). Defaults to `redis://localhost:6379`. |
-| `SESSION_SECRET` | Secret for signing session cookies |
-| `FRONTEND_URL` | Allowed frontend origin — must match `client_redirect_uri` on login (same origin) and CORS |
-| `CORS_ORIGIN` | Allowed CORS origin (defaults to `FRONTEND_URL`) |
+| `REDIS_URL`             | Redis connection URL for session storage (e.g. `redis://redis:6379`). Defaults to `redis://localhost:6379`.             |
+| `SESSION_SECRET`        | Secret for signing session cookies                                                                                      |
+| `FRONTEND_URL`          | Allowed frontend origin — must match `client_redirect_uri` on login (same origin) and CORS                              |
+| `CORS_ORIGIN`           | Allowed CORS origin (defaults to `FRONTEND_URL`)                                                                        |
 
 ---
 
@@ -83,7 +83,7 @@ Client (browser)
 Call the backend with the URL you want to land on after OAuth (must be the **same origin** as `FRONTEND_URL`):
 
 ```js
-const res = await fetch('http://localhost:3000/auth/login', {
+const res = await fetch('http://localhost:3001/auth/login', {
   method: 'POST',
   credentials: 'include',
   headers: { 'Content-Type': 'application/json' },
@@ -96,6 +96,7 @@ window.location.href = login_uri;
 ```
 
 The backend will:
+
 1. Validate `client_redirect_uri` against `FRONTEND_URL` origin (open-redirect protection)
 2. Generate a CSRF `state` parameter and store it in the session (with your redirect URI)
 3. Return JSON `{ login_uri }` — the Keycloak authorization URL
@@ -107,6 +108,7 @@ The browser shows the Keycloak login page. The user enters credentials or create
 ### Step 3 — Automatic callback handling
 
 After login, Keycloak redirects to the backend's `/auth/callback`. The backend:
+
 1. Validates the `state` parameter (CSRF protection)
 2. Exchanges the authorization code for tokens (server-to-server)
 3. Upserts the user in the local database
@@ -140,18 +142,18 @@ body: JSON.stringify({
 
 This tells Keycloak to skip its own login page and redirect straight to Google.
 
-| Login | What happens |
-|---|---|
+| Login                 | What happens                                               |
+| --------------------- | ---------------------------------------------------------- |
 | First time (new user) | Google sign-in → Keycloak "Review Profile" form → callback |
-| Subsequent logins | Google sign-in → callback (no profile prompt) |
+| Subsequent logins     | Google sign-in → callback (no profile prompt)              |
 
 ---
 
 ## 5. Step-by-step: Get current user
 
 ```js
-const res = await fetch('http://localhost:3000/auth/me', {
-  credentials: 'include',  // REQUIRED — sends the session cookie
+const res = await fetch('http://localhost:3001/auth/me', {
+  credentials: 'include', // REQUIRED — sends the session cookie
 });
 
 if (res.ok) {
@@ -172,9 +174,9 @@ The backend reads the session, auto-refreshes the Keycloak token if needed, and 
 A lightweight endpoint that doesn't load the full user profile:
 
 ```js
-const { authenticated } = await fetch('http://localhost:3000/auth/status', {
+const { authenticated } = await fetch('http://localhost:3001/auth/status', {
   credentials: 'include',
-}).then(r => r.json());
+}).then((r) => r.json());
 
 if (!authenticated) {
   // Trigger POST /auth/login then navigate to login_uri (see section 3)
@@ -186,7 +188,7 @@ if (!authenticated) {
 ## 7. Step-by-step: Logout
 
 ```js
-await fetch('http://localhost:3000/auth/logout', {
+await fetch('http://localhost:3001/auth/logout', {
   method: 'POST',
   credentials: 'include',
 });
@@ -196,6 +198,7 @@ window.location.href = '/login';
 ```
 
 The backend will:
+
 1. Revoke the refresh token on Keycloak
 2. Destroy the server-side session
 3. Clear the `sid` cookie
@@ -222,7 +225,9 @@ async function apiFetch(url, options = {}) {
 }
 
 // Usage
-const data = await apiFetch('http://localhost:3000/api/some-resource').then(r => r.json());
+const data = await apiFetch('http://localhost:3001/api/some-resource').then(
+  (r) => r.json(),
+);
 ```
 
 No `Authorization` header, no token management, no refresh logic needed on the frontend.
@@ -231,27 +236,27 @@ No `Authorization` header, no token management, no refresh logic needed on the f
 
 ## 9. Endpoint reference
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| `POST` | `/auth/login` | None (sets session cookie) | JSON `{ client_redirect_uri, idpHint? }` → `{ login_uri }` |
-| `GET` | `/auth/callback` | None | OAuth callback (Keycloak redirects here) |
-| `GET` | `/auth/me` | Session cookie | Get current user profile |
-| `GET` | `/auth/status` | None | Check if session is authenticated |
-| `POST` | `/auth/logout` | Session cookie | Destroy session and revoke tokens |
+| Method | Path             | Auth                       | Description                                                |
+| ------ | ---------------- | -------------------------- | ---------------------------------------------------------- |
+| `POST` | `/auth/login`    | None (sets session cookie) | JSON `{ client_redirect_uri, idpHint? }` → `{ login_uri }` |
+| `GET`  | `/auth/callback` | None                       | OAuth callback (Keycloak redirects here)                   |
+| `GET`  | `/auth/me`       | Session cookie             | Get current user profile                                   |
+| `GET`  | `/auth/status`   | None                       | Check if session is authenticated                          |
+| `POST` | `/auth/logout`   | Session cookie             | Destroy session and revoke tokens                          |
 
 ### `POST /auth/login` — JSON body
 
-| Field | Required | Description |
-|---|---|---|
-| `client_redirect_uri` | Yes | Absolute URL to open after login (same origin as `FRONTEND_URL`) |
-| `idpHint` | No | `google` to skip Keycloak login page |
+| Field                 | Required | Description                                                      |
+| --------------------- | -------- | ---------------------------------------------------------------- |
+| `client_redirect_uri` | Yes      | Absolute URL to open after login (same origin as `FRONTEND_URL`) |
+| `idpHint`             | No       | `google` to skip Keycloak login page                             |
 
 ### `GET /auth/callback` — query params (set by Keycloak)
 
-| Param | Description |
-|---|---|
-| `code` | Authorization code from Keycloak |
-| `state` | CSRF state parameter |
+| Param   | Description                      |
+| ------- | -------------------------------- |
+| `code`  | Authorization code from Keycloak |
+| `state` | CSRF state parameter             |
 
 ---
 
@@ -259,16 +264,16 @@ No `Authorization` header, no token management, no refresh logic needed on the f
 
 ### User fields (from database, returned by `/auth/me`)
 
-| Field | Type | Description |
-|---|---|---|
-| `id` | UUID | Primary key in our database |
-| `keycloakSub` | string | Immutable Keycloak user ID — use as foreign key |
-| `email` | string \| null | Refreshed from Keycloak on every login |
-| `name` | string \| null | Refreshed from Keycloak on every login |
-| `provider` | string | `"google"` or `"keycloak"` — set at first login |
-| `isActive` | boolean | `true` by default |
-| `createdAt` | ISO date | When the user first logged in |
-| `updatedAt` | ISO date | When the user last logged in |
+| Field         | Type           | Description                                     |
+| ------------- | -------------- | ----------------------------------------------- |
+| `id`          | UUID           | Primary key in our database                     |
+| `keycloakSub` | string         | Immutable Keycloak user ID — use as foreign key |
+| `email`       | string \| null | Refreshed from Keycloak on every login          |
+| `name`        | string \| null | Refreshed from Keycloak on every login          |
+| `provider`    | string         | `"google"` or `"keycloak"` — set at first login |
+| `isActive`    | boolean        | `true` by default                               |
+| `createdAt`   | ISO date       | When the user first logged in                   |
+| `updatedAt`   | ISO date       | When the user last logged in                    |
 
 ---
 
@@ -287,14 +292,14 @@ For the session cookie to flow between the frontend and backend (different origi
 Every `fetch` call must include `credentials: 'include'`:
 
 ```js
-fetch('http://localhost:3000/auth/me', { credentials: 'include' });
+fetch('http://localhost:3001/auth/me', { credentials: 'include' });
 ```
 
 If using **Axios**:
 
 ```js
 const api = axios.create({
-  baseURL: 'http://localhost:3000',
+  baseURL: 'http://localhost:3001',
   withCredentials: true,
 });
 ```
@@ -303,10 +308,10 @@ const api = axios.create({
 
 ## 12. Error reference
 
-| HTTP | Scenario | What to do |
-|---|---|---|
-| `401 Unauthorized` | No active session or session expired | Start login again (`POST /auth/login`) |
-| `400 Bad Request` | Invalid `client_redirect_uri` | Fix URL or align with `FRONTEND_URL` origin |
-| `302` to `/auth/error?reason=missing_params` | Callback missing code/state | Start login flow again |
-| `302` to `/auth/error?reason=state_mismatch` | CSRF state mismatch | Start login flow again |
-| `302` to `/auth/error?reason=exchange_failed` | Keycloak code exchange failed | Start login flow again |
+| HTTP                                          | Scenario                             | What to do                                  |
+| --------------------------------------------- | ------------------------------------ | ------------------------------------------- |
+| `401 Unauthorized`                            | No active session or session expired | Start login again (`POST /auth/login`)      |
+| `400 Bad Request`                             | Invalid `client_redirect_uri`        | Fix URL or align with `FRONTEND_URL` origin |
+| `302` to `/auth/error?reason=missing_params`  | Callback missing code/state          | Start login flow again                      |
+| `302` to `/auth/error?reason=state_mismatch`  | CSRF state mismatch                  | Start login flow again                      |
+| `302` to `/auth/error?reason=exchange_failed` | Keycloak code exchange failed        | Start login flow again                      |
