@@ -63,7 +63,7 @@
       "protocol": "openid-connect",
       "publicClient": false,
       "standardFlowEnabled": true,
-      "directAccessGrantsEnabled": false,
+      "directAccessGrantsEnabled": true,
       "serviceAccountsEnabled": true,
       "secret": "be-capstone-secret",
       "redirectUris": ["*"],
