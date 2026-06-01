@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   InternalServerErrorException,
+  NotFoundException,
   Post,
   Query,
   Req,
@@ -199,6 +200,61 @@ export class AuthController {
   })
   getStatus(@Req() req: Request) {
     return { authenticated: !!req.session?.userId };
+  }
+
+  @Get('dev/session')
+  @ApiOperation({
+    summary: '[DEV ONLY] Create session for dev-test user',
+    description:
+      'Ensures a dev-test user exists in Keycloak, logs in via password grant, ' +
+      'creates a server session, and returns the session id (sid) for Swagger cookie auth. ' +
+      'Returns 404 in production.',
+  })
+  @ApiOkResponse({
+    schema: {
+      type: 'object',
+      properties: {
+        sid: {
+          type: 'string',
+          description: 'Session id — use as sid cookie in Swagger',
+        },
+        username: { type: 'string' },
+        email: { type: 'string' },
+      },
+    },
+  })
+  async devSession(@Req() req: Request) {
+    if (this.config.nodeEnv === 'production') {
+      throw new NotFoundException();
+    }
+
+    const result = await this.authService.devCreateSessionForTestUser();
+
+    req.session.userId = result.user.id;
+    req.session.keycloakSub = result.user.keycloakSub;
+    req.session.accessToken = result.accessToken;
+    req.session.refreshToken = result.refreshToken;
+    req.session.tokenExpiresAt = result.tokenExpiresAt;
+    req.session.idpHint = result.idpHint;
+
+    await new Promise<void>((resolve, reject) => {
+      req.session.save((err) => {
+        if (err) {
+          this.logger.error('Failed to save dev session', err);
+          reject(
+            new InternalServerErrorException('Failed to persist dev session'),
+          );
+          return;
+        }
+        resolve();
+      });
+    });
+
+    return {
+      sid: req.session.id,
+      username: result.username,
+      email: result.email,
+    };
   }
 
   @Post('logout')

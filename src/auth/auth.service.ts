@@ -19,6 +19,10 @@ type TokenResponse = {
   scope?: string;
 };
 
+const DEV_TEST_USERNAME = 'dev-test';
+const DEV_TEST_PASSWORD = 'dev-test';
+const DEV_TEST_EMAIL = 'dev-test@dev.local';
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -174,7 +178,251 @@ export class AuthService {
     return `${u.origin}/auth/error?reason=${encodeURIComponent(reason)}`;
   }
 
+  /**
+   * Development only: ensure dev-test user exists in Keycloak, log in via ROPC,
+   * upsert local user. Returns session fields (same shape as OAuth callback).
+   */
+  async devCreateSessionForTestUser() {
+    const adminToken = await this.getKeycloakAdminToken();
+    await this.ensureClientDirectAccessGrantsEnabled(adminToken);
+    await this.ensureDevTestUserExists(adminToken);
+
+    const params = new URLSearchParams({
+      grant_type: 'password',
+      username: DEV_TEST_USERNAME,
+      password: DEV_TEST_PASSWORD,
+      scope: 'openid profile email',
+    });
+
+    const token = await this.postForm<TokenResponse>(
+      this.getTokenEndpoint(),
+      params,
+    );
+
+    if (!token.access_token) {
+      throw new BadGatewayException(
+        'Keycloak returned a token response without access_token',
+      );
+    }
+
+    const profile = this.decodeJwtPayload(token.id_token ?? token.access_token);
+
+    const { user, isNewUser } = await this.usersService.upsertFromKeycloak(
+      profile,
+      'dev',
+    );
+
+    const tokenExpiresAt = Date.now() + (token.expires_in - 30) * 1000;
+
+    return {
+      user,
+      isNewUser,
+      accessToken: token.access_token,
+      refreshToken: token.refresh_token ?? '',
+      tokenExpiresAt,
+      idpHint: 'dev',
+      username: DEV_TEST_USERNAME,
+      email: DEV_TEST_EMAIL,
+    };
+  }
+
   // ─── Private helpers ───────────────────────────────────────────
+
+  private async ensureDevTestUserExists(adminToken: string): Promise<void> {
+    const existing = await this.adminFindUsersByUsername(
+      adminToken,
+      DEV_TEST_USERNAME,
+    );
+
+    if (existing.length > 0) {
+      return;
+    }
+
+    this.logger.log(
+      `Creating Keycloak dev user "${DEV_TEST_USERNAME}" in realm ${this.config.keycloakRealm}`,
+    );
+
+    await this.adminCreateUser(adminToken, {
+      username: DEV_TEST_USERNAME,
+      email: DEV_TEST_EMAIL,
+      enabled: true,
+      emailVerified: true,
+      credentials: [
+        {
+          type: 'password',
+          value: DEV_TEST_PASSWORD,
+          temporary: false,
+        },
+      ],
+    });
+  }
+
+  private async ensureClientDirectAccessGrantsEnabled(
+    adminToken: string,
+  ): Promise<void> {
+    const client = await this.adminGetClientByClientId(
+      adminToken,
+      this.config.keycloakClientId,
+    );
+
+    if (client.directAccessGrantsEnabled === true) {
+      return;
+    }
+
+    this.logger.warn(
+      `Keycloak client "${this.config.keycloakClientId}" has direct grants disabled; enabling for dev session endpoint`,
+    );
+
+    await this.adminUpdateClient(adminToken, client.id, {
+      directAccessGrantsEnabled: true,
+    });
+  }
+
+  private async getKeycloakAdminToken(): Promise<string> {
+    const params = new URLSearchParams({
+      grant_type: 'password',
+      client_id: 'admin-cli',
+      username: this.config.keycloakAdminUser,
+      password: this.config.keycloakAdminPassword,
+    });
+
+    const token = await this.postForm<TokenResponse>(
+      `${this.getInternalKeycloakBase()}/realms/master/protocol/openid-connect/token`,
+      params,
+      false,
+    );
+
+    if (!token.access_token) {
+      throw new BadGatewayException(
+        'Keycloak admin login failed (no access_token)',
+      );
+    }
+
+    return token.access_token;
+  }
+
+  private async adminFindUsersByUsername(
+    adminToken: string,
+    username: string,
+  ): Promise<Array<{ id: string }>> {
+    const url = new URL(
+      `${this.getInternalKeycloakBase()}/admin/realms/${this.config.keycloakRealm}/users`,
+    );
+    url.searchParams.set('username', username);
+    url.searchParams.set('exact', 'true');
+
+    const response = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new BadGatewayException(
+        `Keycloak admin user lookup failed (${response.status}): ${message}`,
+      );
+    }
+
+    return (await response.json()) as Array<{ id: string }>;
+  }
+
+  private async adminCreateUser(
+    adminToken: string,
+    body: Record<string, unknown>,
+  ): Promise<void> {
+    const url = `${this.getInternalKeycloakBase()}/admin/realms/${this.config.keycloakRealm}/users`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (response.status === 201 || response.status === 204) {
+      return;
+    }
+
+    const message = await response.text();
+    throw new BadGatewayException(
+      `Keycloak admin user create failed (${response.status}): ${message}`,
+    );
+  }
+
+  private async adminGetClientByClientId(
+    adminToken: string,
+    clientId: string,
+  ): Promise<{ id: string; directAccessGrantsEnabled?: boolean }> {
+    const url = new URL(
+      `${this.getInternalKeycloakBase()}/admin/realms/${this.config.keycloakRealm}/clients`,
+    );
+    url.searchParams.set('clientId', clientId);
+
+    const response = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new BadGatewayException(
+        `Keycloak admin client lookup failed (${response.status}): ${message}`,
+      );
+    }
+
+    const clients = (await response.json()) as Array<{
+      id: string;
+      clientId: string;
+      directAccessGrantsEnabled?: boolean;
+    }>;
+    const client = clients.find((item) => item.clientId === clientId);
+
+    if (!client) {
+      throw new BadGatewayException(
+        `Keycloak client "${clientId}" not found in realm "${this.config.keycloakRealm}"`,
+      );
+    }
+
+    return {
+      id: client.id,
+      directAccessGrantsEnabled: client.directAccessGrantsEnabled,
+    };
+  }
+
+  private async adminUpdateClient(
+    adminToken: string,
+    clientUuid: string,
+    body: Record<string, unknown>,
+  ): Promise<void> {
+    const url = `${this.getInternalKeycloakBase()}/admin/realms/${this.config.keycloakRealm}/clients/${clientUuid}`;
+
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (response.status === 204) {
+      return;
+    }
+
+    const message = await response.text();
+    throw new BadGatewayException(
+      `Keycloak admin client update failed (${response.status}): ${message}`,
+    );
+  }
+
+  private getInternalKeycloakBase(): string {
+    const raw = this.config.keycloakInternalUrl;
+    const base =
+      raw.startsWith('http://') || raw.startsWith('https://')
+        ? raw
+        : `http://${raw}`;
+    return base.replace(/\/+$/, '');
+  }
 
   private normalizeBase(raw: string): string {
     const base =

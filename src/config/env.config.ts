@@ -57,6 +57,16 @@ export const ENV_DEFINITIONS = {
     defaultValue: 'http://localhost:3000/auth/callback',
     description: 'Default redirect URI for authorization code flow',
   },
+  KEYCLOAK_ADMIN_USER: {
+    required: false,
+    defaultValue: 'admin',
+    description: 'Keycloak admin username for dev session endpoint',
+  },
+  KEYCLOAK_ADMIN_PASSWORD: {
+    required: false,
+    defaultValue: 'admin',
+    description: 'Keycloak admin password for dev session endpoint',
+  },
   REDIS_URL: {
     required: false,
     defaultValue: 'redis://localhost:6379',
@@ -98,6 +108,8 @@ export type AppEnv = {
   KEYCLOAK_CLIENT_ID: string;
   KEYCLOAK_CLIENT_SECRET: string;
   KEYCLOAK_REDIRECT_URI: string;
+  KEYCLOAK_ADMIN_USER: string;
+  KEYCLOAK_ADMIN_PASSWORD: string;
   REDIS_URL: string;
   SESSION_SECRET: string;
   /** When true, Set-Cookie only over HTTPS (or when proxy sends X-Forwarded-Proto: https if proxy is enabled). */
@@ -193,6 +205,12 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
     KEYCLOAK_REDIRECT_URI:
       raw.KEYCLOAK_REDIRECT_URI?.trim() ||
       ENV_DEFINITIONS.KEYCLOAK_REDIRECT_URI.defaultValue,
+    KEYCLOAK_ADMIN_USER:
+      raw.KEYCLOAK_ADMIN_USER?.trim() ||
+      ENV_DEFINITIONS.KEYCLOAK_ADMIN_USER.defaultValue,
+    KEYCLOAK_ADMIN_PASSWORD:
+      raw.KEYCLOAK_ADMIN_PASSWORD?.trim() ||
+      ENV_DEFINITIONS.KEYCLOAK_ADMIN_PASSWORD.defaultValue,
     REDIS_URL: raw.REDIS_URL?.trim() || ENV_DEFINITIONS.REDIS_URL.defaultValue,
     SESSION_SECRET: raw.SESSION_SECRET!.trim(),
     sessionCookieSecure,
