@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { LoggerModule } from 'nestjs-pino';
 import request from 'supertest';
 import session = require('express-session');
+import { DataSource } from 'typeorm';
 import { App } from 'supertest/types';
 import { AppController } from '../src/app.controller';
 import { AppService } from '../src/app.service';
@@ -15,6 +16,12 @@ import { UsersModule } from '../src/users/users.module';
 import { ConfigModule } from '../src/config/config.module';
 import { AppConfigService } from '../src/config/config.service';
 import { User } from '../src/users/user.entity';
+import { Product } from '../src/products/product.entity';
+import { StockModule } from '../src/stock/stock.module';
+import { StockBatch } from '../src/stock/stock-batch.entity';
+import { StockMovement } from '../src/stock/stock-movement.entity';
+import { ShelfLifeUnit, StockMovementType } from '../src/stock/enums';
+import { StockService } from '../src/stock/stock.service';
 
 const TEST_CONFIG: Record<string, unknown> = {
   nodeEnv: 'test',
@@ -44,6 +51,10 @@ function extractSid(res: request.Response): string {
 describe('BE Capstone API (e2e)', () => {
   let app: INestApplication<App>;
   let authService: AuthService;
+  let stockService: StockService;
+  let dataSource: DataSource;
+
+  jest.setTimeout(30_000);
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -52,10 +63,11 @@ describe('BE Capstone API (e2e)', () => {
         LoggerModule.forRoot({ pinoHttp: { level: 'silent' } }),
         UsersModule,
         AuthModule,
+        StockModule,
         TypeOrmModule.forRoot({
           type: 'better-sqlite3',
           database: ':memory:',
-          entities: [User],
+          entities: [User, Product, StockBatch, StockMovement],
           synchronize: true,
         }),
       ],
@@ -92,10 +104,14 @@ describe('BE Capstone API (e2e)', () => {
     await app.init();
 
     authService = moduleFixture.get(AuthService);
+    stockService = moduleFixture.get(StockService);
+    dataSource = moduleFixture.get(DataSource);
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close();
+    }
   });
 
   // ─── Root ──────────────────────────────────────────────────────
@@ -531,6 +547,188 @@ describe('BE Capstone API (e2e)', () => {
         .expect(401);
     });
   });
+
+  // ─── Stock: POST /stock/batches ────────────────────────────────
+
+  describe('POST /stock/batches', () => {
+    let sid: string;
+
+    beforeEach(async () => {
+      sid = await performMockLogin();
+      jest
+        .spyOn(authService, 'refreshTokenIfNeeded')
+        .mockResolvedValue(undefined);
+    });
+
+    it('should return 401 without session cookie', async () => {
+      await request(app.getHttpServer())
+        .post('/stock/batches')
+        .send({
+          productId: '00000000-0000-0000-0000-000000000001',
+          quantity: 10,
+          manufacturingDate: '2026-01-15',
+        })
+        .expect(401);
+    });
+
+    it('should return 400 when quantity is zero', async () => {
+      const product = await seedProduct();
+
+      await request(app.getHttpServer())
+        .post('/stock/batches')
+        .set('Cookie', sid)
+        .send({
+          productId: product.id,
+          quantity: 0,
+          manufacturingDate: '2026-01-15',
+        })
+        .expect(400);
+    });
+
+    it('should return 400 when quantity is negative', async () => {
+      const product = await seedProduct();
+
+      await request(app.getHttpServer())
+        .post('/stock/batches')
+        .set('Cookie', sid)
+        .send({
+          productId: product.id,
+          quantity: -5,
+          manufacturingDate: '2026-01-15',
+        })
+        .expect(400);
+    });
+
+    it('should return 404 when productId does not exist', async () => {
+      await request(app.getHttpServer())
+        .post('/stock/batches')
+        .set('Cookie', sid)
+        .send({
+          productId: '00000000-0000-0000-0000-000000000099',
+          quantity: 10,
+          manufacturingDate: '2026-01-15',
+        })
+        .expect(404);
+    });
+
+    it('should create batch with computed expiration date', async () => {
+      const product = await seedProduct({
+        shelfLifeValue: 30,
+        shelfLifeUnit: ShelfLifeUnit.DAY,
+      });
+
+      const { body } = await request(app.getHttpServer())
+        .post('/stock/batches')
+        .set('Cookie', sid)
+        .send({
+          productId: product.id,
+          quantity: 100,
+          manufacturingDate: '2026-01-15',
+          batchCode: 'LOT-E2E-001',
+        })
+        .expect(201);
+
+      expect(body.id).toBeTruthy();
+      expect(body.productId).toBe(product.id);
+      expect(body.batchCode).toBe('LOT-E2E-001');
+      expect(body.initialQuantity).toBe(100);
+      expect(body.remainingQuantity).toBe(100);
+      expect(String(body.manufacturingDate).slice(0, 10)).toBe('2026-01-15');
+      expect(String(body.expirationDate).slice(0, 10)).toBe('2026-02-14');
+
+      const movements = await dataSource.getRepository(StockMovement).find({
+        where: { batchId: body.id },
+      });
+      expect(movements).toHaveLength(1);
+      expect(movements[0].type).toBe(StockMovementType.IN);
+      expect(movements[0].quantity).toBe(100);
+    });
+  });
+
+  // ─── Stock: POST /stock/batches/:id/adjust ───────────────────────
+
+  describe('POST /stock/batches/:id/adjust', () => {
+    let sid: string;
+
+    beforeEach(async () => {
+      sid = await performMockLogin();
+      jest
+        .spyOn(authService, 'refreshTokenIfNeeded')
+        .mockResolvedValue(undefined);
+    });
+
+    it('should return 401 without session cookie', async () => {
+      await request(app.getHttpServer())
+        .post('/stock/batches/00000000-0000-0000-0000-000000000001/adjust')
+        .send({ quantity: 50 })
+        .expect(401);
+    });
+
+    it('should return 400 when quantity is zero', async () => {
+      const product = await seedProduct();
+      const batch = await stockService.createBatch({
+        productId: product.id,
+        quantity: 100,
+        manufacturingDate: '2026-01-15',
+      });
+
+      await request(app.getHttpServer())
+        .post(`/stock/batches/${batch.id}/adjust`)
+        .set('Cookie', sid)
+        .send({ quantity: 0 })
+        .expect(400);
+    });
+
+    it('should return 404 when batch id does not exist', async () => {
+      await request(app.getHttpServer())
+        .post('/stock/batches/00000000-0000-0000-0000-000000000099/adjust')
+        .set('Cookie', sid)
+        .send({ quantity: 50 })
+        .expect(404);
+    });
+
+    it('should adjust remaining quantity and record ADJUST movement', async () => {
+      const product = await seedProduct();
+      const batch = await stockService.createBatch({
+        productId: product.id,
+        quantity: 100,
+        manufacturingDate: '2026-01-15',
+      });
+
+      const { body } = await request(app.getHttpServer())
+        .post(`/stock/batches/${batch.id}/adjust`)
+        .set('Cookie', sid)
+        .send({ quantity: 75, note: 'E2E inventory correction' })
+        .expect(200);
+
+      expect(body.batch.id).toBe(batch.id);
+      expect(body.batch.remainingQuantity).toBe(75);
+      expect(body.movement.type).toBe(StockMovementType.ADJUST);
+      expect(body.movement.quantity).toBe(75);
+      expect(body.movement.note).toBe('E2E inventory correction');
+
+      const updated = await dataSource
+        .getRepository(StockBatch)
+        .findOneBy({ id: batch.id });
+      expect(updated?.remainingQuantity).toBe(75);
+    });
+  });
+
+  // ─── Helper: seed product for stock tests ────────────────────────
+
+  async function seedProduct(
+    overrides: Partial<Product> = {},
+  ): Promise<Product> {
+    const repo = dataSource.getRepository(Product);
+    return repo.save(
+      repo.create({
+        name: 'E2E Product',
+        shelfLifeValue: 30,
+        shelfLifeUnit: ShelfLifeUnit.DAY,
+        ...overrides,
+      }),
+    );
+  }
 
   // ─── Helper: simulate a complete login via mock ────────────────
 
