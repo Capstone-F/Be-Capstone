@@ -16,12 +16,16 @@ import { UsersModule } from '../src/users/users.module';
 import { ConfigModule } from '../src/config/config.module';
 import { AppConfigService } from '../src/config/config.service';
 import { User } from '../src/users/user.entity';
+import { Clinic } from '../src/clinics/clinic.entity';
 import { Product } from '../src/products/product.entity';
 import { StockModule } from '../src/stock/stock.module';
 import { StockBatch } from '../src/stock/stock-batch.entity';
 import { StockMovement } from '../src/stock/stock-movement.entity';
 import { ShelfLifeUnit, StockMovementType } from '../src/stock/enums';
 import { StockService } from '../src/stock/stock.service';
+import { Role } from '../src/auth/roles.enum';
+import { KeycloakAdminService } from '../src/keycloak/keycloak-admin.service';
+import { KeycloakAdminModule } from '../src/keycloak/keycloak-admin.module';
 
 const TEST_CONFIG: Record<string, unknown> = {
   nodeEnv: 'test',
@@ -38,6 +42,8 @@ const TEST_CONFIG: Record<string, unknown> = {
   sessionSecret: 'e2e-test-secret',
   frontendUrl: 'http://localhost:5173',
   corsOrigin: 'http://localhost:5173',
+  keycloakDevAdminUser: 'glowscan-admin',
+  keycloakDevAdminPassword: 'admin',
   getMissingRequiredKeys: () => [],
 };
 
@@ -52,6 +58,7 @@ describe('BE Capstone API (e2e)', () => {
   let app: INestApplication<App>;
   let authService: AuthService;
   let stockService: StockService;
+  let keycloakAdminService: KeycloakAdminService;
   let dataSource: DataSource;
 
   jest.setTimeout(30_000);
@@ -60,6 +67,7 @@ describe('BE Capstone API (e2e)', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [
         ConfigModule,
+        KeycloakAdminModule,
         LoggerModule.forRoot({ pinoHttp: { level: 'silent' } }),
         UsersModule,
         AuthModule,
@@ -67,7 +75,7 @@ describe('BE Capstone API (e2e)', () => {
         TypeOrmModule.forRoot({
           type: 'better-sqlite3',
           database: ':memory:',
-          entities: [User, Product, StockBatch, StockMovement],
+          entities: [User, Clinic, Product, StockBatch, StockMovement],
           synchronize: true,
         }),
       ],
@@ -105,7 +113,12 @@ describe('BE Capstone API (e2e)', () => {
 
     authService = moduleFixture.get(AuthService);
     stockService = moduleFixture.get(StockService);
+    keycloakAdminService = moduleFixture.get(KeycloakAdminService);
     dataSource = moduleFixture.get(DataSource);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   afterAll(async () => {
@@ -392,37 +405,37 @@ describe('BE Capstone API (e2e)', () => {
     });
   });
 
-  // ─── Auth: /auth/me ────────────────────────────────────────────
+  // ─── Users: GET /users/me ────────────────────────────────────────
 
-  describe('GET /auth/me', () => {
+  describe('GET /users/me', () => {
     it('should return 401 without session', async () => {
-      await request(app.getHttpServer()).get('/auth/me').expect(401);
+      await request(app.getHttpServer()).get('/users/me').expect(401);
     });
 
     it('should return user profile with valid session', async () => {
-      const sid = await performMockLogin();
+      const user = await seedUser({
+        keycloakSub: 'kc-sub-e2e',
+        email: 'e2e@example.com',
+        name: 'E2E User',
+        roles: [Role.Customer],
+      });
+      const sid = await performMockLogin({
+        userId: user.id,
+        keycloakSub: user.keycloakSub,
+        email: user.email ?? undefined,
+        name: user.name ?? undefined,
+      });
 
       jest
         .spyOn(authService, 'refreshTokenIfNeeded')
         .mockResolvedValueOnce(undefined);
 
-      jest.spyOn(authService, 'findUserById').mockResolvedValueOnce({
-        id: 'e2e-user-id',
-        keycloakSub: 'kc-sub-e2e',
-        email: 'e2e@example.com',
-        name: 'E2E User',
-        provider: 'keycloak',
-        isActive: true,
-        createdAt: new Date('2026-01-01'),
-        updatedAt: new Date('2026-01-01'),
-      } as User);
-
       const { body } = await request(app.getHttpServer())
-        .get('/auth/me')
+        .get('/users/me')
         .set('Cookie', sid)
         .expect(200);
 
-      expect(body.id).toBe('e2e-user-id');
+      expect(body.id).toBe(user.id);
       expect(body.email).toBe('e2e@example.com');
       expect(body.name).toBe('E2E User');
       expect(body.provider).toBe('keycloak');
@@ -491,7 +504,18 @@ describe('BE Capstone API (e2e)', () => {
       expect(statusBefore.body.authenticated).toBe(false);
 
       // 2. Login → get session
-      const sid = await performMockLogin();
+      const lifecycleUser = await seedUser({
+        keycloakSub: 'kc-lifecycle',
+        email: 'lifecycle@test.com',
+        name: 'Lifecycle User',
+        roles: [Role.Customer],
+      });
+      const sid = await performMockLogin({
+        userId: lifecycleUser.id,
+        keycloakSub: lifecycleUser.keycloakSub,
+        email: lifecycleUser.email ?? undefined,
+        name: lifecycleUser.name ?? undefined,
+      });
 
       // 3. Authenticated
       const statusAfter = await request(app.getHttpServer())
@@ -504,19 +528,9 @@ describe('BE Capstone API (e2e)', () => {
       jest
         .spyOn(authService, 'refreshTokenIfNeeded')
         .mockResolvedValueOnce(undefined);
-      jest.spyOn(authService, 'findUserById').mockResolvedValueOnce({
-        id: 'lifecycle-user',
-        keycloakSub: 'kc-lifecycle',
-        email: 'lifecycle@test.com',
-        name: 'Lifecycle User',
-        provider: 'keycloak',
-        isActive: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      } as User);
 
       const meRes = await request(app.getHttpServer())
-        .get('/auth/me')
+        .get('/users/me')
         .set('Cookie', sid)
         .expect(200);
       expect(meRes.body.email).toBe('lifecycle@test.com');
@@ -540,11 +554,232 @@ describe('BE Capstone API (e2e)', () => {
         .expect(200);
       expect(statusFinal.body.authenticated).toBe(false);
 
-      // 7. /auth/me returns 401 again
+      // 7. /users/me returns 401 again
       await request(app.getHttpServer())
-        .get('/auth/me')
+        .get('/users/me')
         .set('Cookie', sid)
         .expect(401);
+    });
+  });
+
+  // ─── Users: RBAC + user management ───────────────────────────────
+
+  describe('Users module endpoints', () => {
+    it('GET /users should return 403 for customer role', async () => {
+      const sid = await performMockLogin({
+        userId: 'customer-session-user',
+        keycloakSub: 'kc-customer-session',
+        roles: [Role.Customer],
+      });
+
+      await request(app.getHttpServer())
+        .get('/users')
+        .set('Cookie', sid)
+        .expect(403);
+    });
+
+    it('GET /users should return paginated list for app_admin', async () => {
+      const sid = await performMockLogin({
+        userId: 'admin-session-user',
+        keycloakSub: 'kc-admin-session',
+        roles: [Role.AppAdmin],
+      });
+      await seedUser({
+        keycloakSub: 'kc-list-1',
+        email: 'list1@example.com',
+        name: 'List User 1',
+        roles: [Role.Customer],
+      });
+      await seedUser({
+        keycloakSub: 'kc-list-2',
+        email: 'list2@example.com',
+        name: 'List User 2',
+        roles: [Role.Staff],
+      });
+
+      const { body } = await request(app.getHttpServer())
+        .get('/users?page=1&limit=10')
+        .set('Cookie', sid)
+        .expect(200);
+
+      expect(body.total).toBeGreaterThanOrEqual(2);
+      expect(Array.isArray(body.items)).toBe(true);
+    });
+
+    it('GET /users should scope clinic_manager to own clinic', async () => {
+      const clinicA = await seedClinic('Clinic A');
+      const clinicB = await seedClinic('Clinic B');
+      const sid = await performMockLogin({
+        userId: 'manager-session-user',
+        keycloakSub: 'kc-manager-session',
+        roles: [Role.ClinicManager],
+        clinicId: clinicA.id,
+      });
+
+      await seedUser({
+        keycloakSub: 'kc-expert-a',
+        email: 'expert-a@example.com',
+        name: 'Expert A',
+        roles: [Role.Expert],
+        clinicId: clinicA.id,
+      });
+      await seedUser({
+        keycloakSub: 'kc-expert-b',
+        email: 'expert-b@example.com',
+        name: 'Expert B',
+        roles: [Role.Expert],
+        clinicId: clinicB.id,
+      });
+
+      const { body } = await request(app.getHttpServer())
+        .get('/users')
+        .set('Cookie', sid)
+        .expect(200);
+
+      const clinics = new Set(
+        (body.items as Array<{ clinicId: string }>).map((u) => u.clinicId),
+      );
+      expect(clinics.size).toBeLessThanOrEqual(1);
+      expect(clinics.has(clinicA.id)).toBe(true);
+    });
+
+    it('PATCH /users/me should update own name', async () => {
+      const self = await seedUser({
+        keycloakSub: 'kc-self-1',
+        email: 'self@example.com',
+        name: 'Old Name',
+        roles: [Role.Customer],
+      });
+      const sid = await performMockLogin({
+        userId: self.id,
+        keycloakSub: self.keycloakSub,
+        roles: [Role.Customer],
+      });
+
+      jest
+        .spyOn(keycloakAdminService, 'getAdminToken')
+        .mockResolvedValue('admin-token');
+      jest.spyOn(keycloakAdminService, 'updateUser').mockResolvedValue();
+
+      const { body } = await request(app.getHttpServer())
+        .patch('/users/me')
+        .set('Cookie', sid)
+        .send({ name: 'New Self Name' })
+        .expect(200);
+
+      expect(body.name).toBe('New Self Name');
+    });
+
+    it('POST /users should allow app_admin to create staff', async () => {
+      const sid = await performMockLogin({
+        userId: 'admin-create-user',
+        keycloakSub: 'kc-admin-create-user',
+        roles: [Role.AppAdmin],
+      });
+
+      jest
+        .spyOn(keycloakAdminService, 'getAdminToken')
+        .mockResolvedValue('admin-token');
+      jest
+        .spyOn(keycloakAdminService, 'createUser')
+        .mockResolvedValue('kc-new-staff');
+      jest
+        .spyOn(keycloakAdminService, 'getRealmRole')
+        .mockResolvedValue({ id: 'role-staff', name: Role.Staff });
+      jest.spyOn(keycloakAdminService, 'assignRealmRoles').mockResolvedValue();
+
+      const { body } = await request(app.getHttpServer())
+        .post('/users')
+        .set('Cookie', sid)
+        .send({
+          email: 'new-staff@example.com',
+          name: 'New Staff',
+          role: Role.Staff,
+          temporaryPassword: 'Temp123!',
+        })
+        .expect(201);
+
+      expect(body.keycloakSub).toBe('kc-new-staff');
+      expect(body.roles).toEqual([Role.Staff]);
+    });
+
+    it('POST /users should reject clinic_manager creating staff', async () => {
+      const clinic = await seedClinic('Forbidden Create Clinic');
+      const sid = await performMockLogin({
+        userId: 'manager-create-staff',
+        keycloakSub: 'kc-manager-create-staff',
+        roles: [Role.ClinicManager],
+        clinicId: clinic.id,
+      });
+
+      await request(app.getHttpServer())
+        .post('/users')
+        .set('Cookie', sid)
+        .send({
+          email: 'not-allowed@example.com',
+          name: 'Not Allowed',
+          role: Role.Staff,
+          temporaryPassword: 'Temp123!',
+        })
+        .expect(403);
+    });
+
+    it('PATCH /users/:id/roles should update target roles for app_admin', async () => {
+      const sid = await performMockLogin({
+        userId: 'admin-assign-role',
+        keycloakSub: 'kc-admin-assign-role',
+        roles: [Role.AppAdmin],
+      });
+      const target = await seedUser({
+        keycloakSub: 'kc-target-role',
+        email: 'target-role@example.com',
+        name: 'Target Role User',
+        roles: [Role.Customer],
+      });
+
+      jest
+        .spyOn(keycloakAdminService, 'getAdminToken')
+        .mockResolvedValue('admin-token');
+      jest
+        .spyOn(keycloakAdminService, 'replaceUserAppRoles')
+        .mockResolvedValue();
+      jest.spyOn(keycloakAdminService, 'setUserAttributes').mockResolvedValue();
+
+      const { body } = await request(app.getHttpServer())
+        .patch(`/users/${target.id}/roles`)
+        .set('Cookie', sid)
+        .send({ roles: [Role.Staff] })
+        .expect(200);
+
+      expect(body.roles).toEqual([Role.Staff]);
+    });
+
+    it('PATCH /users/:id/status should enable/disable target user for app_admin', async () => {
+      const sid = await performMockLogin({
+        userId: 'admin-status-user',
+        keycloakSub: 'kc-admin-status-user',
+        roles: [Role.AppAdmin],
+      });
+      const target = await seedUser({
+        keycloakSub: 'kc-target-status',
+        email: 'target-status@example.com',
+        name: 'Target Status User',
+        roles: [Role.Customer],
+        isActive: true,
+      });
+
+      jest
+        .spyOn(keycloakAdminService, 'getAdminToken')
+        .mockResolvedValue('admin-token');
+      jest.spyOn(keycloakAdminService, 'setUserEnabled').mockResolvedValue();
+
+      const { body } = await request(app.getHttpServer())
+        .patch(`/users/${target.id}/status`)
+        .set('Cookie', sid)
+        .send({ isActive: false })
+        .expect(200);
+
+      expect(body.isActive).toBe(false);
     });
   });
 
@@ -730,9 +965,51 @@ describe('BE Capstone API (e2e)', () => {
     );
   }
 
+  async function seedClinic(name = 'E2E Clinic'): Promise<Clinic> {
+    const repo = dataSource.getRepository(Clinic);
+    return repo.save(
+      repo.create({
+        name,
+        address: 'E2E Address',
+      }),
+    );
+  }
+
+  async function seedUser(overrides: Partial<User> = {}): Promise<User> {
+    const repo = dataSource.getRepository(User);
+    return repo.save(
+      repo.create({
+        keycloakSub: `kc-${Math.random().toString(36).slice(2)}`,
+        email: 'seed@example.com',
+        name: 'Seed User',
+        provider: 'keycloak',
+        roles: [Role.Customer],
+        clinicId: null,
+        isActive: true,
+        ...overrides,
+      }),
+    );
+  }
+
   // ─── Helper: simulate a complete login via mock ────────────────
 
-  async function performMockLogin(): Promise<string> {
+  async function performMockLogin(options?: {
+    userId?: string;
+    keycloakSub?: string;
+    roles?: Role[];
+    clinicId?: string | null;
+    email?: string;
+    name?: string;
+    provider?: string;
+  }): Promise<string> {
+    const userId = options?.userId ?? 'e2e-user-id';
+    const keycloakSub = options?.keycloakSub ?? 'kc-sub-e2e';
+    const email = options?.email ?? 'e2e@example.com';
+    const name = options?.name ?? 'E2E User';
+    const provider = options?.provider ?? 'keycloak';
+    const roles = options?.roles ?? [Role.Customer];
+    const clinicId = options?.clinicId ?? null;
+
     const loginRes = await request(app.getHttpServer())
       .post('/auth/login')
       .send({ client_redirect_uri: 'http://localhost:5173/' })
@@ -743,11 +1020,13 @@ describe('BE Capstone API (e2e)', () => {
 
     jest.spyOn(authService, 'exchangeCodeAndUpsertUser').mockResolvedValueOnce({
       user: {
-        id: 'e2e-user-id',
-        keycloakSub: 'kc-sub-e2e',
-        email: 'e2e@example.com',
-        name: 'E2E User',
-        provider: 'keycloak',
+        id: userId,
+        keycloakSub,
+        email,
+        name,
+        provider,
+        roles,
+        clinicId,
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -757,6 +1036,7 @@ describe('BE Capstone API (e2e)', () => {
       refreshToken: 'mock-rt',
       tokenExpiresAt: Date.now() + 300_000,
       idpHint: 'keycloak',
+      roles,
     });
 
     const callbackRes = await request(app.getHttpServer())

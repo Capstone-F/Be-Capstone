@@ -60,12 +60,24 @@ export const ENV_DEFINITIONS = {
   KEYCLOAK_ADMIN_USER: {
     required: false,
     defaultValue: 'admin',
-    description: 'Keycloak admin username for dev session endpoint',
+    description: 'Keycloak master-realm admin username (Admin API)',
   },
   KEYCLOAK_ADMIN_PASSWORD: {
     required: false,
     defaultValue: 'admin',
-    description: 'Keycloak admin password for dev session endpoint',
+    description: 'Keycloak master-realm admin password (Admin API)',
+  },
+  KEYCLOAK_DEV_ADMIN_USER: {
+    required: false,
+    defaultValue: 'glowscan-admin',
+    description:
+      'Realm App Admin username for GET /auth/dev/session (password grant)',
+  },
+  KEYCLOAK_DEV_ADMIN_PASSWORD: {
+    required: false,
+    defaultValue: 'admin',
+    description:
+      'Realm App Admin password for GET /auth/dev/session (password grant)',
   },
   REDIS_URL: {
     required: false,
@@ -110,6 +122,8 @@ export type AppEnv = {
   KEYCLOAK_REDIRECT_URI: string;
   KEYCLOAK_ADMIN_USER: string;
   KEYCLOAK_ADMIN_PASSWORD: string;
+  KEYCLOAK_DEV_ADMIN_USER: string;
+  KEYCLOAK_DEV_ADMIN_PASSWORD: string;
   REDIS_URL: string;
   SESSION_SECRET: string;
   /** When true, Set-Cookie only over HTTPS (or when proxy sends X-Forwarded-Proto: https if proxy is enabled). */
@@ -211,6 +225,12 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
     KEYCLOAK_ADMIN_PASSWORD:
       raw.KEYCLOAK_ADMIN_PASSWORD?.trim() ||
       ENV_DEFINITIONS.KEYCLOAK_ADMIN_PASSWORD.defaultValue,
+    KEYCLOAK_DEV_ADMIN_USER:
+      raw.KEYCLOAK_DEV_ADMIN_USER?.trim() ||
+      ENV_DEFINITIONS.KEYCLOAK_DEV_ADMIN_USER.defaultValue,
+    KEYCLOAK_DEV_ADMIN_PASSWORD:
+      raw.KEYCLOAK_DEV_ADMIN_PASSWORD?.trim() ||
+      ENV_DEFINITIONS.KEYCLOAK_DEV_ADMIN_PASSWORD.defaultValue,
     REDIS_URL: raw.REDIS_URL?.trim() || ENV_DEFINITIONS.REDIS_URL.defaultValue,
     SESSION_SECRET: raw.SESSION_SECRET!.trim(),
     sessionCookieSecure,

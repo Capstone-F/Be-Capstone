@@ -7,8 +7,11 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { AppConfigService } from '../config/config.service';
+import { KeycloakAdminService } from '../keycloak/keycloak-admin.service';
 import { UsersService } from '../users/users.service';
+import { APP_ROLES, filterAppRoles } from './roles.enum';
 import type { Request } from 'express';
+
 type TokenResponse = {
   access_token: string;
   expires_in: number;
@@ -19,10 +22,6 @@ type TokenResponse = {
   scope?: string;
 };
 
-const DEV_TEST_USERNAME = 'dev-test';
-const DEV_TEST_PASSWORD = 'dev-test';
-const DEV_TEST_EMAIL = 'dev-test@dev.local';
-
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -30,13 +29,14 @@ export class AuthService {
   constructor(
     private readonly config: AppConfigService,
     private readonly usersService: UsersService,
+    private readonly keycloakAdmin: KeycloakAdminService,
   ) {}
 
   /**
    * Build the Keycloak authorization URL and return a random `state` for CSRF.
    */
   buildLoginUrl(idpHint?: string): { url: string; state: string } {
-    const endpoint = `${this.getPublicIssuer()}/protocol/openid-connect/auth`;
+    const endpoint = `${this.keycloakAdmin.getPublicIssuer()}/protocol/openid-connect/auth`;
     const state = randomUUID();
     const url = new URL(endpoint);
     url.searchParams.set('client_id', this.config.keycloakClientId);
@@ -63,8 +63,8 @@ export class AuthService {
       redirect_uri: this.config.keycloakRedirectUri,
     });
 
-    const token = await this.postForm<TokenResponse>(
-      this.getTokenEndpoint(),
+    const token = await this.keycloakAdmin.postForm<TokenResponse>(
+      this.keycloakAdmin.getTokenEndpoint(),
       params,
     );
 
@@ -74,11 +74,17 @@ export class AuthService {
       );
     }
 
-    const profile = this.decodeJwtPayload(token.id_token ?? token.access_token);
+    const profile = this.keycloakAdmin.decodeJwtPayload(
+      token.id_token ?? token.access_token,
+    );
+    const roles = filterAppRoles(
+      this.keycloakAdmin.extractRolesFromToken(token.access_token),
+    );
 
     const { user, isNewUser } = await this.usersService.upsertFromKeycloak(
       profile,
       idpHint ?? 'keycloak',
+      roles,
     );
 
     const tokenExpiresAt = Date.now() + (token.expires_in - 30) * 1000;
@@ -90,6 +96,7 @@ export class AuthService {
       refreshToken: token.refresh_token ?? '',
       tokenExpiresAt,
       idpHint: idpHint ?? 'keycloak',
+      roles,
     };
   }
 
@@ -109,14 +116,17 @@ export class AuthService {
     });
 
     try {
-      const token = await this.postForm<TokenResponse>(
-        this.getTokenEndpoint(),
+      const token = await this.keycloakAdmin.postForm<TokenResponse>(
+        this.keycloakAdmin.getTokenEndpoint(),
         params,
       );
 
       session.accessToken = token.access_token;
       session.refreshToken = token.refresh_token ?? session.refreshToken;
       session.tokenExpiresAt = Date.now() + (token.expires_in - 30) * 1000;
+      session.roles = filterAppRoles(
+        this.keycloakAdmin.extractRolesFromToken(token.access_token),
+      );
     } catch (err) {
       this.logger.warn('Session token refresh failed — forcing re-login', err);
       throw new UnauthorizedException('Session expired, please login again');
@@ -130,18 +140,13 @@ export class AuthService {
     if (!refreshToken) return;
     const params = new URLSearchParams({ refresh_token: refreshToken });
     try {
-      await this.postForm(this.getLogoutEndpoint(), params);
+      await this.keycloakAdmin.postForm(
+        this.keycloakAdmin.getLogoutEndpoint(),
+        params,
+      );
     } catch (err) {
       this.logger.warn('Keycloak token revocation failed (non-fatal)', err);
     }
-  }
-
-  async findUserById(userId: string) {
-    const user = await this.usersService.findById(userId);
-    if (!user) {
-      throw new UnauthorizedException('User not found');
-    }
-    return user;
   }
 
   /**
@@ -179,23 +184,22 @@ export class AuthService {
   }
 
   /**
-   * Development only: ensure dev-test user exists in Keycloak, log in via ROPC,
-   * upsert local user. Returns session fields (same shape as OAuth callback).
+   * Development only: log in as realm App Admin via ROPC, upsert local user.
+   * Returns session fields (same shape as OAuth callback).
    */
-  async devCreateSessionForTestUser() {
-    const adminToken = await this.getKeycloakAdminToken();
+  async devCreateSessionForAdmin() {
+    const adminToken = await this.keycloakAdmin.getAdminToken();
     await this.ensureClientDirectAccessGrantsEnabled(adminToken);
-    await this.ensureDevTestUserExists(adminToken);
 
     const params = new URLSearchParams({
       grant_type: 'password',
-      username: DEV_TEST_USERNAME,
-      password: DEV_TEST_PASSWORD,
+      username: this.config.keycloakDevAdminUser,
+      password: this.config.keycloakDevAdminPassword,
       scope: 'openid profile email',
     });
 
-    const token = await this.postForm<TokenResponse>(
-      this.getTokenEndpoint(),
+    const token = await this.keycloakAdmin.postForm<TokenResponse>(
+      this.keycloakAdmin.getTokenEndpoint(),
       params,
     );
 
@@ -205,14 +209,26 @@ export class AuthService {
       );
     }
 
-    const profile = this.decodeJwtPayload(token.id_token ?? token.access_token);
+    const profile = this.keycloakAdmin.decodeJwtPayload(
+      token.id_token ?? token.access_token,
+    );
+    const roles = filterAppRoles(
+      this.keycloakAdmin.extractRolesFromToken(token.access_token),
+    );
 
     const { user, isNewUser } = await this.usersService.upsertFromKeycloak(
       profile,
       'dev',
+      roles,
     );
 
     const tokenExpiresAt = Date.now() + (token.expires_in - 30) * 1000;
+    const username =
+      (profile.preferred_username as string | undefined) ??
+      this.config.keycloakDevAdminUser;
+    const email =
+      (profile.email as string | undefined) ??
+      `${this.config.keycloakDevAdminUser}@dev.local`;
 
     return {
       user,
@@ -221,46 +237,18 @@ export class AuthService {
       refreshToken: token.refresh_token ?? '',
       tokenExpiresAt,
       idpHint: 'dev',
-      username: DEV_TEST_USERNAME,
-      email: DEV_TEST_EMAIL,
+      roles,
+      username,
+      email,
     };
   }
 
   // ─── Private helpers ───────────────────────────────────────────
 
-  private async ensureDevTestUserExists(adminToken: string): Promise<void> {
-    const existing = await this.adminFindUsersByUsername(
-      adminToken,
-      DEV_TEST_USERNAME,
-    );
-
-    if (existing.length > 0) {
-      return;
-    }
-
-    this.logger.log(
-      `Creating Keycloak dev user "${DEV_TEST_USERNAME}" in realm ${this.config.keycloakRealm}`,
-    );
-
-    await this.adminCreateUser(adminToken, {
-      username: DEV_TEST_USERNAME,
-      email: DEV_TEST_EMAIL,
-      enabled: true,
-      emailVerified: true,
-      credentials: [
-        {
-          type: 'password',
-          value: DEV_TEST_PASSWORD,
-          temporary: false,
-        },
-      ],
-    });
-  }
-
   private async ensureClientDirectAccessGrantsEnabled(
     adminToken: string,
   ): Promise<void> {
-    const client = await this.adminGetClientByClientId(
+    const client = await this.keycloakAdmin.getClientByClientId(
       adminToken,
       this.config.keycloakClientId,
     );
@@ -273,227 +261,10 @@ export class AuthService {
       `Keycloak client "${this.config.keycloakClientId}" has direct grants disabled; enabling for dev session endpoint`,
     );
 
-    await this.adminUpdateClient(adminToken, client.id, {
+    await this.keycloakAdmin.updateClient(adminToken, client.id, {
       directAccessGrantsEnabled: true,
     });
   }
-
-  private async getKeycloakAdminToken(): Promise<string> {
-    const params = new URLSearchParams({
-      grant_type: 'password',
-      client_id: 'admin-cli',
-      username: this.config.keycloakAdminUser,
-      password: this.config.keycloakAdminPassword,
-    });
-
-    const token = await this.postForm<TokenResponse>(
-      `${this.getInternalKeycloakBase()}/realms/master/protocol/openid-connect/token`,
-      params,
-      false,
-    );
-
-    if (!token.access_token) {
-      throw new BadGatewayException(
-        'Keycloak admin login failed (no access_token)',
-      );
-    }
-
-    return token.access_token;
-  }
-
-  private async adminFindUsersByUsername(
-    adminToken: string,
-    username: string,
-  ): Promise<Array<{ id: string }>> {
-    const url = new URL(
-      `${this.getInternalKeycloakBase()}/admin/realms/${this.config.keycloakRealm}/users`,
-    );
-    url.searchParams.set('username', username);
-    url.searchParams.set('exact', 'true');
-
-    const response = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${adminToken}` },
-    });
-
-    if (!response.ok) {
-      const message = await response.text();
-      throw new BadGatewayException(
-        `Keycloak admin user lookup failed (${response.status}): ${message}`,
-      );
-    }
-
-    return (await response.json()) as Array<{ id: string }>;
-  }
-
-  private async adminCreateUser(
-    adminToken: string,
-    body: Record<string, unknown>,
-  ): Promise<void> {
-    const url = `${this.getInternalKeycloakBase()}/admin/realms/${this.config.keycloakRealm}/users`;
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${adminToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (response.status === 201 || response.status === 204) {
-      return;
-    }
-
-    const message = await response.text();
-    throw new BadGatewayException(
-      `Keycloak admin user create failed (${response.status}): ${message}`,
-    );
-  }
-
-  private async adminGetClientByClientId(
-    adminToken: string,
-    clientId: string,
-  ): Promise<{ id: string; directAccessGrantsEnabled?: boolean }> {
-    const url = new URL(
-      `${this.getInternalKeycloakBase()}/admin/realms/${this.config.keycloakRealm}/clients`,
-    );
-    url.searchParams.set('clientId', clientId);
-
-    const response = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${adminToken}` },
-    });
-
-    if (!response.ok) {
-      const message = await response.text();
-      throw new BadGatewayException(
-        `Keycloak admin client lookup failed (${response.status}): ${message}`,
-      );
-    }
-
-    const clients = (await response.json()) as Array<{
-      id: string;
-      clientId: string;
-      directAccessGrantsEnabled?: boolean;
-    }>;
-    const client = clients.find((item) => item.clientId === clientId);
-
-    if (!client) {
-      throw new BadGatewayException(
-        `Keycloak client "${clientId}" not found in realm "${this.config.keycloakRealm}"`,
-      );
-    }
-
-    return {
-      id: client.id,
-      directAccessGrantsEnabled: client.directAccessGrantsEnabled,
-    };
-  }
-
-  private async adminUpdateClient(
-    adminToken: string,
-    clientUuid: string,
-    body: Record<string, unknown>,
-  ): Promise<void> {
-    const url = `${this.getInternalKeycloakBase()}/admin/realms/${this.config.keycloakRealm}/clients/${clientUuid}`;
-
-    const response = await fetch(url, {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${adminToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (response.status === 204) {
-      return;
-    }
-
-    const message = await response.text();
-    throw new BadGatewayException(
-      `Keycloak admin client update failed (${response.status}): ${message}`,
-    );
-  }
-
-  private getInternalKeycloakBase(): string {
-    const raw = this.config.keycloakInternalUrl;
-    const base =
-      raw.startsWith('http://') || raw.startsWith('https://')
-        ? raw
-        : `http://${raw}`;
-    return base.replace(/\/+$/, '');
-  }
-
-  private normalizeBase(raw: string): string {
-    const base =
-      raw.startsWith('http://') || raw.startsWith('https://')
-        ? raw
-        : `http://${raw}`;
-    return `${base.replace(/\/+$/, '')}/realms/${this.config.keycloakRealm}`;
-  }
-
-  /** Issuer URL for browser-facing redirects (uses public hostname). */
-  private getPublicIssuer(): string {
-    return this.normalizeBase(this.config.keycloakPublicUrl);
-  }
-
-  /** Issuer URL for server-to-server calls (uses Docker-internal hostname). */
-  private getInternalIssuer(): string {
-    return this.normalizeBase(this.config.keycloakInternalUrl);
-  }
-
-  private getTokenEndpoint(): string {
-    return `${this.getInternalIssuer()}/protocol/openid-connect/token`;
-  }
-
-  private getLogoutEndpoint(): string {
-    return `${this.getInternalIssuer()}/protocol/openid-connect/logout`;
-  }
-
-  private decodeJwtPayload(token: string): Record<string, unknown> {
-    try {
-      const parts = token.split('.');
-      if (parts.length !== 3) {
-        throw new Error('Not a valid JWT (expected 3 parts)');
-      }
-      const payload = Buffer.from(parts[1], 'base64url').toString('utf-8');
-      return JSON.parse(payload) as Record<string, unknown>;
-    } catch (err) {
-      this.logger.error('Failed to decode JWT payload', err);
-      throw new UnauthorizedException('Invalid or malformed token');
-    }
-  }
-
-  private async postForm<T = unknown>(
-    url: string,
-    form: URLSearchParams,
-    attachClientCredentials = true,
-  ): Promise<T> {
-    if (attachClientCredentials) {
-      form.set('client_id', this.config.keycloakClientId);
-      if (this.config.keycloakClientSecret) {
-        form.set('client_secret', this.config.keycloakClientSecret);
-      }
-    }
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: form.toString(),
-    });
-
-    if (!response.ok) {
-      const message = await response.text();
-      throw new BadGatewayException(
-        `Keycloak request failed (${response.status}): ${message}`,
-      );
-    }
-
-    const rawBody = await response.text();
-    if (!rawBody) {
-      return {} as T;
-    }
-
-    return JSON.parse(rawBody) as T;
-  }
 }
+
+export { APP_ROLES };

@@ -5,6 +5,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { Role } from '../auth/roles.enum';
 
 @Entity('users')
 export class User {
@@ -27,6 +28,14 @@ export class User {
    */
   @Column({ default: 'keycloak' })
   provider: string;
+
+  /** Mirrored application roles from Keycloak (comma-separated in DB). */
+  @Column('simple-array', { default: Role.Customer })
+  roles: Role[];
+
+  /** Partner clinic binding for expert / clinic_manager. */
+  @Column({ nullable: true, type: 'uuid' })
+  clinicId: string | null;
 
   @Column({ default: true })
   isActive: boolean;

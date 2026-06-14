@@ -6,7 +6,9 @@ import {
 import { AppConfigService } from '../config/config.service';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/user.entity';
+import { KeycloakAdminService } from '../keycloak/keycloak-admin.service';
 import { AuthService } from './auth.service';
+import { Role } from './roles.enum';
 
 function makeJwt(payload: Record<string, unknown>): string {
   const header = Buffer.from(
@@ -35,7 +37,8 @@ describe('AuthService', () => {
     keycloakRedirectUri: 'http://localhost:3000/auth/callback',
     frontendUrl: 'http://localhost:5173',
   } as AppConfigService;
-  const service = new AuthService(config, mockUsersService);
+  const keycloakAdmin = new KeycloakAdminService(config);
+  const service = new AuthService(config, mockUsersService, keycloakAdmin);
 
   afterEach(() => {
     global.fetch = originalFetch;
@@ -70,12 +73,16 @@ describe('AuthService', () => {
         email: 'user@test.com',
         name: 'User',
       });
+      const accessToken = makeJwt({
+        sub: '123',
+        realm_access: { roles: ['customer', 'offline_access'] },
+      });
 
       global.fetch = jest.fn().mockResolvedValueOnce({
         ok: true,
         text: async () =>
           JSON.stringify({
-            access_token: 'at',
+            access_token: accessToken,
             id_token: idToken,
             refresh_token: 'rt',
             token_type: 'Bearer',
@@ -85,19 +92,25 @@ describe('AuthService', () => {
 
       const result = await service.exchangeCodeAndUpsertUser('abc', 'google');
 
-      expect(result.accessToken).toBe('at');
+      expect(result.accessToken).toBe(accessToken);
       expect(result.refreshToken).toBe('rt');
+      expect(result.roles).toEqual([Role.Customer]);
       expect(result.user).toEqual(mockUser);
       expect(result.isNewUser).toBe(false);
       expect(result.tokenExpiresAt).toBeGreaterThan(Date.now());
       expect(mockUsersService.upsertFromKeycloak).toHaveBeenCalledWith(
         expect.objectContaining({ sub: '123' }),
         'google',
+        [Role.Customer],
       );
     });
 
     it('should fall back to access_token if id_token is missing', async () => {
-      const accessToken = makeJwt({ sub: 'abc', email: 'fallback@test.com' });
+      const accessToken = makeJwt({
+        sub: 'abc',
+        email: 'fallback@test.com',
+        realm_access: { roles: ['customer'] },
+      });
 
       global.fetch = jest.fn().mockResolvedValueOnce({
         ok: true,
@@ -115,6 +128,7 @@ describe('AuthService', () => {
       expect(mockUsersService.upsertFromKeycloak).toHaveBeenCalledWith(
         expect.objectContaining({ sub: 'abc' }),
         'keycloak',
+        [Role.Customer],
       );
     });
 
@@ -145,11 +159,16 @@ describe('AuthService', () => {
     });
 
     it('should refresh if token is expired', async () => {
+      const newAccessToken = makeJwt({
+        sub: 'u1',
+        realm_access: { roles: ['staff'] },
+      });
+
       global.fetch = jest.fn().mockResolvedValueOnce({
         ok: true,
         text: async () =>
           JSON.stringify({
-            access_token: 'new-at',
+            access_token: newAccessToken,
             refresh_token: 'new-rt',
             expires_in: 300,
           }),
@@ -163,8 +182,9 @@ describe('AuthService', () => {
 
       await service.refreshTokenIfNeeded(session);
 
-      expect(session.accessToken).toBe('new-at');
+      expect(session.accessToken).toBe(newAccessToken);
       expect(session.refreshToken).toBe('new-rt');
+      expect(session.roles).toEqual([Role.Staff]);
       expect(session.tokenExpiresAt).toBeGreaterThan(Date.now());
     });
 
@@ -208,20 +228,6 @@ describe('AuthService', () => {
       } as Response);
 
       await expect(service.revokeToken('bad-rt')).resolves.toBeUndefined();
-    });
-  });
-
-  describe('findUserById', () => {
-    it('should return user', async () => {
-      const user = await service.findUserById('uuid-1');
-      expect(user).toEqual(mockUser);
-    });
-
-    it('should throw if user not found', async () => {
-      mockUsersService.findById.mockResolvedValueOnce(null);
-      await expect(service.findUserById('missing')).rejects.toBeInstanceOf(
-        UnauthorizedException,
-      );
     });
   });
 
