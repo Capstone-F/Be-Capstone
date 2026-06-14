@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { LoggerModule } from 'nestjs-pino';
 import request from 'supertest';
@@ -17,8 +17,15 @@ import { ConfigModule } from '../src/config/config.module';
 import { AppConfigService } from '../src/config/config.service';
 import { User } from '../src/users/user.entity';
 import { Clinic } from '../src/clinics/clinic.entity';
+import { ProductCategory } from '../src/products/enums/product-category.enum';
 import { Product } from '../src/products/product.entity';
+import { ProductIngredient } from '../src/products/product-ingredient.entity';
+import { Ingredient } from '../src/ingredients/ingredient.entity';
+import { IngredientConflict } from '../src/ingredients/ingredient-conflict.entity';
+import { TreatmentGoal } from '../src/treatment-goals/treatment-goal.entity';
+import { GoalIngredient } from '../src/treatment-goals/goal-ingredient.entity';
 import { StockModule } from '../src/stock/stock.module';
+import { ProductsModule } from '../src/products/products.module';
 import { StockBatch } from '../src/stock/stock-batch.entity';
 import { StockMovement } from '../src/stock/stock-movement.entity';
 import { ShelfLifeUnit, StockMovementType } from '../src/stock/enums';
@@ -72,10 +79,22 @@ describe('BE Capstone API (e2e)', () => {
         UsersModule,
         AuthModule,
         StockModule,
+        ProductsModule,
         TypeOrmModule.forRoot({
           type: 'better-sqlite3',
           database: ':memory:',
-          entities: [User, Clinic, Product, StockBatch, StockMovement],
+          entities: [
+            User,
+            Clinic,
+            Product,
+            StockBatch,
+            StockMovement,
+            Ingredient,
+            ProductIngredient,
+            TreatmentGoal,
+            GoalIngredient,
+            IngredientConflict,
+          ],
           synchronize: true,
         }),
       ],
@@ -98,6 +117,13 @@ describe('BE Capstone API (e2e)', () => {
       .compile();
 
     app = moduleFixture.createNestApplication();
+
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        transform: true,
+      }),
+    );
 
     app.use(
       session({
@@ -783,6 +809,218 @@ describe('BE Capstone API (e2e)', () => {
     });
   });
 
+  // ─── Products module endpoints ─────────────────────────────────
+
+  describe('Products module endpoints', () => {
+    const baseOnboardPayload = {
+      name: 'La Roche-Posay Effaclar Serum',
+      brand: 'La Roche-Posay',
+      category: ProductCategory.SERUM,
+      priceVnd: 650000,
+      stockQuantity: 100,
+      ingredients: [
+        {
+          name: 'Salicylic Acid',
+          concentrationPct: 1.5,
+          isKeyIngredient: true,
+        },
+        { name: 'Niacinamide', concentrationPct: 2 },
+      ],
+    };
+
+    let adminSid: string;
+
+    beforeEach(async () => {
+      adminSid = await performMockLogin({
+        userId: 'admin-products-e2e',
+        keycloakSub: 'kc-admin-products-e2e',
+        roles: [Role.AppAdmin],
+      });
+      jest
+        .spyOn(authService, 'refreshTokenIfNeeded')
+        .mockResolvedValue(undefined);
+    });
+
+    describe('POST /products', () => {
+      it('should return 401 without session cookie', async () => {
+        await request(app.getHttpServer())
+          .post('/products')
+          .send(baseOnboardPayload)
+          .expect(401);
+      });
+
+      it('should return 403 for customer role', async () => {
+        const customerSid = await performMockLogin({
+          userId: 'customer-products-e2e',
+          keycloakSub: 'kc-customer-products-e2e',
+          roles: [Role.Customer],
+        });
+
+        await request(app.getHttpServer())
+          .post('/products')
+          .set('Cookie', customerSid)
+          .send(baseOnboardPayload)
+          .expect(403);
+      });
+
+      it('should onboard product as app_admin with auto-created ingredients', async () => {
+        const { body } = await request(app.getHttpServer())
+          .post('/products')
+          .set('Cookie', adminSid)
+          .send(baseOnboardPayload)
+          .expect(201);
+
+        expect(body.product.name).toBe(baseOnboardPayload.name);
+        expect(body.product.brand).toBe(baseOnboardPayload.brand);
+        expect(body.product.category).toBe(ProductCategory.SERUM);
+        expect(body.product.priceVnd).toBe(650000);
+        expect(body.ingredients).toHaveLength(2);
+        expect(body.ingredients).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              name: 'Salicylic Acid',
+              concentrationPct: 1.5,
+              isKeyIngredient: true,
+            }),
+            expect.objectContaining({
+              name: 'Niacinamide',
+              concentrationPct: 2,
+              isKeyIngredient: false,
+            }),
+          ]),
+        );
+
+        const mappings = await dataSource
+          .getRepository(ProductIngredient)
+          .find({ where: { productId: body.product.id } });
+        expect(mappings).toHaveLength(2);
+
+        const ingredients = await dataSource.getRepository(Ingredient).find();
+        const names = ingredients.map((i) => i.name);
+        expect(names).toEqual(
+          expect.arrayContaining(['Salicylic Acid', 'Niacinamide']),
+        );
+      });
+
+      it('should deduplicate ingredient names for staff role', async () => {
+        const staffSid = await performMockLogin({
+          userId: 'staff-products-e2e',
+          keycloakSub: 'kc-staff-products-e2e',
+          roles: [Role.Staff],
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .post('/products')
+          .set('Cookie', staffSid)
+          .send({
+            ...baseOnboardPayload,
+            name: 'Dedup Test Serum',
+            ingredients: [
+              { name: 'Niacinamide', concentrationPct: 2 },
+              { name: 'niacinamide', concentrationPct: 5 },
+            ],
+          })
+          .expect(201);
+
+        expect(body.ingredients).toHaveLength(1);
+        expect(body.ingredients[0].name).toBe('Niacinamide');
+
+        const mappings = await dataSource
+          .getRepository(ProductIngredient)
+          .find({ where: { productId: body.product.id } });
+        expect(mappings).toHaveLength(1);
+      });
+
+      it('should return 400 for invalid payload', async () => {
+        await request(app.getHttpServer())
+          .post('/products')
+          .set('Cookie', adminSid)
+          .send({
+            brand: 'La Roche-Posay',
+            category: 'INVALID_CATEGORY',
+            priceVnd: 650000,
+            stockQuantity: 100,
+            ingredients: [{ name: 'Niacinamide' }],
+          })
+          .expect(400);
+      });
+    });
+
+    describe('GET /products', () => {
+      it('should return 401 without session cookie', async () => {
+        await request(app.getHttpServer()).get('/products').expect(401);
+      });
+
+      it('should return paginated products for authenticated user', async () => {
+        await onboardProductViaHttp(adminSid);
+
+        const { body } = await request(app.getHttpServer())
+          .get('/products?page=1&limit=10')
+          .set('Cookie', adminSid)
+          .expect(200);
+
+        expect(body.total).toBeGreaterThanOrEqual(1);
+        expect(body.page).toBe(1);
+        expect(body.limit).toBe(10);
+        expect(Array.isArray(body.items)).toBe(true);
+        expect(body.items[0]).toHaveProperty('product');
+        expect(body.items[0]).toHaveProperty('ingredients');
+      });
+
+      it('should filter products by category', async () => {
+        await onboardProductViaHttp(adminSid, {
+          name: 'Serum Product',
+          category: ProductCategory.SERUM,
+        });
+        await onboardProductViaHttp(adminSid, {
+          name: 'Moisturizer Product',
+          category: ProductCategory.MOISTURIZER,
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .get(`/products?category=${ProductCategory.SERUM}`)
+          .set('Cookie', adminSid)
+          .expect(200);
+
+        expect(body.items.length).toBeGreaterThanOrEqual(1);
+        for (const item of body.items) {
+          expect(item.product.category).toBe(ProductCategory.SERUM);
+        }
+      });
+    });
+
+    describe('GET /products/:id', () => {
+      it('should return 401 without session cookie', async () => {
+        await request(app.getHttpServer())
+          .get('/products/00000000-0000-0000-0000-000000000001')
+          .expect(401);
+      });
+
+      it('should return 404 when product does not exist', async () => {
+        await request(app.getHttpServer())
+          .get('/products/00000000-0000-0000-0000-000000000099')
+          .set('Cookie', adminSid)
+          .expect(404);
+      });
+
+      it('should return product detail with ingredients', async () => {
+        const onboarded = await onboardProductViaHttp(adminSid);
+
+        const { body } = await request(app.getHttpServer())
+          .get(`/products/${onboarded.product.id}`)
+          .set('Cookie', adminSid)
+          .expect(200);
+
+        expect(body.product.id).toBe(onboarded.product.id);
+        expect(body.product.name).toBe(onboarded.product.name);
+        expect(body.ingredients).toHaveLength(2);
+        expect(body.ingredients[0]).toHaveProperty('name');
+        expect(body.ingredients[0]).toHaveProperty('concentrationPct');
+        expect(body.ingredients[0]).toHaveProperty('isKeyIngredient');
+      });
+    });
+  });
+
   // ─── Stock: POST /stock/batches ────────────────────────────────
 
   describe('POST /stock/batches', () => {
@@ -839,7 +1077,7 @@ describe('BE Capstone API (e2e)', () => {
         .post('/stock/batches')
         .set('Cookie', sid)
         .send({
-          productId: '00000000-0000-0000-0000-000000000099',
+          productId: '550e8400-e29b-41d4-a716-446655440099',
           quantity: 10,
           manufacturingDate: '2026-01-15',
         })
@@ -958,11 +1196,75 @@ describe('BE Capstone API (e2e)', () => {
     return repo.save(
       repo.create({
         name: 'E2E Product',
+        brand: 'E2E Brand',
+        category: ProductCategory.TREATMENT,
+        priceVnd: 100000,
+        stockQuantity: 0,
+        isActive: true,
         shelfLifeValue: 30,
         shelfLifeUnit: ShelfLifeUnit.DAY,
         ...overrides,
       }),
     );
+  }
+
+  type OnboardProductPayload = {
+    name: string;
+    brand: string;
+    category: ProductCategory;
+    priceVnd: number;
+    stockQuantity: number;
+    ingredients: Array<{
+      name: string;
+      concentrationPct?: number;
+      isKeyIngredient?: boolean;
+    }>;
+  };
+
+  type OnboardProductResponse = {
+    product: {
+      id: string;
+      name: string;
+      brand: string;
+      category: ProductCategory;
+      priceVnd: number;
+      stockQuantity: number;
+    };
+    ingredients: Array<{
+      name: string;
+      concentrationPct: number | null;
+      isKeyIngredient: boolean;
+    }>;
+  };
+
+  async function onboardProductViaHttp(
+    sid: string,
+    overrides: Partial<OnboardProductPayload> = {},
+  ): Promise<OnboardProductResponse> {
+    const payload: OnboardProductPayload = {
+      name: 'La Roche-Posay Effaclar Serum',
+      brand: 'La Roche-Posay',
+      category: ProductCategory.SERUM,
+      priceVnd: 650000,
+      stockQuantity: 100,
+      ingredients: [
+        {
+          name: 'Salicylic Acid',
+          concentrationPct: 1.5,
+          isKeyIngredient: true,
+        },
+        { name: 'Niacinamide', concentrationPct: 2 },
+      ],
+      ...overrides,
+    };
+
+    const { body } = await request(app.getHttpServer())
+      .post('/products')
+      .set('Cookie', sid)
+      .send(payload)
+      .expect(201);
+
+    return body as OnboardProductResponse;
   }
 
   async function seedClinic(name = 'E2E Clinic'): Promise<Clinic> {
