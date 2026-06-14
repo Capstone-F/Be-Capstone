@@ -1,23 +1,26 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
-import { Role } from '../../auth/roles.enum';
+import { ProductCategory } from '../enums/product-category.enum';
 
-export class ListUsersQueryDto {
-  @ApiPropertyOptional({ description: 'Search by email or name' })
+export class ListProductsQueryDto {
+  @ApiPropertyOptional({ enum: ProductCategory })
+  @IsOptional()
+  @IsEnum(ProductCategory)
+  category?: ProductCategory;
+
+  @ApiPropertyOptional({ example: 'La Roche-Posay' })
   @IsOptional()
   @IsString()
-  q?: string;
+  brand?: string;
 
-  @ApiPropertyOptional({ enum: Role })
-  @IsOptional()
-  @IsEnum(Role)
-  role?: Role;
-
-  @ApiPropertyOptional({ description: 'Filter by partner clinic id' })
+  @ApiPropertyOptional({
+    example: 'Niacinamide',
+    description: 'Filter products containing this ingredient name',
+  })
   @IsOptional()
   @IsString()
-  clinicId?: string;
+  ingredientName?: string;
 
   @ApiPropertyOptional({ default: 1, minimum: 1 })
   @IsOptional()

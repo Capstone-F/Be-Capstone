@@ -12,6 +12,7 @@ import { UsersModule } from './users/users.module';
 import { StockModule } from './stock/stock.module';
 import { KeycloakAdminModule } from './keycloak/keycloak-admin.module';
 import { ClinicsModule } from './clinics/clinics.module';
+import { ProductsModule } from './products/products.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { ClinicsModule } from './clinics/clinics.module';
     }),
     UsersModule,
     ClinicsModule,
+    ProductsModule,
     StockModule,
     AuthModule,
     TypeOrmModule.forRootAsync({
@@ -41,7 +43,9 @@ import { ClinicsModule } from './clinics/clinics.module';
         type: 'postgres',
         url: config.databaseUrl,
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        synchronize: true,
+        synchronize: false,
+        migrations: [__dirname + '/database/migrations/*{.ts,.js}'],
+        migrationsRun: true,
       }),
     }),
   ],

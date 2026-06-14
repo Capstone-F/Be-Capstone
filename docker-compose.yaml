@@ -82,6 +82,32 @@ services:
     labels:
       - 'logging=true'
 
+  # ── Database init (migrations + seed) ───────────────
+
+  db-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: capstone-db-init
+    env_file:
+      - '.env'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        echo "Running database migrations..."
+        node ./node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js
+        echo "Running database seed..."
+        node dist/database/seeds/seed.js
+        echo "Database init complete."
+    restart: 'no'
+    labels:
+      - 'logging=true'
+
   # ── Backend API ─────────────────────────────────────
 
   be-api:
@@ -111,6 +137,8 @@ services:
     ports:
       - '3001:3000'
     depends_on:
+      db-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:

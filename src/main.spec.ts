@@ -29,8 +29,17 @@ describe('main bootstrap', () => {
       if (token === PinoLoggerClass) return pinoLogger;
       return mockConfig;
     });
+    const useGlobalPipes = jest.fn();
     const set = jest.fn();
-    create.mockResolvedValue({ get, listen, enableCors, use, useLogger, set });
+    create.mockResolvedValue({
+      get,
+      listen,
+      enableCors,
+      use,
+      useLogger,
+      useGlobalPipes,
+      set,
+    });
 
     jest.isolateModules(() => {
       jest.doMock('./app.module', () => ({
@@ -106,6 +115,7 @@ describe('main bootstrap', () => {
       'Tracked env keys: DATABASE_URL, KEYCLOAK_PUBLIC_URL',
       'Bootstrap',
     );
+    expect(useGlobalPipes).toHaveBeenCalledTimes(1);
     expect(enableCors).toHaveBeenCalledWith({
       origin: 'http://localhost:5173',
       credentials: true,

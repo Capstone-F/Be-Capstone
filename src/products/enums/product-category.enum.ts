@@ -1,0 +1,8 @@
+export enum ProductCategory {
+  CLEANSER = 'CLEANSER',
+  TONER = 'TONER',
+  SERUM = 'SERUM',
+  MOISTURIZER = 'MOISTURIZER',
+  SUNSCREEN = 'SUNSCREEN',
+  TREATMENT = 'TREATMENT',
+}
