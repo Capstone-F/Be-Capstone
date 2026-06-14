@@ -5,6 +5,61 @@
   "registrationAllowed": true,
   "resetPasswordAllowed": true,
   "rememberMe": true,
+  "defaultRole": {
+    "name": "default-roles-be-capstone",
+    "description": "${role_default-roles}",
+    "composite": true
+  },
+  "roles": {
+    "realm": [
+      {
+        "name": "app_admin",
+        "description": "Super Admin with full permission of system resources"
+      },
+      {
+        "name": "staff",
+        "description": "Staff of the E-Commerce system"
+      },
+      {
+        "name": "customer",
+        "description": "Normal user role when registering a new account"
+      },
+      {
+        "name": "expert",
+        "description": "Clinic-bound certified expert providing premium consultation"
+      },
+      {
+        "name": "clinic_manager",
+        "description": "Partner clinic manager — manages experts, bookings, and revenue"
+      },
+      {
+        "name": "default-roles-be-capstone",
+        "description": "${role_default-roles}",
+        "composite": true,
+        "composites": {
+          "realm": ["customer"]
+        }
+      }
+    ]
+  },
+  "users": [
+    {
+      "username": "glowscan-admin",
+      "email": "admin@glowscan.local",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "GlowScan",
+      "lastName": "Admin",
+      "realmRoles": ["app_admin"],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin",
+          "temporary": false
+        }
+      ]
+    }
+  ],
   "requiredActions": [
     {
       "alias": "VERIFY_PROFILE",

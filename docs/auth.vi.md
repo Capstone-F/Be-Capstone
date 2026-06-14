@@ -42,7 +42,7 @@ Client (browser)
   │
   │  6. Backend 302 → client_redirect_uri (cùng origin với FRONTEND_URL)
   │
-  │  7. Frontend gọi /auth/me (cookie tự động gửi kèm)
+  │  7. Frontend gọi /users/me (cookie tự động gửi kèm)
   │     ◄── { thông tin user từ database }
   │
   │  8. Mọi API call tiếp theo đều tự động gửi cookie
@@ -149,7 +149,7 @@ body: JSON.stringify({
 ## 5. Từng bước: Lấy thông tin user
 
 ```js
-const res = await fetch('http://localhost:3001/auth/me', {
+const res = await fetch('http://localhost:3001/users/me', {
   credentials: 'include', // BẮT BUỘC — gửi session cookie
 });
 
@@ -213,13 +213,13 @@ Không cần `Authorization` header, không cần quản lý token, không cần
 
 ## 9. Danh sách endpoint
 
-| Method | Path             | Auth                       | Mô tả                                                      |
-| ------ | ---------------- | -------------------------- | ---------------------------------------------------------- |
-| `POST` | `/auth/login`    | Không (set session cookie) | JSON `{ client_redirect_uri, idpHint? }` → `{ login_uri }` |
-| `GET`  | `/auth/callback` | Không                      | OAuth callback (Keycloak redirect về đây)                  |
-| `GET`  | `/auth/me`       | Session cookie             | Lấy thông tin user hiện tại                                |
-| `GET`  | `/auth/status`   | Không                      | Kiểm tra session có authenticated không                    |
-| `POST` | `/auth/logout`   | Session cookie             | Hủy session và thu hồi token                               |
+| Method | Path             | Auth                       | Mô tả                                                         |
+| ------ | ---------------- | -------------------------- | ------------------------------------------------------------- |
+| `POST` | `/auth/login`    | Không (set session cookie) | JSON `{ client_redirect_uri, idpHint? }` → `{ login_uri }`    |
+| `GET`  | `/auth/callback` | Không                      | OAuth callback (Keycloak redirect về đây)                     |
+| `GET`  | `/users/me`      | Session cookie             | Lấy thông tin user hiện tại (xem [User Management](users.md)) |
+| `GET`  | `/auth/status`   | Không                      | Kiểm tra session có authenticated không                       |
+| `POST` | `/auth/logout`   | Session cookie             | Hủy session và thu hồi token                                  |
 
 ### `POST /auth/login` — JSON body
 
@@ -254,7 +254,7 @@ Không cần `Authorization` header, không cần quản lý token, không cần
 Mọi `fetch` call phải có `credentials: 'include'`:
 
 ```js
-fetch('http://localhost:3001/auth/me', { credentials: 'include' });
+fetch('http://localhost:3001/users/me', { credentials: 'include' });
 ```
 
 Nếu dùng **Axios**:

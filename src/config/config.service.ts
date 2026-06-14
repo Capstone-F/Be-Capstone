@@ -59,6 +59,14 @@ export class AppConfigService {
     return this.env.KEYCLOAK_ADMIN_PASSWORD;
   }
 
+  get keycloakDevAdminUser(): string {
+    return this.env.KEYCLOAK_DEV_ADMIN_USER;
+  }
+
+  get keycloakDevAdminPassword(): string {
+    return this.env.KEYCLOAK_DEV_ADMIN_PASSWORD;
+  }
+
   get redisUrl(): string {
     return this.env.REDIS_URL;
   }

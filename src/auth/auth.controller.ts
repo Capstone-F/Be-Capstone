@@ -10,7 +10,6 @@ import {
   Query,
   Req,
   Res,
-  UnauthorizedException,
   UseGuards,
   Logger,
 } from '@nestjs/common';
@@ -27,7 +26,7 @@ import { AuthService } from './auth.service';
 import { SessionGuard } from './guards/session.guard';
 import { AppConfigService } from '../config/config.service';
 import { LoginPostDto } from './dto/login-post.dto';
-import { SessionUserDto } from './dto/session-user.dto';
+
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
@@ -143,6 +142,8 @@ export class AuthController {
       req.session.refreshToken = result.refreshToken;
       req.session.tokenExpiresAt = result.tokenExpiresAt;
       req.session.idpHint = result.idpHint;
+      req.session.roles = result.roles;
+      req.session.clinicId = result.user.clinicId ?? null;
 
       const redirectUrl = new URL(
         req.session.clientRedirectUri ?? defaultFront,
@@ -168,25 +169,6 @@ export class AuthController {
     }
   }
 
-  @Get('me')
-  @UseGuards(SessionGuard)
-  @ApiCookieAuth()
-  @ApiOperation({
-    summary: 'Get current user profile',
-    description:
-      'Returns the authenticated user profile from the local database. ' +
-      'Requires a valid session cookie.',
-  })
-  @ApiOkResponse({ type: SessionUserDto })
-  @ApiUnauthorizedResponse({ description: 'No active session' })
-  async getProfile(@Req() req: Request) {
-    const userId = req.session.userId;
-    if (!userId) {
-      throw new UnauthorizedException('No active session');
-    }
-    return this.authService.findUserById(userId);
-  }
-
   @Get('status')
   @ApiOperation({
     summary: 'Check authentication status',
@@ -204,9 +186,9 @@ export class AuthController {
 
   @Get('dev/session')
   @ApiOperation({
-    summary: '[DEV ONLY] Create session for dev-test user',
+    summary: '[DEV ONLY] Create session for App Admin',
     description:
-      'Ensures a dev-test user exists in Keycloak, logs in via password grant, ' +
+      'Logs in via password grant as the realm App Admin (KEYCLOAK_DEV_ADMIN_USER), ' +
       'creates a server session, and returns the session id (sid) for Swagger cookie auth. ' +
       'Returns 404 in production.',
   })
@@ -228,7 +210,7 @@ export class AuthController {
       throw new NotFoundException();
     }
 
-    const result = await this.authService.devCreateSessionForTestUser();
+    const result = await this.authService.devCreateSessionForAdmin();
 
     req.session.userId = result.user.id;
     req.session.keycloakSub = result.user.keycloakSub;
@@ -236,6 +218,8 @@ export class AuthController {
     req.session.refreshToken = result.refreshToken;
     req.session.tokenExpiresAt = result.tokenExpiresAt;
     req.session.idpHint = result.idpHint;
+    req.session.roles = result.roles;
+    req.session.clinicId = result.user.clinicId ?? null;
 
     await new Promise<void>((resolve, reject) => {
       req.session.save((err) => {

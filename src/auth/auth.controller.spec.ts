@@ -7,7 +7,6 @@ describe('AuthController', () => {
     buildLoginUrl: jest.fn(),
     exchangeCodeAndUpsertUser: jest.fn(),
     revokeToken: jest.fn(),
-    findUserById: jest.fn(),
     refreshTokenIfNeeded: jest.fn(),
     validateClientRedirectUri: jest.fn((u: string | undefined) => {
       if (!u) throw new Error('client_redirect_uri required');
@@ -164,19 +163,6 @@ describe('AuthController', () => {
       expect(res.redirect).toHaveBeenCalledWith(
         'http://localhost:5173/dashboard',
       );
-    });
-  });
-
-  describe('GET /auth/me', () => {
-    it('should return user profile', async () => {
-      const user = { id: 'u1', email: 'a@b.c' };
-      authService.findUserById.mockResolvedValue(user as any);
-
-      const req = { session: { userId: 'u1' } } as any;
-      const result = await controller.getProfile(req);
-
-      expect(result).toEqual(user);
-      expect(authService.findUserById).toHaveBeenCalledWith('u1');
     });
   });
 

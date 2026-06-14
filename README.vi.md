@@ -8,12 +8,12 @@ Backend API viết bằng NestJS, sử dụng PostgreSQL, Keycloak (OIDC / đăn
 
 ## Điều kiện tiên quyết
 
-| Công cụ | Phiên bản | Mục đích |
-|---|---|---|
-| [Node.js](https://nodejs.org) | >= 20 | Runtime |
-| [npm](https://www.npmjs.com) | >= 10 | Trình quản lý package |
-| [Docker](https://docs.docker.com/get-docker/) | >= 24 | Chạy Postgres, Keycloak và production API bằng container |
-| [Docker Compose](https://docs.docker.com/compose/) | >= 2.20 | Điều phối nhiều container |
+| Công cụ                                            | Phiên bản | Mục đích                                                 |
+| -------------------------------------------------- | --------- | -------------------------------------------------------- |
+| [Node.js](https://nodejs.org)                      | >= 20     | Runtime                                                  |
+| [npm](https://www.npmjs.com)                       | >= 10     | Trình quản lý package                                    |
+| [Docker](https://docs.docker.com/get-docker/)      | >= 24     | Chạy Postgres, Keycloak và production API bằng container |
+| [Docker Compose](https://docs.docker.com/compose/) | >= 2.20   | Điều phối nhiều container                                |
 
 ---
 
@@ -245,11 +245,11 @@ Sau đó tạo file `keycloak/realm-import/be-capstone-realm.json` với nội d
 docker compose up -d
 ```
 
-| Dịch vụ | URL |
-|---|---|
-| Keycloak admin | http://localhost:8080 (`admin` / `admin`) |
-| Keycloak health | http://localhost:9000/health/ready |
-| Postgres | localhost:5432 (`admin` / `admin` / `be-capstone`) |
+| Dịch vụ         | URL                                                |
+| --------------- | -------------------------------------------------- |
+| Keycloak admin  | http://localhost:8080 (`admin` / `admin`)          |
+| Keycloak health | http://localhost:9000/health/ready                 |
+| Postgres        | localhost:5432 (`admin` / `admin` / `be-capstone`) |
 
 Dừng container:
 
@@ -270,10 +270,10 @@ npm install
 npm run start:dev
 ```
 
-| Dịch vụ | URL |
-|---|---|
-| API | http://localhost:3000 |
-| Swagger docs | http://localhost:3000/docs |
+| Dịch vụ      | URL                          |
+| ------------ | ---------------------------- |
+| API          | http://localhost:3000        |
+| Swagger docs | http://localhost:3000/docs   |
 | Health check | http://localhost:3000/health |
 
 API sẽ chạy tại `http://localhost:3000` với hot-reload.
@@ -284,33 +284,33 @@ API sẽ chạy tại `http://localhost:3000` với hot-reload.
 
 Tất cả env được quản lý tập trung trong `src/config/env.config.ts`.
 
-| Biến | Bắt buộc | Mặc định | Mô tả |
-|---|---|---|---|
-| `NODE_ENV` | Không | `development` | Môi trường chạy |
-| `PORT` | Không | `3000` | Port của API |
-| `DATABASE_URL` | Có | — | Chuỗi kết nối Postgres |
-| `KEYCLOAK_URL` | Có | — | URL gốc của Keycloak (dùng cho cả API và browser redirect) |
-| `KEYCLOAK_HEALTH_URL` | Không | `http://localhost:9000/health/ready` | Endpoint health của Keycloak |
-| `KEYCLOAK_REALM` | Không | `be-capstone` | Tên realm Keycloak |
-| `KEYCLOAK_CLIENT_ID` | Không | `be-capstone-api` | OIDC client ID |
-| `KEYCLOAK_CLIENT_SECRET` | Không | `be-capstone-secret` | OIDC client secret |
-| `KEYCLOAK_REDIRECT_URI` | Không | `http://localhost:3000/auth/callback` | Redirect URI mặc định |
+| Biến                     | Bắt buộc | Mặc định                              | Mô tả                                                      |
+| ------------------------ | -------- | ------------------------------------- | ---------------------------------------------------------- |
+| `NODE_ENV`               | Không    | `development`                         | Môi trường chạy                                            |
+| `PORT`                   | Không    | `3000`                                | Port của API                                               |
+| `DATABASE_URL`           | Có       | —                                     | Chuỗi kết nối Postgres                                     |
+| `KEYCLOAK_URL`           | Có       | —                                     | URL gốc của Keycloak (dùng cho cả API và browser redirect) |
+| `KEYCLOAK_HEALTH_URL`    | Không    | `http://localhost:9000/health/ready`  | Endpoint health của Keycloak                               |
+| `KEYCLOAK_REALM`         | Không    | `be-capstone`                         | Tên realm Keycloak                                         |
+| `KEYCLOAK_CLIENT_ID`     | Không    | `be-capstone-api`                     | OIDC client ID                                             |
+| `KEYCLOAK_CLIENT_SECRET` | Không    | `be-capstone-secret`                  | OIDC client secret                                         |
+| `KEYCLOAK_REDIRECT_URI`  | Không    | `http://localhost:3000/auth/callback` | Redirect URI mặc định                                      |
 
 ---
 
 ## Các script có sẵn
 
-| Lệnh | Mô tả |
-|---|---|
-| `npm run start:dev` | Chạy ở chế độ watch |
+| Lệnh                  | Mô tả                       |
+| --------------------- | --------------------------- |
+| `npm run start:dev`   | Chạy ở chế độ watch         |
 | `npm run start:debug` | Chạy ở chế độ debug + watch |
-| `npm run start:prod` | Chạy bản build production |
-| `npm run build` | Build TypeScript ra `dist/` |
-| `npm run test` | Chạy unit test |
-| `npm run test:e2e` | Chạy e2e test |
-| `npm run test:cov` | Chạy test và xuất coverage |
-| `npm run lint` | Lint và auto-fix |
-| `npm run format` | Format code bằng Prettier |
+| `npm run start:prod`  | Chạy bản build production   |
+| `npm run build`       | Build TypeScript ra `dist/` |
+| `npm run test`        | Chạy unit test              |
+| `npm run test:e2e`    | Chạy e2e test               |
+| `npm run test:cov`    | Chạy test và xuất coverage  |
+| `npm run lint`        | Lint và auto-fix            |
+| `npm run format`      | Format code bằng Prettier   |
 
 ---
 
@@ -318,23 +318,23 @@ Tất cả env được quản lý tập trung trong `src/config/env.config.ts`.
 
 ### Core
 
-| Method | Path | Mô tả |
-|---|---|---|
-| `GET` | `/` | Hello World |
-| `GET` | `/health` | Kiểm tra sức khỏe API + DB + Keycloak |
-| `GET` | `/docs` | Swagger UI |
+| Method | Path      | Mô tả                                 |
+| ------ | --------- | ------------------------------------- |
+| `GET`  | `/`       | Hello World                           |
+| `GET`  | `/health` | Kiểm tra sức khỏe API + DB + Keycloak |
+| `GET`  | `/docs`   | Swagger UI                            |
 
 ### Auth
 
-| Method | Path | Mô tả |
-|---|---|---|
-| `GET` | `/auth/endpoints` | OIDC discovery endpoints |
-| `GET` | `/auth/login` | Lấy authorization URL (`?idpHint=google` để đăng nhập Google) |
-| `GET` | `/auth/callback` | Exchange code qua query params |
-| `POST` | `/auth/token` | Exchange code qua JSON body |
-| `POST` | `/auth/refresh` | Refresh access token |
-| `POST` | `/auth/logout` | Thu hồi session |
-| `GET` | `/auth/me` | Lấy profile hiện tại (cần Bearer token) |
+| Method | Path              | Mô tả                                                         |
+| ------ | ----------------- | ------------------------------------------------------------- |
+| `GET`  | `/auth/endpoints` | OIDC discovery endpoints                                      |
+| `GET`  | `/auth/login`     | Lấy authorization URL (`?idpHint=google` để đăng nhập Google) |
+| `GET`  | `/auth/callback`  | Exchange code qua query params                                |
+| `POST` | `/auth/token`     | Exchange code qua JSON body                                   |
+| `POST` | `/auth/refresh`   | Refresh access token                                          |
+| `POST` | `/auth/logout`    | Thu hồi session                                               |
+| `GET`  | `/users/me`       | Lấy profile hiện tại (session cookie)                         |
 
 > Xem hướng dẫn frontend chi tiết tại [docs/auth.vi.md](docs/auth.vi.md).
 
@@ -373,11 +373,11 @@ capstone first broker login
         └── Username/Password Form     ALTERNATIVE
 ```
 
-| Tình huống | Hành vi |
-|---|---|
-| Đăng nhập Google lần đầu (user mới) | Hiển thị form cập nhật hồ sơ → tạo user → hoàn tất |
+| Tình huống                                  | Hành vi                                                                             |
+| ------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Đăng nhập Google lần đầu (user mới)         | Hiển thị form cập nhật hồ sơ → tạo user → hoàn tất                                  |
 | Đăng nhập Google lần đầu (email đã đăng ký) | Hiển thị form cập nhật hồ sơ → xác nhận liên kết → xác thực qua email hoặc mật khẩu |
-| Các lần đăng nhập Google tiếp theo | Không hỏi hồ sơ — chuyển thẳng tới callback |
+| Các lần đăng nhập Google tiếp theo          | Không hỏi hồ sơ — chuyển thẳng tới callback                                         |
 
 > **Lưu ý:** Keycloak 26.x mặc định bật `VERIFY_PROFILE` required action, khiến mỗi lần đăng nhập đều bị hỏi cập nhật hồ sơ. Realm này đã tắt tính năng đó, chỉ giữ lại form cập nhật hồ sơ trong luồng first broker login (chạy 1 lần duy nhất).
 
@@ -391,10 +391,10 @@ keycloak/themes/capstone/login/
 
 Các file chính:
 
-| File | Vai trò |
-|---|---|
-| `theme.properties` | Khai báo theme và parent theme (`keycloak.v2`) |
-| `login.ftl` | Layout trang đăng nhập tùy chỉnh |
+| File                       | Vai trò                                          |
+| -------------------------- | ------------------------------------------------ |
+| `theme.properties`         | Khai báo theme và parent theme (`keycloak.v2`)   |
+| `login.ftl`                | Layout trang đăng nhập tùy chỉnh                 |
 | `resources/css/styles.css` | Màu sắc, spacing, typography, responsive styling |
 
 Theme được mount vào container bằng Docker Compose:
@@ -458,16 +458,16 @@ GET /auth/login?idpHint=google
 - `synchronize: true` để tự tạo bảng trong môi trường dev
 - Bảng `users` được tạo từ `src/users/user.entity.ts`
 
-| Cột | Kiểu | Mô tả |
-|---|---|---|
-| `id` | UUID | Khóa chính |
-| `keycloakSub` | string (unique) | ID bất biến từ Keycloak |
-| `email` | varchar (nullable) | Đồng bộ lại mỗi lần đăng nhập |
-| `name` | varchar (nullable) | Đồng bộ lại mỗi lần đăng nhập |
-| `provider` | string | `keycloak` hoặc `google` |
-| `isActive` | boolean | Mặc định `true` |
-| `createdAt` | timestamp | Tự động |
-| `updatedAt` | timestamp | Tự động |
+| Cột           | Kiểu               | Mô tả                         |
+| ------------- | ------------------ | ----------------------------- |
+| `id`          | UUID               | Khóa chính                    |
+| `keycloakSub` | string (unique)    | ID bất biến từ Keycloak       |
+| `email`       | varchar (nullable) | Đồng bộ lại mỗi lần đăng nhập |
+| `name`        | varchar (nullable) | Đồng bộ lại mỗi lần đăng nhập |
+| `provider`    | string             | `keycloak` hoặc `google`      |
+| `isActive`    | boolean            | Mặc định `true`               |
+| `createdAt`   | timestamp          | Tự động                       |
+| `updatedAt`   | timestamp          | Tự động                       |
 
 > Với production, nên đặt `synchronize: false` và dùng migration.
 
@@ -505,11 +505,11 @@ Dockerfile tạo ra image production. **Không dùng ở local** — các URL `l
 
 ### Dockerfile nhiều stage
 
-| Stage | Mục đích |
-|---|---|
-| `deps` | Cài toàn bộ dependency |
-| `builder` | Build TypeScript |
-| `runner` | Ảnh production chỉ chứa dependency cần thiết và output đã build |
+| Stage     | Mục đích                                                        |
+| --------- | --------------------------------------------------------------- |
+| `deps`    | Cài toàn bộ dependency                                          |
+| `builder` | Build TypeScript                                                |
+| `runner`  | Ảnh production chỉ chứa dependency cần thiết và output đã build |
 
 ### Chạy image trong môi trường deploy
 
@@ -528,13 +528,13 @@ docker run -p 3000:3000 \
   ghcr.io/<owner>/be-capstone:latest
 ```
 
-| Biến | Mô tả |
-|---|---|
-| `DATABASE_URL` | Chuỗi kết nối Postgres (phải truy cập được từ container) |
-| `KEYCLOAK_URL` | URL gốc Keycloak — phải giống URL mà **browser** dùng để truy cập Keycloak |
-| `KEYCLOAK_HEALTH_URL` | Endpoint health management của Keycloak |
-| `KEYCLOAK_CLIENT_SECRET` | Phải trùng với secret đã cấu hình trong Keycloak |
-| `KEYCLOAK_REDIRECT_URI` | Phải trùng với URL callback public của frontend |
+| Biến                     | Mô tả                                                                      |
+| ------------------------ | -------------------------------------------------------------------------- |
+| `DATABASE_URL`           | Chuỗi kết nối Postgres (phải truy cập được từ container)                   |
+| `KEYCLOAK_URL`           | URL gốc Keycloak — phải giống URL mà **browser** dùng để truy cập Keycloak |
+| `KEYCLOAK_HEALTH_URL`    | Endpoint health management của Keycloak                                    |
+| `KEYCLOAK_CLIENT_SECRET` | Phải trùng với secret đã cấu hình trong Keycloak                           |
+| `KEYCLOAK_REDIRECT_URI`  | Phải trùng với URL callback public của frontend                            |
 
 > **Quan trọng:** `KEYCLOAK_URL` phải là URL mà browser dùng để truy cập Keycloak, để claim `iss` trong JWT khớp giữa token phát hành từ browser và server-side validation. Trong môi trường deploy, thường là domain public như `https://auth.example.com`.
 

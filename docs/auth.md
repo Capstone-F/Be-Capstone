@@ -42,7 +42,7 @@ Client (browser)
   │
   │  6. Backend 302 → client_redirect_uri (same origin as FRONTEND_URL)
   │
-  │  7. Frontend calls /auth/me (cookie sent automatically)
+  │  7. Frontend calls /users/me (cookie sent automatically)
   │     ◄── { user profile from local DB }
   │
   │  8. All subsequent API calls include cookie automatically
@@ -152,14 +152,14 @@ This tells Keycloak to skip its own login page and redirect straight to Google.
 ## 5. Step-by-step: Get current user
 
 ```js
-const res = await fetch('http://localhost:3001/auth/me', {
+const res = await fetch('http://localhost:3001/users/me', {
   credentials: 'include', // REQUIRED — sends the session cookie
 });
 
 if (res.ok) {
   const user = await res.json();
   console.log(user);
-  // { id, keycloakSub, email, name, provider, isActive, createdAt, updatedAt }
+  // { id, keycloakSub, email, name, provider, roles, clinicId, isActive, createdAt, updatedAt }
 } else {
   // Not authenticated — redirect to login
 }
@@ -240,7 +240,7 @@ No `Authorization` header, no token management, no refresh logic needed on the f
 | ------ | ---------------- | -------------------------- | ---------------------------------------------------------- |
 | `POST` | `/auth/login`    | None (sets session cookie) | JSON `{ client_redirect_uri, idpHint? }` → `{ login_uri }` |
 | `GET`  | `/auth/callback` | None                       | OAuth callback (Keycloak redirects here)                   |
-| `GET`  | `/auth/me`       | Session cookie             | Get current user profile                                   |
+| `GET`  | `/users/me`      | Session cookie             | Get current user profile (see [User Management](users.md)) |
 | `GET`  | `/auth/status`   | None                       | Check if session is authenticated                          |
 | `POST` | `/auth/logout`   | Session cookie             | Destroy session and revoke tokens                          |
 
@@ -262,7 +262,7 @@ No `Authorization` header, no token management, no refresh logic needed on the f
 
 ## 10. User model reference
 
-### User fields (from database, returned by `/auth/me`)
+### User fields (from database, returned by `/users/me`)
 
 | Field         | Type           | Description                                     |
 | ------------- | -------------- | ----------------------------------------------- |
@@ -271,6 +271,8 @@ No `Authorization` header, no token management, no refresh logic needed on the f
 | `email`       | string \| null | Refreshed from Keycloak on every login          |
 | `name`        | string \| null | Refreshed from Keycloak on every login          |
 | `provider`    | string         | `"google"` or `"keycloak"` — set at first login |
+| `roles`       | string[]       | Application roles from Keycloak                 |
+| `clinicId`    | UUID \| null   | Partner clinic for expert / clinic_manager      |
 | `isActive`    | boolean        | `true` by default                               |
 | `createdAt`   | ISO date       | When the user first logged in                   |
 | `updatedAt`   | ISO date       | When the user last logged in                    |
@@ -292,7 +294,7 @@ For the session cookie to flow between the frontend and backend (different origi
 Every `fetch` call must include `credentials: 'include'`:
 
 ```js
-fetch('http://localhost:3001/auth/me', { credentials: 'include' });
+fetch('http://localhost:3001/users/me', { credentials: 'include' });
 ```
 
 If using **Axios**:

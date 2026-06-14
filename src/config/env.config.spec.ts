@@ -18,6 +18,8 @@ describe('env.config', () => {
         'KEYCLOAK_CLIENT_ID',
         'KEYCLOAK_CLIENT_SECRET',
         'KEYCLOAK_REDIRECT_URI',
+        'KEYCLOAK_DEV_ADMIN_USER',
+        'KEYCLOAK_DEV_ADMIN_PASSWORD',
         'REDIS_URL',
         'SESSION_SECRET',
         'SESSION_COOKIE_SECURE',
@@ -65,6 +67,8 @@ describe('env.config', () => {
     expect(resolved.KEYCLOAK_REDIRECT_URI).toBe(
       'http://localhost:3000/auth/callback',
     );
+    expect(resolved.KEYCLOAK_DEV_ADMIN_USER).toBe('glowscan-admin');
+    expect(resolved.KEYCLOAK_DEV_ADMIN_PASSWORD).toBe('admin');
     expect(resolved.sessionCookieSecure).toBe(false);
   });
 
