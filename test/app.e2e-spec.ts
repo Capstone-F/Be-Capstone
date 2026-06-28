@@ -5,25 +5,26 @@ import { LoggerModule } from 'nestjs-pino';
 import request from 'supertest';
 import session = require('express-session');
 import { DataSource } from 'typeorm';
+import { join } from 'path';
 import { App } from 'supertest/types';
 import { AppController } from '../src/app.controller';
 import { AppService } from '../src/app.service';
 import { HealthController } from '../src/health/health.controller';
 import { HealthService } from '../src/health/health.service';
 import { AuthModule } from '../src/auth/auth.module';
+import { AuthController } from '../src/auth/auth.controller';
 import { AuthService } from '../src/auth/auth.service';
 import { UsersModule } from '../src/users/users.module';
 import { ConfigModule } from '../src/config/config.module';
 import { AppConfigService } from '../src/config/config.service';
 import { User } from '../src/users/user.entity';
 import { Clinic } from '../src/clinics/clinic.entity';
-import { ProductCategory } from '../src/products/enums/product-category.enum';
 import { Product } from '../src/products/product.entity';
+import { ProductBrand } from '../src/products/product-brand.entity';
+import { ProductCategory } from '../src/products/product-category.entity';
+import { ProductVariant } from '../src/products/product-variant.entity';
 import { ProductIngredient } from '../src/products/product-ingredient.entity';
 import { Ingredient } from '../src/ingredients/ingredient.entity';
-import { IngredientConflict } from '../src/ingredients/ingredient-conflict.entity';
-import { TreatmentGoal } from '../src/treatment-goals/treatment-goal.entity';
-import { GoalIngredient } from '../src/treatment-goals/goal-ingredient.entity';
 import { StockModule } from '../src/stock/stock.module';
 import { ProductsModule } from '../src/products/products.module';
 import { StockBatch } from '../src/stock/stock-batch.entity';
@@ -64,6 +65,7 @@ function extractSid(res: request.Response): string {
 describe('BE Capstone API (e2e)', () => {
   let app: INestApplication<App>;
   let authService: AuthService;
+  let authController: AuthController;
   let stockService: StockService;
   let keycloakAdminService: KeycloakAdminService;
   let dataSource: DataSource;
@@ -83,18 +85,7 @@ describe('BE Capstone API (e2e)', () => {
         TypeOrmModule.forRoot({
           type: 'better-sqlite3',
           database: ':memory:',
-          entities: [
-            User,
-            Clinic,
-            Product,
-            StockBatch,
-            StockMovement,
-            Ingredient,
-            ProductIngredient,
-            TreatmentGoal,
-            GoalIngredient,
-            IngredientConflict,
-          ],
+          entities: [join(__dirname, '../src/**/*.entity.ts')],
           synchronize: true,
         }),
       ],
@@ -138,6 +129,7 @@ describe('BE Capstone API (e2e)', () => {
     await app.init();
 
     authService = moduleFixture.get(AuthService);
+    authController = moduleFixture.get(AuthController);
     stockService = moduleFixture.get(StockService);
     keycloakAdminService = moduleFixture.get(KeycloakAdminService);
     dataSource = moduleFixture.get(DataSource);
@@ -393,9 +385,13 @@ describe('BE Capstone API (e2e)', () => {
       const loginUrl = new URL(loginRes.body.login_uri);
       const oauthState = loginUrl.searchParams.get('state')!;
 
+      const loggerError = jest
+        .spyOn(authController['logger'], 'error')
+        .mockImplementation(() => undefined);
+
       jest
         .spyOn(authService, 'exchangeCodeAndUpsertUser')
-        .mockRejectedValueOnce(new Error('Keycloak unreachable'));
+        .mockRejectedValueOnce(new Error('OAuth token exchange failed'));
 
       const res = await request(app.getHttpServer())
         .get(`/auth/callback?code=bad-code&state=${oauthState}`)
@@ -404,6 +400,10 @@ describe('BE Capstone API (e2e)', () => {
 
       expect(res.headers.location).toBe(
         'http://localhost:5173/auth/error?reason=exchange_failed',
+      );
+      expect(loggerError).toHaveBeenCalledWith(
+        'OAuth callback failed',
+        expect.any(Error),
       );
     });
   });
@@ -812,12 +812,15 @@ describe('BE Capstone API (e2e)', () => {
   // ─── Products module endpoints ─────────────────────────────────
 
   describe('Products module endpoints', () => {
-    const baseOnboardPayload = {
+    const makeBaseOnboardPayload = () => ({
       name: 'La Roche-Posay Effaclar Serum',
       brand: 'La Roche-Posay',
-      category: ProductCategory.SERUM,
+      categoryCode: 'SERUM',
+      categoryName: 'Serum',
+      sku: `LRP-EFFAC-${Math.random().toString(36).slice(2, 8)}`,
       priceVnd: 650000,
-      stockQuantity: 100,
+      shelfLifeValue: 365,
+      shelfLifeUnit: ShelfLifeUnit.DAY,
       ingredients: [
         {
           name: 'Salicylic Acid',
@@ -826,7 +829,7 @@ describe('BE Capstone API (e2e)', () => {
         },
         { name: 'Niacinamide', concentrationPct: 2 },
       ],
-    };
+    });
 
     let adminSid: string;
 
@@ -845,7 +848,7 @@ describe('BE Capstone API (e2e)', () => {
       it('should return 401 without session cookie', async () => {
         await request(app.getHttpServer())
           .post('/products')
-          .send(baseOnboardPayload)
+          .send(makeBaseOnboardPayload())
           .expect(401);
       });
 
@@ -859,21 +862,23 @@ describe('BE Capstone API (e2e)', () => {
         await request(app.getHttpServer())
           .post('/products')
           .set('Cookie', customerSid)
-          .send(baseOnboardPayload)
+          .send(makeBaseOnboardPayload())
           .expect(403);
       });
 
       it('should onboard product as app_admin with auto-created ingredients', async () => {
+        const payload = makeBaseOnboardPayload();
         const { body } = await request(app.getHttpServer())
           .post('/products')
           .set('Cookie', adminSid)
-          .send(baseOnboardPayload)
+          .send(payload)
           .expect(201);
 
-        expect(body.product.name).toBe(baseOnboardPayload.name);
-        expect(body.product.brand).toBe(baseOnboardPayload.brand);
-        expect(body.product.category).toBe(ProductCategory.SERUM);
-        expect(body.product.priceVnd).toBe(650000);
+        expect(body.product.name).toBe(payload.name);
+        expect(body.product.brandName).toBe(payload.brand);
+        expect(body.product.categoryName).toBe('Serum');
+        expect(body.product.variants[0].priceVnd).toBe(650000);
+        expect(body.product.variants[0].sku).toBe(payload.sku);
         expect(body.ingredients).toHaveLength(2);
         expect(body.ingredients).toEqual(
           expect.arrayContaining([
@@ -913,7 +918,7 @@ describe('BE Capstone API (e2e)', () => {
           .post('/products')
           .set('Cookie', staffSid)
           .send({
-            ...baseOnboardPayload,
+            ...makeBaseOnboardPayload(),
             name: 'Dedup Test Serum',
             ingredients: [
               { name: 'Niacinamide', concentrationPct: 2 },
@@ -937,9 +942,8 @@ describe('BE Capstone API (e2e)', () => {
           .set('Cookie', adminSid)
           .send({
             brand: 'La Roche-Posay',
-            category: 'INVALID_CATEGORY',
+            categoryCode: 'SERUM',
             priceVnd: 650000,
-            stockQuantity: 100,
             ingredients: [{ name: 'Niacinamide' }],
           })
           .expect(400);
@@ -968,23 +972,27 @@ describe('BE Capstone API (e2e)', () => {
       });
 
       it('should filter products by category', async () => {
-        await onboardProductViaHttp(adminSid, {
+        const serum = await onboardProductViaHttp(adminSid, {
           name: 'Serum Product',
-          category: ProductCategory.SERUM,
+          categoryCode: 'SERUM',
+          categoryName: 'Serum',
+          sku: 'SERUM-FILTER-E2E',
         });
         await onboardProductViaHttp(adminSid, {
           name: 'Moisturizer Product',
-          category: ProductCategory.MOISTURIZER,
+          categoryCode: 'MOISTURIZER',
+          categoryName: 'Moisturizer',
+          sku: 'MOIST-FILTER-E2E',
         });
 
         const { body } = await request(app.getHttpServer())
-          .get(`/products?category=${ProductCategory.SERUM}`)
+          .get(`/products?categoryId=${serum.product.categoryId}`)
           .set('Cookie', adminSid)
           .expect(200);
 
         expect(body.items.length).toBeGreaterThanOrEqual(1);
         for (const item of body.items) {
-          expect(item.product.category).toBe(ProductCategory.SERUM);
+          expect(item.product.categoryId).toBe(serum.product.categoryId);
         }
       });
     });
@@ -1037,7 +1045,7 @@ describe('BE Capstone API (e2e)', () => {
       await request(app.getHttpServer())
         .post('/stock/batches')
         .send({
-          productId: '00000000-0000-0000-0000-000000000001',
+          productVariantId: '00000000-0000-0000-0000-000000000001',
           quantity: 10,
           manufacturingDate: '2026-01-15',
         })
@@ -1045,13 +1053,13 @@ describe('BE Capstone API (e2e)', () => {
     });
 
     it('should return 400 when quantity is zero', async () => {
-      const product = await seedProduct();
+      const { variant } = await seedProduct();
 
       await request(app.getHttpServer())
         .post('/stock/batches')
         .set('Cookie', sid)
         .send({
-          productId: product.id,
+          productVariantId: variant.id,
           quantity: 0,
           manufacturingDate: '2026-01-15',
         })
@@ -1059,25 +1067,25 @@ describe('BE Capstone API (e2e)', () => {
     });
 
     it('should return 400 when quantity is negative', async () => {
-      const product = await seedProduct();
+      const { variant } = await seedProduct();
 
       await request(app.getHttpServer())
         .post('/stock/batches')
         .set('Cookie', sid)
         .send({
-          productId: product.id,
+          productVariantId: variant.id,
           quantity: -5,
           manufacturingDate: '2026-01-15',
         })
         .expect(400);
     });
 
-    it('should return 404 when productId does not exist', async () => {
+    it('should return 404 when productVariantId does not exist', async () => {
       await request(app.getHttpServer())
         .post('/stock/batches')
         .set('Cookie', sid)
         .send({
-          productId: '550e8400-e29b-41d4-a716-446655440099',
+          productVariantId: '550e8400-e29b-41d4-a716-446655440099',
           quantity: 10,
           manufacturingDate: '2026-01-15',
         })
@@ -1085,7 +1093,7 @@ describe('BE Capstone API (e2e)', () => {
     });
 
     it('should create batch with computed expiration date', async () => {
-      const product = await seedProduct({
+      const { variant } = await seedProduct({
         shelfLifeValue: 30,
         shelfLifeUnit: ShelfLifeUnit.DAY,
       });
@@ -1094,7 +1102,7 @@ describe('BE Capstone API (e2e)', () => {
         .post('/stock/batches')
         .set('Cookie', sid)
         .send({
-          productId: product.id,
+          productVariantId: variant.id,
           quantity: 100,
           manufacturingDate: '2026-01-15',
           batchCode: 'LOT-E2E-001',
@@ -1102,7 +1110,7 @@ describe('BE Capstone API (e2e)', () => {
         .expect(201);
 
       expect(body.id).toBeTruthy();
-      expect(body.productId).toBe(product.id);
+      expect(body.productVariantId).toBe(variant.id);
       expect(body.batchCode).toBe('LOT-E2E-001');
       expect(body.initialQuantity).toBe(100);
       expect(body.remainingQuantity).toBe(100);
@@ -1113,7 +1121,7 @@ describe('BE Capstone API (e2e)', () => {
         where: { batchId: body.id },
       });
       expect(movements).toHaveLength(1);
-      expect(movements[0].type).toBe(StockMovementType.IN);
+      expect(movements[0].type).toBe(StockMovementType.IMPORT);
       expect(movements[0].quantity).toBe(100);
     });
   });
@@ -1138,9 +1146,9 @@ describe('BE Capstone API (e2e)', () => {
     });
 
     it('should return 400 when quantity is zero', async () => {
-      const product = await seedProduct();
+      const { variant } = await seedProduct();
       const batch = await stockService.createBatch({
-        productId: product.id,
+        productVariantId: variant.id,
         quantity: 100,
         manufacturingDate: '2026-01-15',
       });
@@ -1160,10 +1168,10 @@ describe('BE Capstone API (e2e)', () => {
         .expect(404);
     });
 
-    it('should adjust remaining quantity and record ADJUST movement', async () => {
-      const product = await seedProduct();
+    it('should adjust remaining quantity and record ADJUSTMENT movement', async () => {
+      const { variant } = await seedProduct();
       const batch = await stockService.createBatch({
-        productId: product.id,
+        productVariantId: variant.id,
         quantity: 100,
         manufacturingDate: '2026-01-15',
       });
@@ -1176,7 +1184,7 @@ describe('BE Capstone API (e2e)', () => {
 
       expect(body.batch.id).toBe(batch.id);
       expect(body.batch.remainingQuantity).toBe(75);
-      expect(body.movement.type).toBe(StockMovementType.ADJUST);
+      expect(body.movement.type).toBe(StockMovementType.ADJUSTMENT);
       expect(body.movement.quantity).toBe(75);
       expect(body.movement.note).toBe('E2E inventory correction');
 
@@ -1190,30 +1198,74 @@ describe('BE Capstone API (e2e)', () => {
   // ─── Helper: seed product for stock tests ────────────────────────
 
   async function seedProduct(
-    overrides: Partial<Product> = {},
-  ): Promise<Product> {
-    const repo = dataSource.getRepository(Product);
-    return repo.save(
-      repo.create({
-        name: 'E2E Product',
-        brand: 'E2E Brand',
-        category: ProductCategory.TREATMENT,
-        priceVnd: 100000,
-        stockQuantity: 0,
+    overrides: {
+      name?: string;
+      brandName?: string;
+      categoryCode?: string;
+      categoryName?: string;
+      priceVnd?: number;
+      shelfLifeValue?: number;
+      shelfLifeUnit?: ShelfLifeUnit;
+      sku?: string;
+    } = {},
+  ): Promise<{ product: Product; variant: ProductVariant }> {
+    const brandRepo = dataSource.getRepository(ProductBrand);
+    const categoryRepo = dataSource.getRepository(ProductCategory);
+    const productRepo = dataSource.getRepository(Product);
+    const variantRepo = dataSource.getRepository(ProductVariant);
+
+    const brandName = overrides.brandName ?? 'E2E Brand';
+    let brand = await brandRepo.findOneBy({ name: brandName });
+    if (!brand) {
+      brand = await brandRepo.save(
+        brandRepo.create({ name: brandName, isActive: true }),
+      );
+    }
+
+    const categoryCode = overrides.categoryCode ?? 'TREATMENT';
+    let category = await categoryRepo.findOneBy({ code: categoryCode });
+    if (!category) {
+      category = await categoryRepo.save(
+        categoryRepo.create({
+          code: categoryCode,
+          name: overrides.categoryName ?? categoryCode,
+          isActive: true,
+        }),
+      );
+    }
+
+    const product = await productRepo.save(
+      productRepo.create({
+        name: overrides.name ?? 'E2E Product',
+        brandId: brand.id,
+        categoryId: category.id,
         isActive: true,
-        shelfLifeValue: 30,
-        shelfLifeUnit: ShelfLifeUnit.DAY,
-        ...overrides,
       }),
     );
+
+    const variant = await variantRepo.save(
+      variantRepo.create({
+        productId: product.id,
+        sku: overrides.sku ?? `SKU-E2E-${product.id.slice(0, 8)}`,
+        priceVnd: overrides.priceVnd ?? 100000,
+        shelfLifeValue: overrides.shelfLifeValue ?? 30,
+        shelfLifeUnit: overrides.shelfLifeUnit ?? ShelfLifeUnit.DAY,
+        isActive: true,
+      }),
+    );
+
+    return { product, variant };
   }
 
   type OnboardProductPayload = {
     name: string;
     brand: string;
-    category: ProductCategory;
+    categoryCode: string;
+    categoryName?: string;
+    sku: string;
     priceVnd: number;
-    stockQuantity: number;
+    shelfLifeValue?: number;
+    shelfLifeUnit?: ShelfLifeUnit;
     ingredients: Array<{
       name: string;
       concentrationPct?: number;
@@ -1225,10 +1277,11 @@ describe('BE Capstone API (e2e)', () => {
     product: {
       id: string;
       name: string;
-      brand: string;
-      category: ProductCategory;
-      priceVnd: number;
-      stockQuantity: number;
+      brandId: string;
+      brandName: string;
+      categoryId: string;
+      categoryName: string;
+      variants: Array<{ id: string; sku: string; priceVnd: number }>;
     };
     ingredients: Array<{
       name: string;
@@ -1244,9 +1297,12 @@ describe('BE Capstone API (e2e)', () => {
     const payload: OnboardProductPayload = {
       name: 'La Roche-Posay Effaclar Serum',
       brand: 'La Roche-Posay',
-      category: ProductCategory.SERUM,
+      categoryCode: 'SERUM',
+      categoryName: 'Serum',
+      sku: `LRP-EFFAC-${Math.random().toString(36).slice(2, 8)}`,
       priceVnd: 650000,
-      stockQuantity: 100,
+      shelfLifeValue: 365,
+      shelfLifeUnit: ShelfLifeUnit.DAY,
       ingredients: [
         {
           name: 'Salicylic Acid',

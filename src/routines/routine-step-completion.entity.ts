@@ -23,7 +23,7 @@ export class RoutineStepCompletion {
   @Column({ default: false })
   completed: boolean;
 
-  @Column({ nullable: true, type: 'timestamp' })
+  @Column({ nullable: true, type: 'datetime' })
   completedAt: Date | null;
 
   @ManyToOne(() => RoutineCheckIn, (checkIn) => checkIn.stepCompletions, {

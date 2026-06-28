@@ -45,10 +45,10 @@ export class LockedIngredient {
   @Column({ default: true })
   isActive: boolean;
 
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'datetime' })
   lockedAt: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'datetime', nullable: true })
   unlockedAt: Date | null;
 
   @CreateDateColumn()

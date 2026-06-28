@@ -39,7 +39,7 @@ export class TreatmentEvent {
   @Column({ nullable: true, type: 'varchar' })
   photoUrl: string | null;
 
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'datetime' })
   occurredAt: Date;
 
   @Column({ nullable: true, type: 'uuid' })
