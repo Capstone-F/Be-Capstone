@@ -2,10 +2,14 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  OneToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { Role } from '../auth/roles.enum';
+import { Customer } from './customer.entity';
+import { Expert } from './expert.entity';
+import { Wallet } from './wallet.entity';
 
 @Entity('users')
 export class User {
@@ -39,6 +43,15 @@ export class User {
 
   @Column({ default: true })
   isActive: boolean;
+
+  @OneToOne(() => Customer, (customer) => customer.user)
+  customer: Customer;
+
+  @OneToOne(() => Expert, (expert) => expert.user)
+  expert: Expert;
+
+  @OneToOne(() => Wallet, (wallet) => wallet.user)
+  wallet: Wallet;
 
   @CreateDateColumn()
   createdAt: Date;

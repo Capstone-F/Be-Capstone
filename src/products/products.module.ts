@@ -3,12 +3,17 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
+import { IngredientsModule } from '../ingredients/ingredients.module';
 import { IngredientConflict } from '../ingredients/ingredient-conflict.entity';
+import { IngredientProtocol } from '../ingredients/ingredient-protocol.entity';
 import { Ingredient } from '../ingredients/ingredient.entity';
-import { GoalIngredient } from '../treatment-goals/goal-ingredient.entity';
-import { TreatmentGoal } from '../treatment-goals/treatment-goal.entity';
+import { ProtocolLabel } from '../ingredients/protocol-label.entity';
+import { ProductBrand } from './product-brand.entity';
+import { ProductCategory } from './product-category.entity';
 import { ProductIngredient } from './product-ingredient.entity';
 import { ProductOnboardingService } from './product-onboarding.service';
+import { ProductProtocol } from './product-protocol.entity';
+import { ProductVariant } from './product-variant.entity';
 import { Product } from './product.entity';
 import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
@@ -17,12 +22,17 @@ import { ProductsService } from './products.service';
   imports: [
     TypeOrmModule.forFeature([
       Product,
-      Ingredient,
+      ProductBrand,
+      ProductCategory,
+      ProductVariant,
       ProductIngredient,
-      TreatmentGoal,
-      GoalIngredient,
+      ProductProtocol,
+      Ingredient,
+      IngredientProtocol,
       IngredientConflict,
+      ProtocolLabel,
     ]),
+    IngredientsModule,
     AuthModule,
   ],
   controllers: [ProductsController],

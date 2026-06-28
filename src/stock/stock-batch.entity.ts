@@ -8,7 +8,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { Product } from '../products/product.entity';
+import { ProductVariant } from '../products/product-variant.entity';
 import { StockMovement } from './stock-movement.entity';
 
 @Entity('stock_batches')
@@ -17,13 +17,13 @@ export class StockBatch {
   id: string;
 
   @Column()
-  productId: string;
+  productVariantId: string;
 
-  @ManyToOne(() => Product, (product) => product.batches, {
+  @ManyToOne(() => ProductVariant, (variant) => variant.batches, {
     onDelete: 'CASCADE',
   })
-  @JoinColumn({ name: 'productId' })
-  product: Product;
+  @JoinColumn({ name: 'productVariantId' })
+  productVariant: ProductVariant;
 
   @Column({ nullable: true, type: 'varchar' })
   batchCode: string | null;

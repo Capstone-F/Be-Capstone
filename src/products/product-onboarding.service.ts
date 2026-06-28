@@ -1,9 +1,13 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { Ingredient } from '../ingredients/ingredient.entity';
+import { ShelfLifeUnit } from '../stock/enums';
 import { CreateProductDto } from './dto/create-product.dto';
 import { ProductDetailResponseDto } from './dto/product-response.dto';
+import { ProductBrand } from './product-brand.entity';
+import { ProductCategory } from './product-category.entity';
 import { ProductIngredient } from './product-ingredient.entity';
+import { ProductVariant } from './product-variant.entity';
 import { Product } from './product.entity';
 import { ProductsService } from './products.service';
 
@@ -26,16 +30,33 @@ export class ProductOnboardingService {
     const normalizedIngredients = this.deduplicateIngredients(dto.ingredients);
 
     const productId = await this.dataSource.transaction(async (manager) => {
+      const brand = await this.resolveBrand(manager, dto.brand.trim());
+      const category = await this.resolveCategory(
+        manager,
+        dto.categoryCode.trim(),
+        dto.categoryName?.trim(),
+      );
+
       const product = manager.create(Product, {
         name: dto.name.trim(),
-        brand: dto.brand.trim(),
-        category: dto.category,
+        brandId: brand.id,
+        categoryId: category.id,
         description: dto.description?.trim() ?? null,
-        priceVnd: dto.priceVnd,
-        stockQuantity: dto.stockQuantity,
         isActive: true,
       });
       const savedProduct = await manager.save(Product, product);
+
+      const variant = manager.create(ProductVariant, {
+        productId: savedProduct.id,
+        sku: dto.sku.trim(),
+        volume: dto.volume?.trim() ?? null,
+        packaging: dto.packaging?.trim() ?? null,
+        priceVnd: dto.priceVnd,
+        shelfLifeValue: dto.shelfLifeValue ?? 365,
+        shelfLifeUnit: dto.shelfLifeUnit ?? ShelfLifeUnit.DAY,
+        isActive: true,
+      });
+      await manager.save(ProductVariant, variant);
 
       const ingredientMap = await this.resolveIngredients(
         manager,
@@ -69,6 +90,43 @@ export class ProductOnboardingService {
     });
 
     return this.productsService.findOne(productId);
+  }
+
+  private async resolveBrand(
+    manager: EntityManager,
+    name: string,
+  ): Promise<ProductBrand> {
+    const existing = await manager.findOne(ProductBrand, {
+      where: { name },
+    });
+    if (existing) {
+      return existing;
+    }
+    return manager.save(
+      ProductBrand,
+      manager.create(ProductBrand, { name, isActive: true }),
+    );
+  }
+
+  private async resolveCategory(
+    manager: EntityManager,
+    code: string,
+    name?: string,
+  ): Promise<ProductCategory> {
+    const existing = await manager.findOne(ProductCategory, {
+      where: { code },
+    });
+    if (existing) {
+      return existing;
+    }
+    return manager.save(
+      ProductCategory,
+      manager.create(ProductCategory, {
+        code,
+        name: name ?? code,
+        isActive: true,
+      }),
+    );
   }
 
   private deduplicateIngredients(

@@ -1,0 +1,15 @@
+export enum DeliveryStatus {
+  PENDING = 'PENDING',
+  PROCESSING = 'PROCESSING',
+  SHIPPED = 'SHIPPED',
+  IN_TRANSIT = 'IN_TRANSIT',
+  DELIVERED = 'DELIVERED',
+  FAILED = 'FAILED',
+  RETURNED = 'RETURNED',
+}
+
+export enum DeliveryType {
+  STANDARD = 'STANDARD',
+  EXPRESS = 'EXPRESS',
+  SAME_DAY = 'SAME_DAY',
+}

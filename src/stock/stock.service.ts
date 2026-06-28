@@ -6,20 +6,20 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, MoreThan, Repository } from 'typeorm';
-import { Product } from '../products/product.entity';
+import { ProductVariant } from '../products/product-variant.entity';
 import { ShelfLifeUnit, StockMovementType } from './enums';
 import { StockBatch } from './stock-batch.entity';
 import { StockMovement } from './stock-movement.entity';
 
 export type CreateBatchInput = {
-  productId: string;
+  productVariantId: string;
   quantity: number;
   manufacturingDate: Date | string;
   batchCode?: string;
 };
 
-export type DeductByProductResult = {
-  productId: string;
+export type DeductByVariantResult = {
+  productVariantId: string;
   totalDeducted: number;
   batches: Array<{ batchId: string; deducted: number }>;
 };
@@ -29,8 +29,8 @@ export class StockService {
   private readonly logger = new Logger(StockService.name);
 
   constructor(
-    @InjectRepository(Product)
-    private readonly productRepository: Repository<Product>,
+    @InjectRepository(ProductVariant)
+    private readonly variantRepository: Repository<ProductVariant>,
     @InjectRepository(StockBatch)
     private readonly batchRepository: Repository<StockBatch>,
     @InjectRepository(StockMovement)
@@ -42,23 +42,25 @@ export class StockService {
       throw new BadRequestException('quantity must be positive');
     }
 
-    const product = await this.productRepository.findOneBy({
-      id: input.productId,
+    const variant = await this.variantRepository.findOneBy({
+      id: input.productVariantId,
     });
-    if (!product) {
-      throw new NotFoundException(`Product ${input.productId} not found`);
+    if (!variant) {
+      throw new NotFoundException(
+        `Product variant ${input.productVariantId} not found`,
+      );
     }
 
     const manufacturingDate = this.toDateOnly(input.manufacturingDate);
     const expirationDate = this.addShelfLife(
       manufacturingDate,
-      product.shelfLifeValue,
-      product.shelfLifeUnit,
+      variant.shelfLifeValue,
+      variant.shelfLifeUnit,
     );
 
     return this.batchRepository.manager.transaction(async (manager) => {
       const batch = manager.create(StockBatch, {
-        productId: product.id,
+        productVariantId: variant.id,
         batchCode: input.batchCode ?? null,
         initialQuantity: input.quantity,
         remainingQuantity: input.quantity,
@@ -69,14 +71,14 @@ export class StockService {
 
       const movement = manager.create(StockMovement, {
         batchId: savedBatch.id,
-        type: StockMovementType.IN,
+        type: StockMovementType.IMPORT,
         quantity: input.quantity,
         note: 'Initial batch stock input',
       });
       await manager.save(StockMovement, movement);
 
       this.logger.log(
-        `Created stock batch ${savedBatch.id} for product ${product.id} (qty ${input.quantity})`,
+        `Created stock batch ${savedBatch.id} for variant ${variant.id} (qty ${input.quantity})`,
       );
 
       return savedBatch;
@@ -105,10 +107,11 @@ export class StockService {
       let newRemaining: number;
 
       switch (type) {
-        case StockMovementType.IN:
+        case StockMovementType.IMPORT:
+        case StockMovementType.RETURN:
           newRemaining = batch.remainingQuantity + quantity;
           break;
-        case StockMovementType.OUT:
+        case StockMovementType.SALE:
           newRemaining = batch.remainingQuantity - quantity;
           if (newRemaining < 0) {
             throw new BadRequestException(
@@ -116,7 +119,7 @@ export class StockService {
             );
           }
           break;
-        case StockMovementType.ADJUST:
+        case StockMovementType.ADJUSTMENT:
           newRemaining = quantity;
           break;
         default:
@@ -141,28 +144,32 @@ export class StockService {
   }
 
   /**
-   * Deduct stock for a product across batches (FEFO: earliest expiration first).
+   * Deduct stock for a variant across batches (FEFO: earliest expiration first).
    * For future order/checkout flows; not exposed as HTTP yet.
    */
-  async deductByProductId(
-    productId: string,
+  async deductByVariantId(
+    productVariantId: string,
     quantity: number,
     note?: string,
-  ): Promise<DeductByProductResult> {
+  ): Promise<DeductByVariantResult> {
     if (quantity <= 0) {
       throw new BadRequestException('quantity must be positive');
     }
 
-    const product = await this.productRepository.findOneBy({ id: productId });
-    if (!product) {
-      throw new NotFoundException(`Product ${productId} not found`);
+    const variant = await this.variantRepository.findOneBy({
+      id: productVariantId,
+    });
+    if (!variant) {
+      throw new NotFoundException(
+        `Product variant ${productVariantId} not found`,
+      );
     }
 
     const movementNote = note ?? 'Order deduction';
 
     return this.batchRepository.manager.transaction(async (manager) => {
       const batches = await manager.find(StockBatch, {
-        where: { productId, remainingQuantity: MoreThan(0) },
+        where: { productVariantId, remainingQuantity: MoreThan(0) },
         order: { expirationDate: 'ASC', createdAt: 'ASC' },
         ...this.pessimisticWriteLock(manager),
       });
@@ -173,7 +180,7 @@ export class StockService {
       );
       if (available < quantity) {
         throw new BadRequestException(
-          `Insufficient stock for product ${productId}: available ${available}, requested ${quantity}`,
+          `Insufficient stock for variant ${productVariantId}: available ${available}, requested ${quantity}`,
         );
       }
 
@@ -193,7 +200,7 @@ export class StockService {
 
         const movement = manager.create(StockMovement, {
           batchId: batch.id,
-          type: StockMovementType.OUT,
+          type: StockMovementType.SALE,
           quantity: take,
           note: movementNote,
         });
@@ -203,18 +210,18 @@ export class StockService {
       }
 
       this.logger.log(
-        `Deducted ${quantity} from product ${productId} across ${deductions.length} batch(es)`,
+        `Deducted ${quantity} from variant ${productVariantId} across ${deductions.length} batch(es)`,
       );
 
       return {
-        productId,
+        productVariantId,
         totalDeducted: quantity,
         batches: deductions,
       };
     });
   }
 
-  /** Expiration = manufacturing date + product shelf life (UTC date-only). */
+  /** Expiration = manufacturing date + variant shelf life (UTC date-only). */
   addShelfLife(
     manufacturingDate: Date,
     value: number,

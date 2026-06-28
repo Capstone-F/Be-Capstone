@@ -20,7 +20,7 @@ describe('StockController', () => {
       stockService.createBatch.mockResolvedValue(batch as any);
 
       const dto = {
-        productId: 'product-1',
+        productVariantId: 'variant-1',
         quantity: 100,
         manufacturingDate: '2026-01-15',
         batchCode: 'LOT-001',
@@ -29,7 +29,7 @@ describe('StockController', () => {
       const result = await controller.importBatch(dto);
 
       expect(stockService.createBatch).toHaveBeenCalledWith({
-        productId: 'product-1',
+        productVariantId: 'variant-1',
         quantity: 100,
         manufacturingDate: '2026-01-15',
         batchCode: 'LOT-001',
@@ -39,10 +39,10 @@ describe('StockController', () => {
   });
 
   describe('POST /stock/batches/:id/adjust', () => {
-    it('should delegate to stockService.recordMovement with ADJUST', async () => {
+    it('should delegate to stockService.recordMovement with ADJUSTMENT', async () => {
       const response = {
         batch: { id: 'batch-1', remainingQuantity: 50 },
-        movement: { id: 'mov-1', type: StockMovementType.ADJUST },
+        movement: { id: 'mov-1', type: StockMovementType.ADJUSTMENT },
       };
       stockService.recordMovement.mockResolvedValue(response as any);
 
@@ -53,7 +53,7 @@ describe('StockController', () => {
 
       expect(stockService.recordMovement).toHaveBeenCalledWith(
         'batch-1',
-        StockMovementType.ADJUST,
+        StockMovementType.ADJUSTMENT,
         50,
         'Inventory count',
       );

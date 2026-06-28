@@ -3,18 +3,21 @@ import {
   CreateDateColumn,
   Entity,
   Index,
+  JoinColumn,
+  ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { ShelfLifeUnit } from '../stock/enums';
-import { StockBatch } from '../stock/stock-batch.entity';
-import { ProductCategory } from './enums/product-category.enum';
+import { ProductBrand } from './product-brand.entity';
+import { ProductCategory } from './product-category.entity';
 import { ProductIngredient } from './product-ingredient.entity';
+import { ProductProtocol } from './product-protocol.entity';
+import { ProductVariant } from './product-variant.entity';
 
 @Entity('products')
-@Index('IDX_products_category', ['category'])
-@Index('IDX_products_brand', ['brand'])
+@Index('IDX_products_brand', ['brandId'])
+@Index('IDX_products_category', ['categoryId'])
 export class Product {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -23,41 +26,37 @@ export class Product {
   name: string;
 
   @Column()
-  brand: string;
+  brandId: string;
 
-  @Column({
-    type: 'varchar',
-    enum: ProductCategory,
+  @ManyToOne(() => ProductBrand, (brand) => brand.products, {
+    onDelete: 'RESTRICT',
   })
+  @JoinColumn({ name: 'brandId' })
+  brand: ProductBrand;
+
+  @Column()
+  categoryId: string;
+
+  @ManyToOne(() => ProductCategory, (category) => category.products, {
+    onDelete: 'RESTRICT',
+  })
+  @JoinColumn({ name: 'categoryId' })
   category: ProductCategory;
 
   @Column({ nullable: true, type: 'varchar' })
   description: string | null;
 
-  @Column({ type: 'int' })
-  priceVnd: number;
-
-  @Column({ type: 'int', default: 0 })
-  stockQuantity: number;
-
   @Column({ default: true })
   isActive: boolean;
-
-  @Column({ type: 'int', default: 365 })
-  shelfLifeValue: number;
-
-  @Column({
-    type: 'varchar',
-    enum: ShelfLifeUnit,
-    default: ShelfLifeUnit.DAY,
-  })
-  shelfLifeUnit: ShelfLifeUnit;
 
   @OneToMany(() => ProductIngredient, (pi) => pi.product)
   productIngredients: ProductIngredient[];
 
-  @OneToMany(() => StockBatch, (batch) => batch.product)
-  batches: StockBatch[];
+  @OneToMany(() => ProductVariant, (variant) => variant.product)
+  variants: ProductVariant[];
+
+  @OneToMany(() => ProductProtocol, (pp) => pp.product)
+  productProtocols: ProductProtocol[];
 
   @CreateDateColumn()
   createdAt: Date;

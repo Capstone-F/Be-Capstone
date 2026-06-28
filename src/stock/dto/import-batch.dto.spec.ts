@@ -14,7 +14,7 @@ describe('Stock DTO validation (ValidationPipe whitelist)', () => {
 
   describe('ImportBatchDto', () => {
     const validBody = {
-      productId: 'b09b4b9b-644f-4c55-a0ef-61f5769c921d',
+      productVariantId: 'b09b4b9b-644f-4c55-a0ef-61f5769c921d',
       quantity: 100,
       manufacturingDate: '2026-06-14T00:00:00Z',
       batchCode: 'LOT-2026-001',
@@ -28,7 +28,7 @@ describe('Stock DTO validation (ValidationPipe whitelist)', () => {
 
       expect(result).toEqual(
         expect.objectContaining({
-          productId: validBody.productId,
+          productVariantId: validBody.productVariantId,
           quantity: validBody.quantity,
           manufacturingDate: validBody.manufacturingDate,
           batchCode: validBody.batchCode,
@@ -36,7 +36,7 @@ describe('Stock DTO validation (ValidationPipe whitelist)', () => {
       );
     });
 
-    it('should reject when productId is missing', async () => {
+    it('should reject when productVariantId is missing', async () => {
       const body = {
         quantity: validBody.quantity,
         manufacturingDate: validBody.manufacturingDate,
