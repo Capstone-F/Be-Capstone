@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { CustomerSkinTypeDetails } from './customer-skin-type-details.entity';
 import { User } from './user.entity';
+import { Gender } from './gender.enum';
 
 @Entity('customers')
 export class Customer {
@@ -31,8 +32,8 @@ export class Customer {
   @Column({ nullable: true, type: 'date' })
   dateOfBirth: Date | null;
 
-  @Column({ nullable: true, type: 'varchar' })
-  gender: string | null;
+  @Column({ type: 'varchar', enum: Gender, default: Gender.NOT_PREFER_TO_SAY })
+  gender: Gender;
 
   @OneToOne(() => CustomerSkinTypeDetails, (d) => d.customer)
   skinTypeDetails: CustomerSkinTypeDetails;

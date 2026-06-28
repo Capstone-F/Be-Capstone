@@ -431,6 +431,12 @@ const LABELS: LabelSeed[] = [
     categoryCode: 'GENDER',
     description: 'Female gender',
   },
+  {
+    code: 'NOT_PREFER_TO_SAY',
+    name: 'Prefer not to say',
+    categoryCode: 'GENDER',
+    description: 'Customer prefers not to disclose gender',
+  },
 
   // LIFESTYLE
   {
