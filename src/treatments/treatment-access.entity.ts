@@ -47,10 +47,10 @@ export class TreatmentAccess {
   })
   status: TreatmentAccessStatus;
 
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'datetime' })
   grantedAt: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'datetime', nullable: true })
   expiresAt: Date | null;
 
   @CreateDateColumn()
