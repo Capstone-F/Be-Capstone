@@ -57,6 +57,7 @@ const makeProtocol = (
     updatedAt: new Date(),
   },
   protocolLabels: [],
+  protocolSkinTypes: [],
   conflicts: [],
   routineStepProtocols: [],
   createdAt: new Date(),

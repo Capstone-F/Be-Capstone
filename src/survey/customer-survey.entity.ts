@@ -23,9 +23,6 @@ export class CustomerSurvey {
   @JoinColumn({ name: 'customerId' })
   customer: Customer;
 
-  @Column({ nullable: true, type: 'uuid' })
-  skinTypeId: string | null;
-
   @Column({ default: false })
   isCompleted: boolean;
 

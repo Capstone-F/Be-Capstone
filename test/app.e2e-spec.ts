@@ -27,9 +27,24 @@ import { ProductIngredient } from '../src/products/product-ingredient.entity';
 import { Ingredient } from '../src/ingredients/ingredient.entity';
 import { IngredientProtocol } from '../src/ingredients/ingredient-protocol.entity';
 import { ProtocolLabel } from '../src/ingredients/protocol-label.entity';
-import { LabelMatchType, TimeOfUse } from '../src/ingredients/enums';
+import { ProtocolSkinType } from '../src/ingredients/protocol-skin-type.entity';
+import {
+  LabelMatchType,
+  SkinTypeRecommendation,
+  TimeOfUse,
+} from '../src/ingredients/enums';
 import { Label } from '../src/survey/label.entity';
 import { LabelCategory } from '../src/survey/label-category.entity';
+import { CustomerSurvey } from '../src/survey/customer-survey.entity';
+import { Customer } from '../src/users/customer.entity';
+import { CustomerSkinTypeDetails } from '../src/users/customer-skin-type-details.entity';
+import { SkinType } from '../src/users/skin-type.entity';
+import {
+  OilyDry,
+  PigmentedNonPigmented,
+  SensitiveResistant,
+  WrinkledTight,
+} from '../src/users/skin-type.enums';
 import { StockModule } from '../src/stock/stock.module';
 import { ProductsModule } from '../src/products/products.module';
 import { StockBatch } from '../src/stock/stock-batch.entity';
@@ -1348,6 +1363,200 @@ describe('BE Capstone API (e2e)', () => {
           }),
         ]),
       );
+    });
+
+    it('should persist SkinType with four Baumann axis columns', async () => {
+      const skinTypeRepo = dataSource.getRepository(SkinType);
+      const saved = await skinTypeRepo.save(
+        skinTypeRepo.create({
+          code: 'OSPW_E2E',
+          name: 'Oily, Sensitive, Pigmented, Wrinkled',
+          description: 'Baumann type OSPW',
+          oilyDry: OilyDry.OILY,
+          sensitiveResistant: SensitiveResistant.SENSITIVE,
+          pigmentedNonPigmented: PigmentedNonPigmented.PIGMENTED,
+          wrinkledTight: WrinkledTight.WRINKLED,
+        }),
+      );
+
+      const loaded = await skinTypeRepo.findOneByOrFail({ id: saved.id });
+
+      expect(loaded.code).toBe('OSPW_E2E');
+      expect(loaded.oilyDry).toBe(OilyDry.OILY);
+      expect(loaded.sensitiveResistant).toBe(SensitiveResistant.SENSITIVE);
+      expect(loaded.pigmentedNonPigmented).toBe(
+        PigmentedNonPigmented.PIGMENTED,
+      );
+      expect(loaded.wrinkledTight).toBe(WrinkledTight.WRINKLED);
+    });
+
+    it('should persist CustomerSkinTypeDetails as 1:1 profile extension for Customer', async () => {
+      const user = await seedUser({
+        keycloakSub: 'kc-baumann-profile',
+        email: 'baumann@example.com',
+        name: 'Baumann Customer',
+      });
+      const customer = await dataSource.getRepository(Customer).save(
+        dataSource.getRepository(Customer).create({
+          userId: user.id,
+          phone: '0900000001',
+        }),
+      );
+      const skinType = await dataSource.getRepository(SkinType).save(
+        dataSource.getRepository(SkinType).create({
+          code: 'DRNT_E2E',
+          name: 'Dry, Resistant, Non-pigmented, Tight',
+          oilyDry: OilyDry.DRY,
+          sensitiveResistant: SensitiveResistant.RESISTANT,
+          pigmentedNonPigmented: PigmentedNonPigmented.NON_PIGMENTED,
+          wrinkledTight: WrinkledTight.TIGHT,
+        }),
+      );
+
+      const detailsRepo = dataSource.getRepository(CustomerSkinTypeDetails);
+      const assessedAt = new Date('2026-06-01T10:00:00.000Z');
+      await detailsRepo.save(
+        detailsRepo.create({
+          customerId: customer.id,
+          skinTypeId: skinType.id,
+          oilyDryScore: 28,
+          sensitiveResistantScore: 22,
+          pigmentedNonPigmentedScore: 18,
+          wrinkledTightScore: 15,
+          assessedAt,
+        }),
+      );
+
+      const loaded = await detailsRepo.findOneOrFail({
+        where: { customerId: customer.id },
+        relations: ['customer', 'skinType'],
+      });
+
+      expect(loaded.customer.id).toBe(customer.id);
+      expect(loaded.skinType?.code).toBe('DRNT_E2E');
+      expect(loaded.oilyDryScore).toBe(28);
+      expect(loaded.sensitiveResistantScore).toBe(22);
+      expect(loaded.pigmentedNonPigmentedScore).toBe(18);
+      expect(loaded.wrinkledTightScore).toBe(15);
+      expect(loaded.assessedAt?.toISOString()).toBe(assessedAt.toISOString());
+    });
+
+    it('should allow CustomerSkinTypeDetails without assigned SkinType (incomplete profile)', async () => {
+      const user = await seedUser({
+        keycloakSub: 'kc-incomplete-profile',
+        email: 'incomplete@example.com',
+      });
+      const customer = await dataSource
+        .getRepository(Customer)
+        .save(dataSource.getRepository(Customer).create({ userId: user.id }));
+
+      const detailsRepo = dataSource.getRepository(CustomerSkinTypeDetails);
+      await detailsRepo.save(
+        detailsRepo.create({
+          customerId: customer.id,
+          skinTypeId: null,
+        }),
+      );
+
+      const loaded = await detailsRepo.findOneByOrFail({
+        customerId: customer.id,
+      });
+
+      expect(loaded.skinTypeId).toBeNull();
+    });
+
+    it('should persist ProtocolSkinType recommendation per protocol-skin-type pair', async () => {
+      const { ingredient } = await seedKnowledgeBase();
+      const skinTypeRepo = dataSource.getRepository(SkinType);
+      const protocolRepo = dataSource.getRepository(IngredientProtocol);
+      const protocolSkinTypeRepo = dataSource.getRepository(ProtocolSkinType);
+
+      const oilySensitive = await skinTypeRepo.save(
+        skinTypeRepo.create({
+          code: 'OSNT_E2E',
+          name: 'Oily, Sensitive, Non-pigmented, Tight',
+          oilyDry: OilyDry.OILY,
+          sensitiveResistant: SensitiveResistant.SENSITIVE,
+          pigmentedNonPigmented: PigmentedNonPigmented.NON_PIGMENTED,
+          wrinkledTight: WrinkledTight.TIGHT,
+        }),
+      );
+      const dryResistant = await skinTypeRepo.save(
+        skinTypeRepo.create({
+          code: 'DRNT_E2E_PROTO',
+          name: 'Dry, Resistant, Non-pigmented, Tight',
+          oilyDry: OilyDry.DRY,
+          sensitiveResistant: SensitiveResistant.RESISTANT,
+          pigmentedNonPigmented: PigmentedNonPigmented.NON_PIGMENTED,
+          wrinkledTight: WrinkledTight.TIGHT,
+        }),
+      );
+
+      const protocol = await protocolRepo.save(
+        protocolRepo.create({
+          ingredientId: ingredient.id,
+          code: 'niacinamide_baumann_e2e',
+          name: 'Niacinamide 5%',
+          isActive: true,
+        }),
+      );
+
+      await protocolSkinTypeRepo.save([
+        protocolSkinTypeRepo.create({
+          protocolId: protocol.id,
+          skinTypeId: oilySensitive.id,
+          recommendation: SkinTypeRecommendation.RECOMMENDED,
+        }),
+        protocolSkinTypeRepo.create({
+          protocolId: protocol.id,
+          skinTypeId: dryResistant.id,
+          recommendation: SkinTypeRecommendation.AVOID,
+        }),
+      ]);
+
+      const mappings = await protocolSkinTypeRepo.find({
+        where: { protocolId: protocol.id },
+        relations: ['skinType'],
+        order: { recommendation: 'ASC' },
+      });
+
+      expect(mappings).toHaveLength(2);
+      expect(mappings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            recommendation: SkinTypeRecommendation.AVOID,
+            skinType: expect.objectContaining({ code: 'DRNT_E2E_PROTO' }),
+          }),
+          expect.objectContaining({
+            recommendation: SkinTypeRecommendation.RECOMMENDED,
+            skinType: expect.objectContaining({ code: 'OSNT_E2E' }),
+          }),
+        ]),
+      );
+    });
+
+    it('should persist CustomerSurvey without skinTypeId (survey is per routine/treatment)', async () => {
+      const user = await seedUser({
+        keycloakSub: 'kc-survey-no-skintype',
+        email: 'survey@example.com',
+      });
+      const customer = await dataSource
+        .getRepository(Customer)
+        .save(dataSource.getRepository(Customer).create({ userId: user.id }));
+
+      const surveyRepo = dataSource.getRepository(CustomerSurvey);
+      const saved = await surveyRepo.save(
+        surveyRepo.create({
+          customerId: customer.id,
+          isCompleted: false,
+        }),
+      );
+
+      const loaded = await surveyRepo.findOneByOrFail({ id: saved.id });
+
+      expect(loaded.customerId).toBe(customer.id);
+      expect(loaded.isCompleted).toBe(false);
+      expect(loaded).not.toHaveProperty('skinTypeId');
     });
   });
 
