@@ -4,6 +4,7 @@ import { IngredientConflict } from '../../ingredients/ingredient-conflict.entity
 import { IngredientProtocol } from '../../ingredients/ingredient-protocol.entity';
 import { Ingredient } from '../../ingredients/ingredient.entity';
 import { ProtocolLabel } from '../../ingredients/protocol-label.entity';
+import { LabelMatchType, TimeOfUse } from '../../ingredients/enums';
 import { LabelCategory } from '../../survey/label-category.entity';
 import { Label } from '../../survey/label.entity';
 import { SkinType } from '../../survey/skin-type.entity';
@@ -189,14 +190,43 @@ const INGREDIENTS: IngredientSeed[] = [
 const PROTOCOL_LABEL_MAPPINGS: Array<{
   protocolCode: string;
   labelCode: string;
+  matchType: LabelMatchType;
 }> = [
-  { protocolCode: 'retinol_0.3_anti_aging', labelCode: 'anti_aging' },
-  { protocolCode: 'salicylic_acne', labelCode: 'reduce_acne' },
-  { protocolCode: 'azelaic_pigmentation', labelCode: 'reduce_pigmentation' },
-  { protocolCode: 'ceramide_barrier', labelCode: 'repair_barrier' },
-  { protocolCode: 'ha_hydration', labelCode: 'hydration' },
-  { protocolCode: 'niacinamide_general', labelCode: 'reduce_acne' },
-  { protocolCode: 'niacinamide_general', labelCode: 'anti_aging' },
+  {
+    protocolCode: 'retinol_0.3_anti_aging',
+    labelCode: 'anti_aging',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'salicylic_acne',
+    labelCode: 'reduce_acne',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'azelaic_pigmentation',
+    labelCode: 'reduce_pigmentation',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'ceramide_barrier',
+    labelCode: 'repair_barrier',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'ha_hydration',
+    labelCode: 'hydration',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'niacinamide_general',
+    labelCode: 'reduce_acne',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'niacinamide_general',
+    labelCode: 'anti_aging',
+    matchType: LabelMatchType.OPTIONAL,
+  },
 ];
 
 const PROTOCOL_CONFLICTS: Array<{
@@ -281,6 +311,9 @@ async function upsertProtocol(
   name: string,
   ingredientId: string,
   concentrationPct?: number,
+  timePerWeek?: number,
+  timeOfUse?: TimeOfUse,
+  durationWeeks?: number | null,
 ): Promise<IngredientProtocol> {
   let protocol = await repo.findOneBy({ code });
   if (!protocol) {
@@ -289,6 +322,9 @@ async function upsertProtocol(
       name,
       ingredientId,
       concentrationPct: concentrationPct ?? null,
+      timePerWeek: timePerWeek ?? null,
+      timeOfUse: timeOfUse ?? null,
+      durationWeeks: durationWeeks ?? null,
       isActive: true,
     });
     return repo.save(protocol);
@@ -296,6 +332,9 @@ async function upsertProtocol(
   protocol.name = name;
   protocol.ingredientId = ingredientId;
   protocol.concentrationPct = concentrationPct ?? null;
+  protocol.timePerWeek = timePerWeek ?? null;
+  protocol.timeOfUse = timeOfUse ?? null;
+  protocol.durationWeeks = durationWeeks ?? null;
   return repo.save(protocol);
 }
 
@@ -369,52 +408,79 @@ async function seed(): Promise<void> {
     name: string;
     ingredientName: string;
     concentrationPct?: number;
+    timePerWeek?: number;
+    timeOfUse?: TimeOfUse;
+    durationWeeks?: number | null;
   }> = [
     {
       code: 'retinol_0.3_anti_aging',
       name: 'Retinol 0.3% Anti-Aging',
       ingredientName: 'Retinol',
       concentrationPct: 0.3,
+      timePerWeek: 3,
+      timeOfUse: TimeOfUse.PM,
+      durationWeeks: 12,
     },
     {
       code: 'salicylic_acne',
       name: 'Salicylic Acid 2% Acne',
       ingredientName: 'Salicylic Acid',
       concentrationPct: 2,
+      timePerWeek: 7,
+      timeOfUse: TimeOfUse.AM_PM,
+      durationWeeks: 8,
     },
     {
       code: 'azelaic_pigmentation',
       name: 'Azelaic Acid 10% Pigmentation',
       ingredientName: 'Azelaic Acid',
       concentrationPct: 10,
+      timePerWeek: 7,
+      timeOfUse: TimeOfUse.AM_PM,
+      durationWeeks: 12,
     },
     {
       code: 'ceramide_barrier',
       name: 'Ceramide Barrier Repair',
       ingredientName: 'Ceramide',
+      timePerWeek: 7,
+      timeOfUse: TimeOfUse.AM_PM,
+      durationWeeks: null,
     },
     {
       code: 'ha_hydration',
       name: 'Hyaluronic Acid Hydration',
       ingredientName: 'Hyaluronic Acid',
+      timePerWeek: 7,
+      timeOfUse: TimeOfUse.AM_PM,
+      durationWeeks: null,
     },
     {
       code: 'niacinamide_general',
       name: 'Niacinamide 5% General',
       ingredientName: 'Niacinamide',
       concentrationPct: 5,
+      timePerWeek: 7,
+      timeOfUse: TimeOfUse.AM_PM,
+      durationWeeks: null,
     },
     {
       code: 'glycolic_exfoliation',
       name: 'Glycolic Acid 7% Exfoliation',
       ingredientName: 'Glycolic Acid',
       concentrationPct: 7,
+      timePerWeek: 2,
+      timeOfUse: TimeOfUse.PM,
+      durationWeeks: 8,
     },
     {
       code: 'benzoyl_acne',
       name: 'Benzoyl Peroxide 2.5% Acne',
       ingredientName: 'Benzoyl Peroxide',
       concentrationPct: 2.5,
+      timePerWeek: 7,
+      timeOfUse: TimeOfUse.AM,
+      durationWeeks: 8,
     },
   ];
 
@@ -427,6 +493,9 @@ async function seed(): Promise<void> {
       def.name,
       ingredient.id,
       def.concentrationPct,
+      def.timePerWeek,
+      def.timeOfUse,
+      def.durationWeeks,
     );
     protocolsByCode.set(protocol.code, protocol);
   }
@@ -445,8 +514,12 @@ async function seed(): Promise<void> {
         protocolLabelRepo.create({
           protocolId: protocol.id,
           labelId: label.id,
+          matchType: mapping.matchType,
         }),
       );
+    } else {
+      existing.matchType = mapping.matchType;
+      await protocolLabelRepo.save(existing);
     }
   }
 
