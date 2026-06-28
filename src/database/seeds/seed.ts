@@ -24,7 +24,8 @@ type LabelSeed = {
   code: string;
   name: string;
   categoryCode: string;
-  description?: string;
+  description: string;
+  isActive?: boolean;
 };
 
 type IngredientSeed = {
@@ -35,59 +36,507 @@ type IngredientSeed = {
 };
 
 const LABEL_CATEGORIES: LabelCategorySeed[] = [
-  { code: 'skin_type', name: 'Skin Type', description: 'Base skin type' },
   {
-    code: 'skin_concern',
+    code: 'SKIN_CONCERN',
     name: 'Skin Concern',
-    description: 'Skin problems and conditions',
+    description: 'Observed skin conditions and dermatologic concerns',
   },
   {
-    code: 'skin_goal',
+    code: 'SKIN_GOAL',
     name: 'Skin Goal',
-    description: 'Treatment goals (replaces TreatmentGoal)',
+    description: 'Desired treatment outcomes for skincare routines',
   },
-  { code: 'allergy', name: 'Allergy', description: 'Known allergies' },
-  { code: 'lifestyle', name: 'Lifestyle', description: 'Lifestyle factors' },
-  { code: 'budget', name: 'Budget', description: 'Budget preferences' },
+  {
+    code: 'ALLERGY',
+    name: 'Allergy',
+    description: 'Known cosmetic or skincare ingredient allergies',
+  },
+  {
+    code: 'CONTRAINDICATION',
+    name: 'Contraindication',
+    description: 'Clinical or procedural factors that restrict treatment',
+  },
+  {
+    code: 'AGE_GROUP',
+    name: 'Age Group',
+    description: 'Customer age range for protocol suitability',
+  },
+  {
+    code: 'LIFESTYLE',
+    name: 'Lifestyle',
+    description: 'Environmental and behavioral lifestyle factors',
+  },
+  {
+    code: 'EXPERIENCE_LEVEL',
+    name: 'Experience Level',
+    description: 'Customer familiarity with active skincare ingredients',
+  },
+  {
+    code: 'PRODUCT_PREFERENCE',
+    name: 'Product Preference',
+    description: 'Formulation and product attribute preferences',
+  },
 ];
 
 const LABELS: LabelSeed[] = [
+  // SKIN_CONCERN
   {
-    code: 'reduce_acne',
-    name: 'Reduce Acne',
-    categoryCode: 'skin_goal',
-    description: 'Target breakouts and blemishes',
+    code: 'ACNE',
+    name: 'Acne',
+    categoryCode: 'SKIN_CONCERN',
+    description: 'Inflammatory and non-inflammatory acne lesions',
   },
   {
-    code: 'anti_aging',
-    name: 'Anti-Aging',
-    categoryCode: 'skin_goal',
-    description: 'Reduce fine lines and improve skin elasticity',
+    code: 'BLACKHEADS',
+    name: 'Blackheads',
+    categoryCode: 'SKIN_CONCERN',
+    description: 'Open comedones caused by oxidized sebum in pores',
   },
   {
-    code: 'reduce_pigmentation',
-    name: 'Reduce Pigmentation',
-    categoryCode: 'skin_goal',
-    description: 'Even skin tone and fade dark spots',
+    code: 'WHITEHEADS',
+    name: 'Whiteheads',
+    categoryCode: 'SKIN_CONCERN',
+    description: 'Closed comedones with trapped sebum beneath the skin',
   },
   {
-    code: 'repair_barrier',
-    name: 'Repair Barrier',
-    categoryCode: 'skin_goal',
-    description: 'Strengthen the skin moisture barrier',
+    code: 'ENLARGED_PORES',
+    name: 'Enlarged Pores',
+    categoryCode: 'SKIN_CONCERN',
+    description: 'Visibly dilated follicular openings',
   },
   {
-    code: 'hydration',
+    code: 'HYPERPIGMENTATION',
+    name: 'Hyperpigmentation',
+    categoryCode: 'SKIN_CONCERN',
+    description: 'Excess melanin deposition causing darkened skin patches',
+  },
+  {
+    code: 'MELASMA',
+    name: 'Melasma',
+    categoryCode: 'SKIN_CONCERN',
+    description: 'Symmetric hormonally influenced facial hyperpigmentation',
+  },
+  {
+    code: 'FRECKLES',
+    name: 'Freckles',
+    categoryCode: 'SKIN_CONCERN',
+    description: 'Small ephelides from sun-induced melanin clusters',
+  },
+  {
+    code: 'POST_INFLAMMATORY_HYPERPIGMENTATION',
+    name: 'Post-inflammatory Hyperpigmentation',
+    categoryCode: 'SKIN_CONCERN',
+    description: 'Dark marks remaining after inflammatory skin injury (PIH)',
+  },
+  {
+    code: 'POST_INFLAMMATORY_ERYTHEMA',
+    name: 'Post-inflammatory Erythema',
+    categoryCode: 'SKIN_CONCERN',
+    description: 'Persistent redness after inflammatory skin injury (PIE)',
+  },
+  {
+    code: 'WRINKLES',
+    name: 'Wrinkles',
+    categoryCode: 'SKIN_CONCERN',
+    description: 'Visible creases from collagen and elastin loss',
+  },
+  {
+    code: 'FINE_LINES',
+    name: 'Fine Lines',
+    categoryCode: 'SKIN_CONCERN',
+    description: 'Early superficial lines from dehydration or photoaging',
+  },
+  {
+    code: 'DULL_SKIN',
+    name: 'Dull Skin',
+    categoryCode: 'SKIN_CONCERN',
+    description: 'Lack of radiance from uneven surface reflection',
+  },
+  {
+    code: 'ROUGH_TEXTURE',
+    name: 'Rough Texture',
+    categoryCode: 'SKIN_CONCERN',
+    description: 'Uneven or coarse skin surface from buildup or damage',
+  },
+  {
+    code: 'DEHYDRATED_SKIN',
+    name: 'Dehydrated Skin',
+    categoryCode: 'SKIN_CONCERN',
+    description: 'Water loss causing tightness without necessarily low sebum',
+  },
+  {
+    code: 'REDNESS',
+    name: 'Redness',
+    categoryCode: 'SKIN_CONCERN',
+    description: 'Diffuse or localized erythema and flushing',
+  },
+  {
+    code: 'ROSACEA',
+    name: 'Rosacea',
+    categoryCode: 'SKIN_CONCERN',
+    description: 'Chronic inflammatory condition with redness and flushing',
+  },
+  {
+    code: 'BARRIER_DAMAGE',
+    name: 'Barrier Damage',
+    categoryCode: 'SKIN_CONCERN',
+    description: 'Compromised stratum corneum with increased sensitivity',
+  },
+  {
+    code: 'DARK_CIRCLES',
+    name: 'Dark Circles',
+    categoryCode: 'SKIN_CONCERN',
+    description: 'Periorbital hyperpigmentation or shadowing',
+  },
+  {
+    code: 'EYE_BAGS',
+    name: 'Eye Bags',
+    categoryCode: 'SKIN_CONCERN',
+    description: 'Periorbital puffiness from fluid or fat prominence',
+  },
+  {
+    code: 'UNEVEN_SKIN_TONE',
+    name: 'Uneven Skin Tone',
+    categoryCode: 'SKIN_CONCERN',
+    description: 'Irregular coloration across facial skin areas',
+  },
+
+  // SKIN_GOAL
+  {
+    code: 'ACNE_TREATMENT',
+    name: 'Acne Treatment',
+    categoryCode: 'SKIN_GOAL',
+    description: 'Reduce active breakouts and prevent new lesions',
+  },
+  {
+    code: 'BRIGHTENING',
+    name: 'Brightening',
+    categoryCode: 'SKIN_GOAL',
+    description: 'Improve skin luminosity and radiance',
+  },
+  {
+    code: 'ANTI_AGING',
+    name: 'Anti-aging',
+    categoryCode: 'SKIN_GOAL',
+    description: 'Address signs of photoaging and collagen decline',
+  },
+  {
+    code: 'HYDRATION',
     name: 'Hydration',
-    categoryCode: 'skin_goal',
-    description: 'Boost moisture retention and plumpness',
+    categoryCode: 'SKIN_GOAL',
+    description: 'Increase skin water content and moisture retention',
   },
-  { code: 'oily_skin', name: 'Oily Skin', categoryCode: 'skin_type' },
-  { code: 'dry_skin', name: 'Dry Skin', categoryCode: 'skin_type' },
   {
-    code: 'sensitive_skin',
-    name: 'Sensitive Skin',
-    categoryCode: 'skin_type',
+    code: 'OIL_CONTROL',
+    name: 'Oil Control',
+    categoryCode: 'SKIN_GOAL',
+    description: 'Regulate excess sebum production',
+  },
+  {
+    code: 'BARRIER_REPAIR',
+    name: 'Barrier Repair',
+    categoryCode: 'SKIN_GOAL',
+    description: 'Restore and strengthen the skin moisture barrier',
+  },
+  {
+    code: 'REDUCE_PIGMENTATION',
+    name: 'Reduce Pigmentation',
+    categoryCode: 'SKIN_GOAL',
+    description: 'Fade hyperpigmented spots and even discoloration',
+  },
+  {
+    code: 'REDUCE_WRINKLES',
+    name: 'Reduce Wrinkles',
+    categoryCode: 'SKIN_GOAL',
+    description: 'Minimize depth and appearance of wrinkles',
+  },
+  {
+    code: 'REDUCE_REDNESS',
+    name: 'Reduce Redness',
+    categoryCode: 'SKIN_GOAL',
+    description: 'Calm erythema and decrease visible flushing',
+  },
+  {
+    code: 'IMPROVE_SKIN_TEXTURE',
+    name: 'Improve Skin Texture',
+    categoryCode: 'SKIN_GOAL',
+    description: 'Smooth uneven or rough skin surface',
+  },
+  {
+    code: 'EVEN_SKIN_TONE',
+    name: 'Even Skin Tone',
+    categoryCode: 'SKIN_GOAL',
+    description: 'Balance overall facial color uniformity',
+  },
+  {
+    code: 'MINIMIZE_PORES',
+    name: 'Minimize Pores',
+    categoryCode: 'SKIN_GOAL',
+    description: 'Reduce the visible appearance of pore size',
+  },
+
+  // ALLERGY
+  {
+    code: 'FRAGRANCE',
+    name: 'Fragrance',
+    categoryCode: 'ALLERGY',
+    description: 'Allergy or sensitivity to added fragrance compounds',
+  },
+  {
+    code: 'ALCOHOL',
+    name: 'Alcohol',
+    categoryCode: 'ALLERGY',
+    description: 'Sensitivity to denatured alcohol in formulations',
+  },
+  {
+    code: 'ESSENTIAL_OIL',
+    name: 'Essential Oil',
+    categoryCode: 'ALLERGY',
+    description: 'Reaction to botanical essential oil components',
+  },
+  {
+    code: 'LANOLIN',
+    name: 'Lanolin',
+    categoryCode: 'ALLERGY',
+    description: 'Allergy to wool-derived lanolin emollients',
+  },
+  {
+    code: 'SALICYLIC_ACID',
+    name: 'Salicylic Acid',
+    categoryCode: 'ALLERGY',
+    description: 'Sensitivity to beta hydroxy acid exfoliants',
+  },
+  {
+    code: 'BENZOYL_PEROXIDE',
+    name: 'Benzoyl Peroxide',
+    categoryCode: 'ALLERGY',
+    description: 'Irritation or allergy to benzoyl peroxide',
+  },
+  {
+    code: 'RETINOIDS',
+    name: 'Retinoids',
+    categoryCode: 'ALLERGY',
+    description: 'Sensitivity to retinol and retinoid derivatives',
+  },
+  {
+    code: 'VITAMIN_C',
+    name: 'Vitamin C',
+    categoryCode: 'ALLERGY',
+    description: 'Sensitivity to ascorbic acid or its derivatives',
+  },
+  {
+    code: 'NIACINAMIDE',
+    name: 'Niacinamide',
+    categoryCode: 'ALLERGY',
+    description: 'Sensitivity to vitamin B3 (niacinamide)',
+  },
+
+  // CONTRAINDICATION
+  {
+    code: 'PREGNANCY',
+    name: 'Pregnancy',
+    categoryCode: 'CONTRAINDICATION',
+    description: 'Currently pregnant; restricts certain active ingredients',
+  },
+  {
+    code: 'BREASTFEEDING',
+    name: 'Breastfeeding',
+    categoryCode: 'CONTRAINDICATION',
+    description: 'Currently breastfeeding; restricts certain actives',
+  },
+  {
+    code: 'OPEN_WOUND',
+    name: 'Open Wound',
+    categoryCode: 'CONTRAINDICATION',
+    description: 'Broken or unhealed skin requiring actives to be avoided',
+  },
+  {
+    code: 'ACTIVE_SKIN_INFECTION',
+    name: 'Active Skin Infection',
+    categoryCode: 'CONTRAINDICATION',
+    description: 'Bacterial, viral, or fungal infection on treatment area',
+  },
+  {
+    code: 'RECENT_CHEMICAL_PEEL',
+    name: 'Recent Chemical Peel',
+    categoryCode: 'CONTRAINDICATION',
+    description: 'Chemical peel within the recovery window',
+  },
+  {
+    code: 'RECENT_LASER_TREATMENT',
+    name: 'Recent Laser Treatment',
+    categoryCode: 'CONTRAINDICATION',
+    description: 'Laser procedure within the required healing period',
+  },
+  {
+    code: 'RECENT_MICRONEEDLING',
+    name: 'Recent Microneedling',
+    categoryCode: 'CONTRAINDICATION',
+    description: 'Microneedling within the post-procedure recovery window',
+  },
+
+  // AGE_GROUP
+  {
+    code: 'UNDER_18',
+    name: 'Under 18',
+    categoryCode: 'AGE_GROUP',
+    description: 'Customer is younger than 18 years old',
+  },
+  {
+    code: 'AGE_18_25',
+    name: '18–25',
+    categoryCode: 'AGE_GROUP',
+    description: 'Customer age range 18 to 25 years',
+  },
+  {
+    code: 'AGE_26_35',
+    name: '26–35',
+    categoryCode: 'AGE_GROUP',
+    description: 'Customer age range 26 to 35 years',
+  },
+  {
+    code: 'AGE_36_45',
+    name: '36–45',
+    categoryCode: 'AGE_GROUP',
+    description: 'Customer age range 36 to 45 years',
+  },
+  {
+    code: 'AGE_46_60',
+    name: '46–60',
+    categoryCode: 'AGE_GROUP',
+    description: 'Customer age range 46 to 60 years',
+  },
+  {
+    code: 'ABOVE_60',
+    name: 'Above 60',
+    categoryCode: 'AGE_GROUP',
+    description: 'Customer is older than 60 years',
+  },
+
+  // LIFESTYLE
+  {
+    code: 'OUTDOOR_LIFESTYLE',
+    name: 'Outdoor Lifestyle',
+    categoryCode: 'LIFESTYLE',
+    description: 'Frequent outdoor daily activities and sun exposure',
+  },
+  {
+    code: 'INDOOR_LIFESTYLE',
+    name: 'Indoor Lifestyle',
+    categoryCode: 'LIFESTYLE',
+    description: 'Primarily indoor daily routine with limited sun exposure',
+  },
+  {
+    code: 'NIGHT_SHIFT',
+    name: 'Night Shift',
+    categoryCode: 'LIFESTYLE',
+    description: 'Regular overnight work disrupting circadian skin rhythm',
+  },
+  {
+    code: 'HIGH_SUN_EXPOSURE',
+    name: 'High Sun Exposure',
+    categoryCode: 'LIFESTYLE',
+    description: 'Prolonged unprotected ultraviolet exposure',
+  },
+  {
+    code: 'HEAVY_MAKEUP',
+    name: 'Heavy Makeup',
+    categoryCode: 'LIFESTYLE',
+    description: 'Daily full-coverage or long-wear cosmetic use',
+  },
+  {
+    code: 'FREQUENT_EXERCISE',
+    name: 'Frequent Exercise',
+    categoryCode: 'LIFESTYLE',
+    description: 'Regular physical activity with sweat and friction',
+  },
+  {
+    code: 'AIR_CONDITIONED_ENVIRONMENT',
+    name: 'Air-conditioned Environment',
+    categoryCode: 'LIFESTYLE',
+    description: 'Prolonged exposure to dry, climate-controlled air',
+  },
+  {
+    code: 'SMOKING',
+    name: 'Smoking',
+    categoryCode: 'LIFESTYLE',
+    description: 'Tobacco use affecting skin oxidative stress',
+  },
+  {
+    code: 'HIGH_STRESS',
+    name: 'High Stress',
+    categoryCode: 'LIFESTYLE',
+    description: 'Elevated chronic stress impacting skin inflammation',
+  },
+
+  // EXPERIENCE_LEVEL
+  {
+    code: 'BEGINNER',
+    name: 'Beginner',
+    categoryCode: 'EXPERIENCE_LEVEL',
+    description: 'New to active ingredients and multi-step routines',
+  },
+  {
+    code: 'INTERMEDIATE',
+    name: 'Intermediate',
+    categoryCode: 'EXPERIENCE_LEVEL',
+    description: 'Comfortable with common actives at moderate strength',
+  },
+  {
+    code: 'ADVANCED',
+    name: 'Advanced',
+    categoryCode: 'EXPERIENCE_LEVEL',
+    description: 'Experienced with potent actives and layered routines',
+  },
+
+  // PRODUCT_PREFERENCE
+  {
+    code: 'FRAGRANCE_FREE',
+    name: 'Fragrance Free',
+    categoryCode: 'PRODUCT_PREFERENCE',
+    description: 'Prefers products without added fragrance',
+  },
+  {
+    code: 'ALCOHOL_FREE',
+    name: 'Alcohol Free',
+    categoryCode: 'PRODUCT_PREFERENCE',
+    description: 'Prefers formulations without denatured alcohol',
+  },
+  {
+    code: 'ESSENTIAL_OIL_FREE',
+    name: 'Essential Oil Free',
+    categoryCode: 'PRODUCT_PREFERENCE',
+    description: 'Prefers products without essential oils',
+  },
+  {
+    code: 'NON_COMEDOGENIC',
+    name: 'Non-Comedogenic',
+    categoryCode: 'PRODUCT_PREFERENCE',
+    description: 'Prefers products unlikely to clog pores',
+  },
+  {
+    code: 'HYPOALLERGENIC',
+    name: 'Hypoallergenic',
+    categoryCode: 'PRODUCT_PREFERENCE',
+    description: 'Prefers low-allergen formulated products',
+  },
+  {
+    code: 'DERMATOLOGIST_TESTED',
+    name: 'Dermatologist Tested',
+    categoryCode: 'PRODUCT_PREFERENCE',
+    description: 'Prefers clinically or dermatologist-evaluated products',
+  },
+  {
+    code: 'VEGAN',
+    name: 'Vegan',
+    categoryCode: 'PRODUCT_PREFERENCE',
+    description: 'Prefers products without animal-derived ingredients',
+  },
+  {
+    code: 'CRUELTY_FREE',
+    name: 'Cruelty Free',
+    categoryCode: 'PRODUCT_PREFERENCE',
+    description: 'Prefers products not tested on animals',
   },
 ];
 
@@ -331,37 +780,42 @@ const PROTOCOL_LABEL_MAPPINGS: Array<{
 }> = [
   {
     protocolCode: 'retinol_0.3_anti_aging',
-    labelCode: 'anti_aging',
+    labelCode: 'ANTI_AGING',
     matchType: LabelMatchType.OPTIONAL,
   },
   {
+    protocolCode: 'retinol_0.3_anti_aging',
+    labelCode: 'PREGNANCY',
+    matchType: LabelMatchType.EXCLUDED,
+  },
+  {
     protocolCode: 'salicylic_acne',
-    labelCode: 'reduce_acne',
+    labelCode: 'ACNE_TREATMENT',
     matchType: LabelMatchType.OPTIONAL,
   },
   {
     protocolCode: 'azelaic_pigmentation',
-    labelCode: 'reduce_pigmentation',
+    labelCode: 'REDUCE_PIGMENTATION',
     matchType: LabelMatchType.OPTIONAL,
   },
   {
     protocolCode: 'ceramide_barrier',
-    labelCode: 'repair_barrier',
+    labelCode: 'BARRIER_REPAIR',
     matchType: LabelMatchType.OPTIONAL,
   },
   {
     protocolCode: 'ha_hydration',
-    labelCode: 'hydration',
+    labelCode: 'HYDRATION',
     matchType: LabelMatchType.OPTIONAL,
   },
   {
     protocolCode: 'niacinamide_general',
-    labelCode: 'reduce_acne',
+    labelCode: 'ACNE_TREATMENT',
     matchType: LabelMatchType.OPTIONAL,
   },
   {
     protocolCode: 'niacinamide_general',
-    labelCode: 'anti_aging',
+    labelCode: 'ANTI_AGING',
     matchType: LabelMatchType.OPTIONAL,
   },
 ];
@@ -416,14 +870,16 @@ async function upsertLabel(
     row = repo.create({
       code: seed.code,
       name: seed.name,
-      description: seed.description ?? null,
+      description: seed.description,
       categoryId,
+      isActive: seed.isActive ?? true,
     });
     return repo.save(row);
   }
   row.name = seed.name;
-  row.description = seed.description ?? null;
+  row.description = seed.description;
   row.categoryId = categoryId;
+  row.isActive = seed.isActive ?? true;
   return repo.save(row);
 }
 
