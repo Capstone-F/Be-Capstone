@@ -97,6 +97,7 @@ export class KnowledgeDrivenSchema1750000000000 implements MigrationInterface {
         "code" character varying NOT NULL,
         "name" character varying NOT NULL,
         "description" character varying,
+        "isActive" boolean NOT NULL DEFAULT true,
         "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
         "updatedAt" TIMESTAMP NOT NULL DEFAULT now(),
         CONSTRAINT "PK_labels" PRIMARY KEY ("id")
@@ -217,9 +218,9 @@ export class KnowledgeDrivenSchema1750000000000 implements MigrationInterface {
         "code" character varying NOT NULL,
         "name" character varying NOT NULL,
         "concentrationPct" numeric(5,2),
-        "frequency" character varying,
+        "timePerWeek" numeric(5,2),
         "timeOfUse" character varying,
-        "conditions" text,
+        "durationWeeks" integer,
         "instructions" text,
         "isActive" boolean NOT NULL DEFAULT true,
         "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
@@ -242,6 +243,7 @@ export class KnowledgeDrivenSchema1750000000000 implements MigrationInterface {
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
         "protocolId" uuid NOT NULL,
         "labelId" uuid NOT NULL,
+        "matchType" character varying NOT NULL,
         CONSTRAINT "PK_protocol_labels" PRIMARY KEY ("id"),
         CONSTRAINT "UQ_protocol_labels_protocol_label" UNIQUE ("protocolId", "labelId")
       )
