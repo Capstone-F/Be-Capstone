@@ -6,7 +6,6 @@ import { CustomerSurvey } from './customer-survey.entity';
 import { LabelCategory } from './label-category.entity';
 import { Label } from './label.entity';
 import { Question } from './question.entity';
-import { SkinType } from './skin-type.entity';
 
 @Module({
   imports: [
@@ -17,7 +16,6 @@ import { SkinType } from './skin-type.entity';
       AnswerLabel,
       LabelCategory,
       Label,
-      SkinType,
     ]),
   ],
   exports: [TypeOrmModule],

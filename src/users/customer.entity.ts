@@ -7,6 +7,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { CustomerSkinTypeDetails } from './customer-skin-type-details.entity';
 import { User } from './user.entity';
 
 @Entity('customers')
@@ -32,6 +33,9 @@ export class Customer {
 
   @Column({ nullable: true, type: 'varchar' })
   gender: string | null;
+
+  @OneToOne(() => CustomerSkinTypeDetails, (d) => d.customer)
+  skinTypeDetails: CustomerSkinTypeDetails;
 
   @CreateDateColumn()
   createdAt: Date;

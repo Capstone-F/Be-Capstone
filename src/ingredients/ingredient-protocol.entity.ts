@@ -12,6 +12,7 @@ import {
 import { Ingredient } from './ingredient.entity';
 import { IngredientConflict } from './ingredient-conflict.entity';
 import { ProtocolLabel } from './protocol-label.entity';
+import { ProtocolSkinType } from './protocol-skin-type.entity';
 import { RoutineStepProtocol } from '../routines/routine-step-protocol.entity';
 import { TimeOfUse } from './enums';
 
@@ -56,6 +57,9 @@ export class IngredientProtocol {
 
   @OneToMany(() => ProtocolLabel, (pl) => pl.protocol)
   protocolLabels: ProtocolLabel[];
+
+  @OneToMany(() => ProtocolSkinType, (ps) => ps.protocol)
+  protocolSkinTypes: ProtocolSkinType[];
 
   @OneToMany(() => IngredientConflict, (c) => c.protocol)
   conflicts: IngredientConflict[];

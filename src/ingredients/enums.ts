@@ -9,3 +9,8 @@ export enum LabelMatchType {
   OPTIONAL = 'OPTIONAL',
   EXCLUDED = 'EXCLUDED',
 }
+
+export enum SkinTypeRecommendation {
+  RECOMMENDED = 'RECOMMENDED',
+  AVOID = 'AVOID',
+}
