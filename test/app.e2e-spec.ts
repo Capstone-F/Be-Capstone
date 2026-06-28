@@ -25,6 +25,11 @@ import { ProductCategory } from '../src/products/product-category.entity';
 import { ProductVariant } from '../src/products/product-variant.entity';
 import { ProductIngredient } from '../src/products/product-ingredient.entity';
 import { Ingredient } from '../src/ingredients/ingredient.entity';
+import { IngredientProtocol } from '../src/ingredients/ingredient-protocol.entity';
+import { ProtocolLabel } from '../src/ingredients/protocol-label.entity';
+import { LabelMatchType, TimeOfUse } from '../src/ingredients/enums';
+import { Label } from '../src/survey/label.entity';
+import { LabelCategory } from '../src/survey/label-category.entity';
 import { StockModule } from '../src/stock/stock.module';
 import { ProductsModule } from '../src/products/products.module';
 import { StockBatch } from '../src/stock/stock-batch.entity';
@@ -1195,7 +1200,180 @@ describe('BE Capstone API (e2e)', () => {
     });
   });
 
+  // ─── Knowledge schema: protocols, labels, mappings ─────────────
+
+  describe('Knowledge schema entities', () => {
+    it('should persist IngredientProtocol with timePerWeek, timeOfUse, and durationWeeks', async () => {
+      const ingredient = await dataSource.getRepository(Ingredient).save(
+        dataSource.getRepository(Ingredient).create({
+          name: 'Retinol E2E',
+          ingredientType: 'retinoid',
+          isActiveIngredient: true,
+        }),
+      );
+
+      const protocolRepo = dataSource.getRepository(IngredientProtocol);
+      const saved = await protocolRepo.save(
+        protocolRepo.create({
+          ingredientId: ingredient.id,
+          code: 'retinol_0.3_e2e',
+          name: 'Retinol 0.3% Anti-Aging',
+          concentrationPct: 0.3,
+          timePerWeek: 0.5,
+          timeOfUse: TimeOfUse.PM,
+          durationWeeks: 12,
+          instructions: 'Apply pea-sized amount at night',
+          isActive: true,
+        }),
+      );
+
+      const loaded = await protocolRepo.findOneByOrFail({ id: saved.id });
+
+      expect(loaded.code).toBe('retinol_0.3_e2e');
+      expect(Number(loaded.concentrationPct)).toBe(0.3);
+      expect(Number(loaded.timePerWeek)).toBe(0.5);
+      expect(loaded.timeOfUse).toBe(TimeOfUse.PM);
+      expect(loaded.durationWeeks).toBe(12);
+      expect(loaded.instructions).toBe('Apply pea-sized amount at night');
+      expect(loaded.isActive).toBe(true);
+      expect(loaded).not.toHaveProperty('conditions');
+    });
+
+    it('should default Label.isActive to true', async () => {
+      const category = await dataSource.getRepository(LabelCategory).save(
+        dataSource.getRepository(LabelCategory).create({
+          code: 'CONSTRAINT_E2E',
+          name: 'Constraint',
+        }),
+      );
+
+      const labelRepo = dataSource.getRepository(Label);
+      const saved = await labelRepo.save(
+        labelRepo.create({
+          categoryId: category.id,
+          code: 'age_gte_18',
+          name: 'Age >= 18',
+        }),
+      );
+
+      const loaded = await labelRepo.findOneByOrFail({ id: saved.id });
+      expect(loaded.isActive).toBe(true);
+    });
+
+    it('should persist ProtocolLabel matchType per protocol-label pair', async () => {
+      const { ingredient, category } = await seedKnowledgeBase();
+
+      const protocolRepo = dataSource.getRepository(IngredientProtocol);
+      const labelRepo = dataSource.getRepository(Label);
+      const protocolLabelRepo = dataSource.getRepository(ProtocolLabel);
+
+      const protocol = await protocolRepo.save(
+        protocolRepo.create({
+          ingredientId: ingredient.id,
+          code: 'retinol_0.3_match_e2e',
+          name: 'Retinol 0.3%',
+          timePerWeek: 2,
+          timeOfUse: TimeOfUse.AM_PM,
+          durationWeeks: 8,
+          isActive: true,
+        }),
+      );
+
+      const ageLabel = await labelRepo.save(
+        labelRepo.create({
+          categoryId: category.id,
+          code: 'age_gte_18_match',
+          name: 'Age >= 18',
+          isActive: true,
+        }),
+      );
+      const pregnancyLabel = await labelRepo.save(
+        labelRepo.create({
+          categoryId: category.id,
+          code: 'pregnancy_match',
+          name: 'Pregnancy',
+          isActive: true,
+        }),
+      );
+      const antiAgingLabel = await labelRepo.save(
+        labelRepo.create({
+          categoryId: category.id,
+          code: 'anti_aging_match',
+          name: 'Anti-aging',
+          isActive: false,
+        }),
+      );
+
+      await protocolLabelRepo.save([
+        protocolLabelRepo.create({
+          protocolId: protocol.id,
+          labelId: ageLabel.id,
+          matchType: LabelMatchType.REQUIRED,
+        }),
+        protocolLabelRepo.create({
+          protocolId: protocol.id,
+          labelId: pregnancyLabel.id,
+          matchType: LabelMatchType.EXCLUDED,
+        }),
+        protocolLabelRepo.create({
+          protocolId: protocol.id,
+          labelId: antiAgingLabel.id,
+          matchType: LabelMatchType.OPTIONAL,
+        }),
+      ]);
+
+      const mappings = await protocolLabelRepo.find({
+        where: { protocolId: protocol.id },
+        relations: ['label'],
+        order: { matchType: 'ASC' },
+      });
+
+      expect(mappings).toHaveLength(3);
+      expect(mappings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            matchType: LabelMatchType.EXCLUDED,
+            label: expect.objectContaining({ code: 'pregnancy_match' }),
+          }),
+          expect.objectContaining({
+            matchType: LabelMatchType.OPTIONAL,
+            label: expect.objectContaining({
+              code: 'anti_aging_match',
+              isActive: false,
+            }),
+          }),
+          expect.objectContaining({
+            matchType: LabelMatchType.REQUIRED,
+            label: expect.objectContaining({ code: 'age_gte_18_match' }),
+          }),
+        ]),
+      );
+    });
+  });
+
   // ─── Helper: seed product for stock tests ────────────────────────
+
+  async function seedKnowledgeBase(): Promise<{
+    ingredient: Ingredient;
+    category: LabelCategory;
+  }> {
+    const ingredient = await dataSource.getRepository(Ingredient).save(
+      dataSource.getRepository(Ingredient).create({
+        name: `Knowledge Base Ingredient ${Math.random().toString(36).slice(2, 8)}`,
+        ingredientType: 'vitamin',
+        isActiveIngredient: true,
+      }),
+    );
+
+    const category = await dataSource.getRepository(LabelCategory).save(
+      dataSource.getRepository(LabelCategory).create({
+        code: `CAT_${Math.random().toString(36).slice(2, 8)}`,
+        name: 'Knowledge Base Category',
+      }),
+    );
+
+    return { ingredient, category };
+  }
 
   async function seedProduct(
     overrides: {
