@@ -62,6 +62,11 @@ const LABEL_CATEGORIES: LabelCategorySeed[] = [
     description: 'Customer age range for protocol suitability',
   },
   {
+    code: 'GENDER',
+    name: 'Gender',
+    description: 'Customer gender for protocol suitability',
+  },
+  {
     code: 'LIFESTYLE',
     name: 'Lifestyle',
     description: 'Environmental and behavioral lifestyle factors',
@@ -411,6 +416,20 @@ const LABELS: LabelSeed[] = [
     name: 'Above 60',
     categoryCode: 'AGE_GROUP',
     description: 'Customer is older than 60 years',
+  },
+
+  // GENDER
+  {
+    code: 'MALE',
+    name: 'Male',
+    categoryCode: 'GENDER',
+    description: 'Male gender',
+  },
+  {
+    code: 'FEMALE',
+    name: 'Female',
+    categoryCode: 'GENDER',
+    description: 'Female gender',
   },
 
   // LIFESTYLE
