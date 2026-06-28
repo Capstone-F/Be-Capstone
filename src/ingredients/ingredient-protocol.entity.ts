@@ -13,6 +13,7 @@ import { Ingredient } from './ingredient.entity';
 import { IngredientConflict } from './ingredient-conflict.entity';
 import { ProtocolLabel } from './protocol-label.entity';
 import { RoutineStepProtocol } from '../routines/routine-step-protocol.entity';
+import { TimeOfUse } from './enums';
 
 @Entity('ingredient_protocols')
 @Index('IDX_ingredient_protocols_code', ['code'], { unique: true })
@@ -38,14 +39,14 @@ export class IngredientProtocol {
   @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
   concentrationPct: number | null;
 
-  @Column({ nullable: true, type: 'varchar' })
-  frequency: string | null;
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  timePerWeek: number | null;
 
-  @Column({ nullable: true, type: 'varchar' })
-  timeOfUse: string | null;
+  @Column({ type: 'varchar', enum: TimeOfUse, nullable: true })
+  timeOfUse: TimeOfUse | null;
 
-  @Column({ nullable: true, type: 'text' })
-  conditions: string | null;
+  @Column({ type: 'int', nullable: true })
+  durationWeeks: number | null;
 
   @Column({ nullable: true, type: 'text' })
   instructions: string | null;
