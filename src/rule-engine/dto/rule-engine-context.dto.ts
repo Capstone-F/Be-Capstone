@@ -1,5 +1,23 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { TimeOfUse } from '../../ingredients/enums';
+import { Gender } from '../../users/gender.enum';
+
+export class RuleEngineCustomerProfileDto {
+  @ApiPropertyOptional({ example: 28, nullable: true })
+  age!: number | null;
+
+  @ApiProperty({ enum: Gender, example: Gender.FEMALE })
+  gender!: Gender;
+
+  @ApiPropertyOptional({ example: 'OSPW', nullable: true })
+  skinTypeCode!: string | null;
+
+  @ApiPropertyOptional({
+    example: 'Oily, Sensitive, Pigmented, Wrinkled',
+    nullable: true,
+  })
+  skinTypeName!: string | null;
+}
 
 export class RuleEngineLabelDto {
   @ApiProperty({ example: 'uuid' })
@@ -57,6 +75,9 @@ export class RuleEngineProtocolDto {
 }
 
 export class RuleEngineContextDto {
+  @ApiPropertyOptional({ type: RuleEngineCustomerProfileDto, nullable: true })
+  customerProfile!: RuleEngineCustomerProfileDto | null;
+
   @ApiProperty({ type: [RuleEngineLabelDto] })
   labels!: RuleEngineLabelDto[];
 

@@ -10,6 +10,13 @@ import { RuleEngineModule } from '../src/rule-engine/rule-engine.module';
 import { RuleEngineService } from '../src/rule-engine/rule-engine.service';
 import { Label } from '../src/survey/label.entity';
 import { LabelCategory } from '../src/survey/label-category.entity';
+import { Answer } from '../src/survey/answer.entity';
+import { AnswerLabel } from '../src/survey/answer-label.entity';
+import { CustomerSurvey } from '../src/survey/customer-survey.entity';
+import { Question } from '../src/survey/question.entity';
+import { Customer } from '../src/users/customer.entity';
+import { Gender } from '../src/users/gender.enum';
+import { User } from '../src/users/user.entity';
 
 describe('RuleEngineService (e2e)', () => {
   let moduleFixture: TestingModule;
@@ -217,7 +224,11 @@ describe('RuleEngineService (e2e)', () => {
   it('should return empty context when no label ids are provided', async () => {
     const result = await ruleEngineService.buildRoutineContext([]);
 
-    expect(result).toEqual({ labels: [], protocols: [] });
+    expect(result).toEqual({
+      customerProfile: null,
+      labels: [],
+      protocols: [],
+    });
   });
 
   it('should filter and rank protocols from persisted survey labels', async () => {
@@ -326,5 +337,143 @@ describe('RuleEngineService (e2e)', () => {
 
     expect(result.labels).toHaveLength(0);
     expect(result.protocols).toHaveLength(0);
+  });
+
+  it('should resolve gender enum from customer profile in buildContextForCustomer', async () => {
+    const suffix = Math.random().toString(36).slice(2, 8);
+    const userRepo = dataSource.getRepository(User);
+    const customerRepo = dataSource.getRepository(Customer);
+    const categoryRepo = dataSource.getRepository(LabelCategory);
+    const labelRepo = dataSource.getRepository(Label);
+    const questionRepo = dataSource.getRepository(Question);
+    const surveyRepo = dataSource.getRepository(CustomerSurvey);
+    const answerRepo = dataSource.getRepository(Answer);
+    const answerLabelRepo = dataSource.getRepository(AnswerLabel);
+    const protocolRepo = dataSource.getRepository(IngredientProtocol);
+    const protocolLabelRepo = dataSource.getRepository(ProtocolLabel);
+    const ingredientRepo = dataSource.getRepository(Ingredient);
+
+    const user = await userRepo.save(
+      userRepo.create({
+        keycloakSub: `kc-rule-engine-gender-${suffix}`,
+        email: `gender-e2e-${suffix}@example.com`,
+        name: 'Gender E2E User',
+      }),
+    );
+    const customer = await customerRepo.save(
+      customerRepo.create({
+        userId: user.id,
+        dateOfBirth: new Date('1998-03-10'),
+        gender: Gender.FEMALE,
+      }),
+    );
+
+    const genderCategory = await categoryRepo.save(
+      categoryRepo.create({
+        code: `GENDER_E2E_${suffix}`,
+        name: 'Gender',
+      }),
+    );
+    const ageCategory = await categoryRepo.save(
+      categoryRepo.create({
+        code: `AGE_GROUP_E2E_${suffix}`,
+        name: 'Age Group',
+      }),
+    );
+    const concernCategory = await categoryRepo.save(
+      categoryRepo.create({
+        code: `SKIN_CONCERN_E2E_${suffix}`,
+        name: 'Skin Concern',
+      }),
+    );
+
+    await labelRepo.save(
+      labelRepo.create({
+        categoryId: genderCategory.id,
+        code: 'FEMALE',
+        name: 'Female',
+        isActive: true,
+      }),
+    );
+    await labelRepo.save(
+      labelRepo.create({
+        categoryId: ageCategory.id,
+        code: 'AGE_26_35',
+        name: '26–35',
+        isActive: true,
+      }),
+    );
+    const acneLabel = await labelRepo.save(
+      labelRepo.create({
+        categoryId: concernCategory.id,
+        code: `ACNE_E2E_${suffix}`,
+        name: 'Acne',
+        isActive: true,
+      }),
+    );
+
+    const question = await questionRepo.save(
+      questionRepo.create({
+        code: `ACNE_QUESTION_E2E_${suffix}`,
+        text: 'Do you have acne?',
+        displayOrder: 1,
+        isActive: true,
+      }),
+    );
+    const survey = await surveyRepo.save(
+      surveyRepo.create({
+        customerId: customer.id,
+        isCompleted: true,
+        completedAt: new Date(),
+      }),
+    );
+    const answer = await answerRepo.save(
+      answerRepo.create({
+        surveyId: survey.id,
+        questionId: question.id,
+        value: 'yes',
+      }),
+    );
+    await answerLabelRepo.save(
+      answerLabelRepo.create({
+        answerId: answer.id,
+        labelId: acneLabel.id,
+      }),
+    );
+
+    const ingredient = await ingredientRepo.save(
+      ingredientRepo.create({
+        name: `Gender Test Ingredient ${suffix}`,
+        ingredientType: 'bha',
+        isActiveIngredient: true,
+      }),
+    );
+    const protocol = await protocolRepo.save(
+      protocolRepo.create({
+        ingredientId: ingredient.id,
+        code: `GENDER_TEST_PROTOCOL_E2E_${suffix}`,
+        name: 'Gender Test Protocol',
+        isActive: true,
+      }),
+    );
+    await protocolLabelRepo.save(
+      protocolLabelRepo.create({
+        protocolId: protocol.id,
+        labelId: acneLabel.id,
+        matchType: LabelMatchType.OPTIONAL,
+      }),
+    );
+
+    const result = await ruleEngineService.buildContextForCustomer(customer.id);
+
+    expect(result.customerProfile).toMatchObject({
+      gender: Gender.FEMALE,
+      age: expect.any(Number),
+    });
+    expect(result.labels.map((label) => label.code)).toEqual(
+      expect.arrayContaining(['FEMALE', 'AGE_26_35', acneLabel.code]),
+    );
+    expect(result.protocols).toHaveLength(1);
+    expect(result.protocols[0].id).toBe(protocol.id);
   });
 });
