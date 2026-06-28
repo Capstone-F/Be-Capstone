@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 import { Label } from '../survey/label.entity';
 import { IngredientProtocol } from './ingredient-protocol.entity';
+import { LabelMatchType } from './enums';
 
 @Entity('protocol_labels')
 @Unique('UQ_protocol_labels_protocol_label', ['protocolId', 'labelId'])
@@ -20,6 +21,9 @@ export class ProtocolLabel {
 
   @Column()
   labelId: string;
+
+  @Column({ type: 'varchar', enum: LabelMatchType })
+  matchType: LabelMatchType;
 
   @ManyToOne(() => IngredientProtocol, (protocol) => protocol.protocolLabels, {
     onDelete: 'CASCADE',

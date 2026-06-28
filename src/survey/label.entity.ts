@@ -37,6 +37,9 @@ export class Label {
   @Column({ nullable: true, type: 'varchar' })
   description: string | null;
 
+  @Column({ default: true })
+  isActive: boolean;
+
   @OneToMany(() => AnswerLabel, (al) => al.label)
   answerLabels: AnswerLabel[];
 
