@@ -5,7 +5,8 @@ export enum ShelfLifeUnit {
 }
 
 export enum StockMovementType {
-  IN = 'IN',
-  OUT = 'OUT',
-  ADJUST = 'ADJUST',
+  IMPORT = 'IMPORT',
+  SALE = 'SALE',
+  RETURN = 'RETURN',
+  ADJUSTMENT = 'ADJUSTMENT',
 }

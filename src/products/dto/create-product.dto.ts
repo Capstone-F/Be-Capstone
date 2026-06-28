@@ -12,7 +12,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { ProductCategory } from '../enums/product-category.enum';
+import { ShelfLifeUnit } from '../../stock/enums';
 
 export class OnboardIngredientDto {
   @ApiProperty({ example: 'Salicylic Acid' })
@@ -44,24 +44,51 @@ export class CreateProductDto {
   @IsNotEmpty()
   brand!: string;
 
-  @ApiProperty({ enum: ProductCategory, example: ProductCategory.SERUM })
-  @IsEnum(ProductCategory)
-  category!: ProductCategory;
+  @ApiProperty({ example: 'SERUM' })
+  @IsString()
+  @IsNotEmpty()
+  categoryCode!: string;
+
+  @ApiPropertyOptional({ example: 'Serum' })
+  @IsOptional()
+  @IsString()
+  categoryName?: string;
 
   @ApiPropertyOptional({ example: 'Anti-acne serum for oily skin' })
   @IsOptional()
   @IsString()
   description?: string;
 
+  @ApiProperty({ example: 'LRP-EFFAC-SERUM-30ML' })
+  @IsString()
+  @IsNotEmpty()
+  sku!: string;
+
+  @ApiPropertyOptional({ example: '30ml' })
+  @IsOptional()
+  @IsString()
+  volume?: string;
+
+  @ApiPropertyOptional({ example: 'Bottle' })
+  @IsOptional()
+  @IsString()
+  packaging?: string;
+
   @ApiProperty({ example: 650000, minimum: 0 })
   @IsInt()
   @Min(0)
   priceVnd!: number;
 
-  @ApiProperty({ example: 100, minimum: 0 })
+  @ApiPropertyOptional({ example: 365, minimum: 1 })
+  @IsOptional()
   @IsInt()
-  @Min(0)
-  stockQuantity!: number;
+  @Min(1)
+  shelfLifeValue?: number;
+
+  @ApiPropertyOptional({ enum: ShelfLifeUnit, default: ShelfLifeUnit.DAY })
+  @IsOptional()
+  @IsEnum(ShelfLifeUnit)
+  shelfLifeUnit?: ShelfLifeUnit;
 
   @ApiProperty({ type: [OnboardIngredientDto] })
   @ValidateNested({ each: true })

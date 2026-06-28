@@ -34,13 +34,13 @@ export class StockController {
   @ApiOperation({
     summary: 'Import a stock batch',
     description:
-      'Creates a new stock batch for a product with quantity and manufacturing date. ' +
-      'Expiration date is computed from the product shelf life.',
+      'Creates a new stock batch for a product variant with quantity and manufacturing date. ' +
+      'Expiration date is computed from the variant shelf life.',
   })
   @ApiCreatedResponse({ description: 'Stock batch created' })
   importBatch(@Body() dto: ImportBatchDto) {
     return this.stockService.createBatch({
-      productId: dto.productId,
+      productVariantId: dto.productVariantId,
       quantity: dto.quantity,
       manufacturingDate: dto.manufacturingDate,
       batchCode: dto.batchCode,
@@ -52,7 +52,7 @@ export class StockController {
   @ApiOperation({
     summary: 'Adjust batch stock quantity',
     description:
-      'Sets the absolute remaining quantity for a batch and records an ADJUST movement. ' +
+      'Sets the absolute remaining quantity for a batch and records an ADJUSTMENT movement. ' +
       'Requires an authenticated session (RBAC admin check planned for future).',
   })
   @ApiOkResponse({ description: 'Batch adjusted' })
@@ -60,7 +60,7 @@ export class StockController {
     // TODO: RBAC admin check
     return this.stockService.recordMovement(
       id,
-      StockMovementType.ADJUST,
+      StockMovementType.ADJUSTMENT,
       dto.quantity,
       dto.note,
     );

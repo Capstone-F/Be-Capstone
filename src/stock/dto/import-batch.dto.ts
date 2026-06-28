@@ -10,9 +10,9 @@ import {
 } from 'class-validator';
 
 export class ImportBatchDto {
-  @ApiProperty({ description: 'Product UUID' })
+  @ApiProperty({ description: 'Product variant UUID' })
   @IsUUID()
-  productId!: string;
+  productVariantId!: string;
 
   @ApiProperty({ description: 'Quantity to import', example: 100 })
   @Type(() => Number)

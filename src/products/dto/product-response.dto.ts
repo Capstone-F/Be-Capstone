@@ -1,5 +1,4 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ProductCategory } from '../enums/product-category.enum';
 
 export class ProductIngredientResponseDto {
   @ApiProperty({ example: 'Salicylic Acid' })
@@ -12,6 +11,26 @@ export class ProductIngredientResponseDto {
   isKeyIngredient!: boolean;
 }
 
+export class ProductVariantResponseDto {
+  @ApiProperty({ example: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ example: 'LRP-EFFAC-SERUM-30ML' })
+  sku!: string;
+
+  @ApiPropertyOptional({ example: '30ml', nullable: true })
+  volume!: string | null;
+
+  @ApiPropertyOptional({ example: 'Bottle', nullable: true })
+  packaging!: string | null;
+
+  @ApiProperty({ example: 650000 })
+  priceVnd!: number;
+
+  @ApiProperty({ example: true })
+  isActive!: boolean;
+}
+
 export class ProductResponseDto {
   @ApiProperty({ example: 'uuid' })
   id!: string;
@@ -19,23 +38,26 @@ export class ProductResponseDto {
   @ApiProperty({ example: 'La Roche-Posay Effaclar Serum' })
   name!: string;
 
-  @ApiProperty({ example: 'La Roche-Posay' })
-  brand!: string;
+  @ApiProperty({ example: 'uuid' })
+  brandId!: string;
 
-  @ApiProperty({ enum: ProductCategory })
-  category!: ProductCategory;
+  @ApiProperty({ example: 'La Roche-Posay' })
+  brandName!: string;
+
+  @ApiProperty({ example: 'uuid' })
+  categoryId!: string;
+
+  @ApiProperty({ example: 'Serum' })
+  categoryName!: string;
 
   @ApiPropertyOptional({ nullable: true })
   description!: string | null;
 
-  @ApiProperty({ example: 650000 })
-  priceVnd!: number;
-
-  @ApiProperty({ example: 100 })
-  stockQuantity!: number;
-
   @ApiProperty({ example: true })
   isActive!: boolean;
+
+  @ApiProperty({ type: [ProductVariantResponseDto] })
+  variants!: ProductVariantResponseDto[];
 
   @ApiProperty()
   createdAt!: Date;

@@ -1,18 +1,22 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
-import { ProductCategory } from '../enums/product-category.enum';
+import { IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 
 export class ListProductsQueryDto {
-  @ApiPropertyOptional({ enum: ProductCategory })
+  @ApiPropertyOptional({ description: 'Filter by category UUID' })
   @IsOptional()
-  @IsEnum(ProductCategory)
-  category?: ProductCategory;
+  @IsUUID()
+  categoryId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by brand UUID' })
+  @IsOptional()
+  @IsUUID()
+  brandId?: string;
 
   @ApiPropertyOptional({ example: 'La Roche-Posay' })
   @IsOptional()
   @IsString()
-  brand?: string;
+  brandName?: string;
 
   @ApiPropertyOptional({
     example: 'Niacinamide',

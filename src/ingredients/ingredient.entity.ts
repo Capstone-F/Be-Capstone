@@ -7,9 +7,9 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { IngredientConflict } from './ingredient-conflict.entity';
-import { GoalIngredient } from '../treatment-goals/goal-ingredient.entity';
+import { IngredientProtocol } from './ingredient-protocol.entity';
 import { ProductIngredient } from '../products/product-ingredient.entity';
+import { LockedIngredient } from '../treatments/locked-ingredient.entity';
 
 @Entity('ingredients')
 @Index('IDX_ingredients_name', ['name'], { unique: true })
@@ -32,14 +32,11 @@ export class Ingredient {
   @OneToMany(() => ProductIngredient, (pi) => pi.ingredient)
   productIngredients: ProductIngredient[];
 
-  @OneToMany(() => GoalIngredient, (gi) => gi.ingredient)
-  goalIngredients: GoalIngredient[];
+  @OneToMany(() => IngredientProtocol, (protocol) => protocol.ingredient)
+  protocols: IngredientProtocol[];
 
-  @OneToMany(() => IngredientConflict, (c) => c.ingredientA)
-  conflictsAsA: IngredientConflict[];
-
-  @OneToMany(() => IngredientConflict, (c) => c.ingredientB)
-  conflictsAsB: IngredientConflict[];
+  @OneToMany(() => LockedIngredient, (li) => li.ingredient)
+  lockedIngredients: LockedIngredient[];
 
   @CreateDateColumn()
   createdAt: Date;

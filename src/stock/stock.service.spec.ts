@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Repository } from 'typeorm';
-import { Product } from '../products/product.entity';
+import { ProductVariant } from '../products/product-variant.entity';
 import { ShelfLifeUnit, StockMovementType } from './enums';
 import { StockBatch } from './stock-batch.entity';
 import { StockMovement } from './stock-movement.entity';
@@ -35,42 +35,43 @@ const makeBatchRepo = (manager: MockManager) =>
     },
   }) as unknown as Repository<StockBatch>;
 
-const makeProductRepo = (overrides: Partial<Repository<Product>> = {}) =>
+const makeVariantRepo = (overrides: Partial<Repository<ProductVariant>> = {}) =>
   ({
     findOneBy: jest.fn(),
     ...overrides,
-  }) as unknown as Repository<Product>;
+  }) as unknown as Repository<ProductVariant>;
 
 const makeMovementRepo = () => ({}) as unknown as Repository<StockMovement>;
 
-const baseProduct: Product = {
-  id: 'product-1',
-  name: 'Milk',
-  brand: 'Test Brand',
-  category: 'MOISTURIZER' as Product['category'],
-  description: null,
+const baseVariant: ProductVariant = {
+  id: 'variant-1',
+  productId: 'product-1',
+  sku: 'SKU-001',
+  volume: '30ml',
+  packaging: null,
   priceVnd: 100000,
-  stockQuantity: 50,
-  isActive: true,
   shelfLifeValue: 30,
   shelfLifeUnit: ShelfLifeUnit.DAY,
-  productIngredients: [],
+  isActive: true,
+  product: {} as ProductVariant['product'],
   batches: [],
+  orderItems: [],
+  routineStepDetails: [],
   createdAt: new Date(),
   updatedAt: new Date(),
 };
 
 describe('StockService', () => {
   let service: StockService;
-  let productRepo: Repository<Product>;
+  let variantRepo: Repository<ProductVariant>;
   let batchRepo: Repository<StockBatch>;
   let manager: MockManager;
 
   beforeEach(() => {
     manager = makeManager();
-    productRepo = makeProductRepo();
+    variantRepo = makeVariantRepo();
     batchRepo = makeBatchRepo(manager);
-    service = new StockService(productRepo, batchRepo, makeMovementRepo());
+    service = new StockService(variantRepo, batchRepo, makeMovementRepo());
   });
 
   afterEach(() => jest.clearAllMocks());
@@ -99,31 +100,31 @@ describe('StockService', () => {
     it('should throw BadRequestException when quantity <= 0', async () => {
       await expect(
         service.createBatch({
-          productId: 'product-1',
+          productVariantId: 'variant-1',
           quantity: 0,
           manufacturingDate: '2026-01-15',
         }),
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('should throw NotFoundException when product not found', async () => {
-      (productRepo.findOneBy as jest.Mock).mockResolvedValue(null);
+    it('should throw NotFoundException when variant not found', async () => {
+      (variantRepo.findOneBy as jest.Mock).mockResolvedValue(null);
 
       await expect(
         service.createBatch({
-          productId: 'missing',
+          productVariantId: 'missing',
           quantity: 10,
           manufacturingDate: '2026-01-15',
         }),
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('should create batch and IN movement in a transaction', async () => {
-      (productRepo.findOneBy as jest.Mock).mockResolvedValue(baseProduct);
+    it('should create batch and IMPORT movement in a transaction', async () => {
+      (variantRepo.findOneBy as jest.Mock).mockResolvedValue(baseVariant);
       const addShelfLifeSpy = jest.spyOn(service, 'addShelfLife');
 
       const result = await service.createBatch({
-        productId: 'product-1',
+        productVariantId: 'variant-1',
         quantity: 100,
         manufacturingDate: '2026-01-15',
         batchCode: 'LOT-001',
@@ -136,7 +137,7 @@ describe('StockService', () => {
         1,
         StockBatch,
         expect.objectContaining({
-          productId: 'product-1',
+          productVariantId: 'variant-1',
           batchCode: 'LOT-001',
           initialQuantity: 100,
           remainingQuantity: 100,
@@ -146,7 +147,7 @@ describe('StockService', () => {
         2,
         StockMovement,
         expect.objectContaining({
-          type: StockMovementType.IN,
+          type: StockMovementType.IMPORT,
           quantity: 100,
           note: 'Initial batch stock input',
         }),
@@ -165,7 +166,7 @@ describe('StockService', () => {
   describe('recordMovement', () => {
     it('should throw BadRequestException when quantity <= 0', async () => {
       await expect(
-        service.recordMovement('batch-1', StockMovementType.IN, 0),
+        service.recordMovement('batch-1', StockMovementType.IMPORT, 0),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -173,11 +174,11 @@ describe('StockService', () => {
       manager.findOne.mockResolvedValue(null);
 
       await expect(
-        service.recordMovement('missing', StockMovementType.IN, 5),
+        service.recordMovement('missing', StockMovementType.IMPORT, 5),
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('should increment remainingQuantity on IN', async () => {
+    it('should increment remainingQuantity on IMPORT', async () => {
       const batch = {
         id: 'batch-1',
         remainingQuantity: 50,
@@ -186,7 +187,7 @@ describe('StockService', () => {
 
       const { batch: saved } = await service.recordMovement(
         'batch-1',
-        StockMovementType.IN,
+        StockMovementType.IMPORT,
         10,
       );
 
@@ -194,13 +195,13 @@ describe('StockService', () => {
       expect(manager.create).toHaveBeenCalledWith(
         StockMovement,
         expect.objectContaining({
-          type: StockMovementType.IN,
+          type: StockMovementType.IMPORT,
           quantity: 10,
         }),
       );
     });
 
-    it('should decrement remainingQuantity on OUT when sufficient', async () => {
+    it('should decrement remainingQuantity on SALE when sufficient', async () => {
       const batch = {
         id: 'batch-1',
         remainingQuantity: 50,
@@ -209,25 +210,25 @@ describe('StockService', () => {
 
       const { batch: saved } = await service.recordMovement(
         'batch-1',
-        StockMovementType.OUT,
+        StockMovementType.SALE,
         20,
       );
 
       expect(saved.remainingQuantity).toBe(30);
     });
 
-    it('should throw BadRequestException on OUT when insufficient stock', async () => {
+    it('should throw BadRequestException on SALE when insufficient stock', async () => {
       manager.findOne.mockResolvedValue({
         id: 'batch-1',
         remainingQuantity: 5,
       } as StockBatch);
 
       await expect(
-        service.recordMovement('batch-1', StockMovementType.OUT, 10),
+        service.recordMovement('batch-1', StockMovementType.SALE, 10),
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('should set remainingQuantity absolutely on ADJUST', async () => {
+    it('should set remainingQuantity absolutely on ADJUSTMENT', async () => {
       manager.findOne.mockResolvedValue({
         id: 'batch-1',
         remainingQuantity: 50,
@@ -235,7 +236,7 @@ describe('StockService', () => {
 
       const { batch: saved } = await service.recordMovement(
         'batch-1',
-        StockMovementType.ADJUST,
+        StockMovementType.ADJUSTMENT,
         25,
         'Count correction',
       );
@@ -244,7 +245,7 @@ describe('StockService', () => {
       expect(manager.create).toHaveBeenCalledWith(
         StockMovement,
         expect.objectContaining({
-          type: StockMovementType.ADJUST,
+          type: StockMovementType.ADJUSTMENT,
           quantity: 25,
           note: 'Count correction',
         }),
@@ -252,42 +253,42 @@ describe('StockService', () => {
     });
   });
 
-  describe('deductByProductId', () => {
+  describe('deductByVariantId', () => {
     it('should throw BadRequestException when quantity <= 0', async () => {
-      await expect(service.deductByProductId('product-1', 0)).rejects.toThrow(
+      await expect(service.deductByVariantId('variant-1', 0)).rejects.toThrow(
         BadRequestException,
       );
     });
 
-    it('should throw NotFoundException when product not found', async () => {
-      (productRepo.findOneBy as jest.Mock).mockResolvedValue(null);
+    it('should throw NotFoundException when variant not found', async () => {
+      (variantRepo.findOneBy as jest.Mock).mockResolvedValue(null);
 
-      await expect(service.deductByProductId('missing', 5)).rejects.toThrow(
+      await expect(service.deductByVariantId('missing', 5)).rejects.toThrow(
         NotFoundException,
       );
     });
 
     it('should throw BadRequestException when insufficient stock', async () => {
-      (productRepo.findOneBy as jest.Mock).mockResolvedValue(baseProduct);
+      (variantRepo.findOneBy as jest.Mock).mockResolvedValue(baseVariant);
       manager.find.mockResolvedValue([
         { id: 'b1', remainingQuantity: 3 } as StockBatch,
       ]);
 
-      await expect(service.deductByProductId('product-1', 10)).rejects.toThrow(
+      await expect(service.deductByVariantId('variant-1', 10)).rejects.toThrow(
         BadRequestException,
       );
     });
 
     it('should deduct fully from a single batch when sufficient', async () => {
-      (productRepo.findOneBy as jest.Mock).mockResolvedValue(baseProduct);
+      (variantRepo.findOneBy as jest.Mock).mockResolvedValue(baseVariant);
       manager.find.mockResolvedValue([
         { id: 'b1', remainingQuantity: 50 } as StockBatch,
       ]);
 
-      const result = await service.deductByProductId('product-1', 30);
+      const result = await service.deductByVariantId('variant-1', 30);
 
       expect(result).toEqual({
-        productId: 'product-1',
+        productVariantId: 'variant-1',
         totalDeducted: 30,
         batches: [{ batchId: 'b1', deducted: 30 }],
       });
@@ -296,7 +297,7 @@ describe('StockService', () => {
         StockMovement,
         expect.objectContaining({
           batchId: 'b1',
-          type: StockMovementType.OUT,
+          type: StockMovementType.SALE,
           quantity: 30,
           note: 'Order deduction',
         }),
@@ -304,13 +305,13 @@ describe('StockService', () => {
     });
 
     it('should deduct across multiple batches in FEFO order', async () => {
-      (productRepo.findOneBy as jest.Mock).mockResolvedValue(baseProduct);
+      (variantRepo.findOneBy as jest.Mock).mockResolvedValue(baseVariant);
       const batch1 = { id: 'b1', remainingQuantity: 10 } as StockBatch;
       const batch2 = { id: 'b2', remainingQuantity: 20 } as StockBatch;
       manager.find.mockResolvedValue([batch1, batch2]);
 
-      const result = await service.deductByProductId(
-        'product-1',
+      const result = await service.deductByVariantId(
+        'variant-1',
         25,
         'Order #1',
       );
@@ -331,7 +332,7 @@ describe('StockService', () => {
     });
 
     it('should not touch batches after needed reaches zero', async () => {
-      (productRepo.findOneBy as jest.Mock).mockResolvedValue(baseProduct);
+      (variantRepo.findOneBy as jest.Mock).mockResolvedValue(baseVariant);
       const batches = [
         { id: 'b1', remainingQuantity: 30 } as StockBatch,
         { id: 'b2', remainingQuantity: 50 } as StockBatch,
@@ -339,7 +340,7 @@ describe('StockService', () => {
       ];
       manager.find.mockResolvedValue(batches);
 
-      await service.deductByProductId('product-1', 30);
+      await service.deductByVariantId('variant-1', 30);
 
       expect(batches[0].remainingQuantity).toBe(0);
       expect(batches[1].remainingQuantity).toBe(50);

@@ -7,19 +7,19 @@ import {
   Unique,
 } from 'typeorm';
 import { ConflictSeverity } from '../products/enums/conflict-severity.enum';
-import { Ingredient } from './ingredient.entity';
+import { IngredientProtocol } from './ingredient-protocol.entity';
 
 @Entity('ingredient_conflicts')
-@Unique('UQ_ingredient_conflicts_pair', ['ingredientAId', 'ingredientBId'])
+@Unique('UQ_ingredient_conflicts_pair', ['protocolId', 'conflictingProtocolId'])
 export class IngredientConflict {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @Column()
-  ingredientAId: string;
+  protocolId: string;
 
   @Column()
-  ingredientBId: string;
+  conflictingProtocolId: string;
 
   @Column({
     type: 'varchar',
@@ -30,15 +30,13 @@ export class IngredientConflict {
   @Column({ nullable: true, type: 'varchar' })
   reason: string | null;
 
-  @ManyToOne(() => Ingredient, (ingredient) => ingredient.conflictsAsA, {
+  @ManyToOne(() => IngredientProtocol, (protocol) => protocol.conflicts, {
     onDelete: 'CASCADE',
   })
-  @JoinColumn({ name: 'ingredientAId' })
-  ingredientA: Ingredient;
+  @JoinColumn({ name: 'protocolId' })
+  protocol: IngredientProtocol;
 
-  @ManyToOne(() => Ingredient, (ingredient) => ingredient.conflictsAsB, {
-    onDelete: 'CASCADE',
-  })
-  @JoinColumn({ name: 'ingredientBId' })
-  ingredientB: Ingredient;
+  @ManyToOne(() => IngredientProtocol, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'conflictingProtocolId' })
+  conflictingProtocol: IngredientProtocol;
 }

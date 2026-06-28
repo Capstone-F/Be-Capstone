@@ -7,8 +7,10 @@ import {
   ProductDetailResponseDto,
   ProductIngredientResponseDto,
   ProductResponseDto,
+  ProductVariantResponseDto,
 } from './dto/product-response.dto';
 import { ProductIngredient } from './product-ingredient.entity';
+import { ProductVariant } from './product-variant.entity';
 import { Product } from './product.entity';
 
 @Injectable()
@@ -16,12 +18,17 @@ export class ProductsService {
   constructor(
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
+    @InjectRepository(ProductVariant)
+    private readonly variantRepository: Repository<ProductVariant>,
     @InjectRepository(ProductIngredient)
     private readonly productIngredientRepository: Repository<ProductIngredient>,
   ) {}
 
   async findOne(id: string): Promise<ProductDetailResponseDto> {
-    const product = await this.productRepository.findOneBy({ id });
+    const product = await this.productRepository.findOne({
+      where: { id },
+      relations: ['brand', 'category', 'variants'],
+    });
     if (!product) {
       throw new NotFoundException(`Product ${id} not found`);
     }
@@ -42,15 +49,24 @@ export class ProductsService {
 
     const qb = this.productRepository
       .createQueryBuilder('product')
+      .leftJoinAndSelect('product.brand', 'brand')
+      .leftJoinAndSelect('product.category', 'category')
+      .leftJoinAndSelect('product.variants', 'variants')
       .where('product.isActive = :isActive', { isActive: true });
 
-    if (query.category) {
-      qb.andWhere('product.category = :category', { category: query.category });
+    if (query.categoryId) {
+      qb.andWhere('product.categoryId = :categoryId', {
+        categoryId: query.categoryId,
+      });
     }
 
-    if (query.brand?.trim()) {
-      qb.andWhere('product.brand ILIKE :brand', {
-        brand: `%${query.brand.trim()}%`,
+    if (query.brandId) {
+      qb.andWhere('product.brandId = :brandId', { brandId: query.brandId });
+    }
+
+    if (query.brandName?.trim()) {
+      qb.andWhere('brand.name ILIKE :brandName', {
+        brandName: `%${query.brandName.trim()}%`,
       });
     }
 
@@ -84,15 +100,27 @@ export class ProductsService {
     product: Product,
     mappings: ProductIngredient[],
   ): ProductDetailResponseDto {
+    const variants: ProductVariantResponseDto[] = (product.variants ?? []).map(
+      (v) => ({
+        id: v.id,
+        sku: v.sku,
+        volume: v.volume,
+        packaging: v.packaging,
+        priceVnd: v.priceVnd,
+        isActive: v.isActive,
+      }),
+    );
+
     const productDto: ProductResponseDto = {
       id: product.id,
       name: product.name,
-      brand: product.brand,
-      category: product.category,
+      brandId: product.brandId,
+      brandName: product.brand?.name ?? '',
+      categoryId: product.categoryId,
+      categoryName: product.category?.name ?? '',
       description: product.description,
-      priceVnd: product.priceVnd,
-      stockQuantity: product.stockQuantity,
       isActive: product.isActive,
+      variants,
       createdAt: product.createdAt,
       updatedAt: product.updatedAt,
     };

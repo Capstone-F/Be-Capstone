@@ -1,15 +1,19 @@
 import { BadRequestException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { Ingredient } from '../ingredients/ingredient.entity';
-import { ProductCategory } from './enums/product-category.enum';
+import { ShelfLifeUnit } from '../stock/enums';
 import { ProductOnboardingService } from './product-onboarding.service';
+import { ProductBrand } from './product-brand.entity';
+import { ProductCategory } from './product-category.entity';
 import { ProductIngredient } from './product-ingredient.entity';
+import { ProductVariant } from './product-variant.entity';
 import { Product } from './product.entity';
 import { ProductsService } from './products.service';
 
 type MockManager = {
   create: jest.Mock;
   save: jest.Mock;
+  findOne: jest.Mock;
   createQueryBuilder: jest.Mock;
 };
 
@@ -33,6 +37,15 @@ const makeManager = (overrides: Partial<MockManager> = {}): MockManager => {
       }
       return Promise.resolve({ ...data, id: data.id ?? 'product-1' });
     }),
+    findOne: jest.fn().mockImplementation((entity, opts) => {
+      if (entity === ProductBrand) {
+        return Promise.resolve({ id: 'brand-1', name: opts.where.name });
+      }
+      if (entity === ProductCategory) {
+        return Promise.resolve({ id: 'cat-1', code: opts.where.code });
+      }
+      return Promise.resolve(null);
+    }),
     createQueryBuilder: jest.fn().mockReturnValue(qb),
     ...overrides,
   };
@@ -52,9 +65,12 @@ const makeProductsService = (
 const baseDto = {
   name: 'La Roche-Posay Effaclar Serum',
   brand: 'La Roche-Posay',
-  category: ProductCategory.SERUM,
+  categoryCode: 'SERUM',
+  categoryName: 'Serum',
+  sku: 'LRP-EFFAC-30',
   priceVnd: 650000,
-  stockQuantity: 100,
+  shelfLifeValue: 365,
+  shelfLifeUnit: ShelfLifeUnit.DAY,
   ingredients: [
     { name: 'Salicylic Acid', concentrationPct: 1.5, isKeyIngredient: true },
     { name: 'Niacinamide', concentrationPct: 2 },
@@ -64,7 +80,7 @@ const baseDto = {
 describe('ProductOnboardingService', () => {
   afterEach(() => jest.clearAllMocks());
 
-  it('should onboard product with ingredients in a transaction', async () => {
+  it('should onboard product with variant and ingredients in a transaction', async () => {
     const manager = makeManager();
     const dataSource = {
       transaction: jest.fn().mockImplementation((cb) => cb(manager)),
@@ -79,8 +95,15 @@ describe('ProductOnboardingService', () => {
       Product,
       expect.objectContaining({
         name: baseDto.name,
-        brand: baseDto.brand,
-        category: baseDto.category,
+        brandId: 'brand-1',
+        categoryId: 'cat-1',
+      }),
+    );
+    expect(manager.create).toHaveBeenCalledWith(
+      ProductVariant,
+      expect.objectContaining({
+        sku: baseDto.sku,
+        priceVnd: baseDto.priceVnd,
       }),
     );
     expect(manager.save).toHaveBeenCalledWith(
@@ -99,9 +122,8 @@ describe('ProductOnboardingService', () => {
       isActiveIngredient: true,
       description: null,
       productIngredients: [],
-      goalIngredients: [],
-      conflictsAsA: [],
-      conflictsAsB: [],
+      protocols: [],
+      lockedIngredients: [],
       createdAt: new Date(),
       updatedAt: new Date(),
     };
