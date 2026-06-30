@@ -26,7 +26,7 @@ export class CustomerSurvey {
   @Column({ default: false })
   isCompleted: boolean;
 
-  @Column({ nullable: true, type: 'datetime' })
+  @Column({ nullable: true, type: 'timestamp' })
   completedAt: Date | null;
 
   @OneToMany(() => Answer, (answer) => answer.survey)

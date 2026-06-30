@@ -46,7 +46,7 @@ export class CustomerSkinTypeDetails {
   @Column({ nullable: true, type: 'int' })
   wrinkledTightScore: number | null;
 
-  @Column({ nullable: true, type: 'datetime' })
+  @Column({ nullable: true, type: 'timestamp' })
   assessedAt: Date | null;
 
   @CreateDateColumn()
