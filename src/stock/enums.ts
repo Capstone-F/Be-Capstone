@@ -10,3 +10,11 @@ export enum StockMovementType {
   RETURN = 'RETURN',
   ADJUSTMENT = 'ADJUSTMENT',
 }
+
+export enum ProductInstanceStatus {
+  ON_RACK = 'ON_RACK',
+  RESERVED = 'RESERVED',
+  SOLD = 'SOLD',
+  RETURNED = 'RETURNED',
+  DAMAGED = 'DAMAGED',
+}

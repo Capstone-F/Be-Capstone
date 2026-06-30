@@ -49,8 +49,16 @@ import { StockModule } from '../src/stock/stock.module';
 import { ProductsModule } from '../src/products/products.module';
 import { StockBatch } from '../src/stock/stock-batch.entity';
 import { StockMovement } from '../src/stock/stock-movement.entity';
-import { ShelfLifeUnit, StockMovementType } from '../src/stock/enums';
+import { ProductInstance } from '../src/stock/product-instance.entity';
+import {
+  ProductInstanceStatus,
+  ShelfLifeUnit,
+  StockMovementType,
+} from '../src/stock/enums';
 import { StockService } from '../src/stock/stock.service';
+import { Order } from '../src/commerce/order.entity';
+import { OrderItem } from '../src/commerce/order-item.entity';
+import { OrderStatus } from '../src/commerce/enums';
 import { Role } from '../src/auth/roles.enum';
 import { KeycloakAdminService } from '../src/keycloak/keycloak-admin.service';
 import { KeycloakAdminModule } from '../src/keycloak/keycloak-admin.module';
@@ -1140,6 +1148,14 @@ describe('BE Capstone API (e2e)', () => {
       expect(movements).toHaveLength(1);
       expect(movements[0].type).toBe(StockMovementType.IMPORT);
       expect(movements[0].quantity).toBe(100);
+
+      const instances = await dataSource.getRepository(ProductInstance).find({
+        where: { stockBatchId: body.id },
+      });
+      expect(instances).toHaveLength(100);
+      expect(
+        instances.every((i) => i.status === ProductInstanceStatus.ON_RACK),
+      ).toBe(true);
     });
   });
 
@@ -1209,6 +1225,82 @@ describe('BE Capstone API (e2e)', () => {
         .getRepository(StockBatch)
         .findOneBy({ id: batch.id });
       expect(updated?.remainingQuantity).toBe(75);
+    });
+  });
+
+  // ─── Stock: deductByVariantId + ProductInstance ──────────────────
+
+  describe('StockService.deductByVariantId (product instances)', () => {
+    it('should mark deducted instances as SOLD', async () => {
+      const { variant } = await seedProduct();
+      const batch = await stockService.createBatch({
+        productVariantId: variant.id,
+        quantity: 10,
+        manufacturingDate: '2026-01-15',
+      });
+
+      await stockService.deductByVariantId(variant.id, 3, 'E2E deduction');
+
+      const instances = await dataSource.getRepository(ProductInstance).find({
+        where: { stockBatchId: batch.id },
+        order: { createdAt: 'ASC' },
+      });
+
+      expect(instances).toHaveLength(10);
+      expect(
+        instances.filter((i) => i.status === ProductInstanceStatus.SOLD),
+      ).toHaveLength(3);
+      expect(
+        instances.filter((i) => i.status === ProductInstanceStatus.ON_RACK),
+      ).toHaveLength(7);
+    });
+
+    it('should link instances to orderItemId when provided', async () => {
+      const { variant } = await seedProduct();
+      await stockService.createBatch({
+        productVariantId: variant.id,
+        quantity: 5,
+        manufacturingDate: '2026-01-15',
+      });
+
+      const user = await seedUser({
+        keycloakSub: 'kc-stock-deduct',
+        email: 'stock-deduct@example.com',
+      });
+      const customer = await dataSource
+        .getRepository(Customer)
+        .save(dataSource.getRepository(Customer).create({ userId: user.id }));
+      const order = await dataSource.getRepository(Order).save(
+        dataSource.getRepository(Order).create({
+          customerId: customer.id,
+          status: OrderStatus.PENDING,
+          totalVnd: 300000,
+        }),
+      );
+      const orderItem = await dataSource.getRepository(OrderItem).save(
+        dataSource.getRepository(OrderItem).create({
+          orderId: order.id,
+          productVariantId: variant.id,
+          quantity: 2,
+          unitPriceVnd: 150000,
+          lineTotalVnd: 300000,
+        }),
+      );
+
+      await stockService.deductByVariantId(
+        variant.id,
+        2,
+        'E2E order deduction',
+        orderItem.id,
+      );
+
+      const sold = await dataSource.getRepository(ProductInstance).find({
+        where: {
+          orderItemId: orderItem.id,
+          status: ProductInstanceStatus.SOLD,
+        },
+      });
+      expect(sold).toHaveLength(2);
     });
   });
 
