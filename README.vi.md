@@ -36,6 +36,7 @@ docs/
   workflows/
     ci.yaml        Build + test khi push / pull request
     build.yaml     Build image và push lên GHCR khi merge vào main
+    cd.yaml        Push version tag: build image + deploy lên DigitalOcean droplet
 ```
 
 ---
@@ -502,116 +503,125 @@ Workflow `build.yaml` chạy khi push vào `main`:
 
 > **Image này chỉ dùng cho môi trường deploy** (Kubernetes, ECS, Docker Swarm). **Không** dùng cho local development — xem [Chạy nhanh](#chạy-nhanh).
 
+### Deploy (`.github/workflows/cd.yaml`)
+
+Chỉ chạy **khi push tag semver (`v*.*.*`)** và commit của tag nằm trên `main`:
+
+1. Kiểm tra commit của tag có nằm trên `main` không (nếu không thì dừng)
+2. Build Docker image và push lên GHCR theo version (`v1.2.3` → `1.2.3`, `1.2`, `latest`)
+3. SSH vào droplet DigitalOcean và cập nhật stack với image mới
+
+Xem [Triển khai production](#triển-khai-production) để biết yêu cầu trên droplet và các secret cần thiết.
+
 ---
 
 ## Triển khai production
 
-Môi trường production chạy toàn bộ stack qua [`docker-compose.prod.yaml`](docker-compose.prod.yaml): **nginx** (ingress), **be-api**, **postgres**, **redis**, **keycloak**, và observability (**loki**, **alloy**, **grafana**).
+Production được deploy lên **DigitalOcean droplet** bằng pipeline [`cd.yaml`](.github/workflows/cd.yaml). Push một version tag sẽ build image theo version, push lên GHCR, rồi cập nhật stack đang chạy qua SSH.
 
-| File                       | Mục đích                                   |
-| -------------------------- | ------------------------------------------ |
-| `docker-compose.prod.yaml` | Stack Compose production                   |
-| `.env.prod.example`        | Mẫu biến môi trường production             |
-| `.env.prod.local`          | Secret thật trên server (**không commit**) |
+### Bước 1 — Chuẩn bị thư mục deploy trên VPS
 
-> Trên server, dùng `.env.prod.local`. Copy từ `.env.prod.example` và thay mật khẩu, `SESSION_SECRET`, URL public bằng giá trị thật.
+Pipeline CD chỉ pull image và restart stack — **không** copy bất kỳ config nào. Trước lần deploy đầu, hãy chuẩn bị thư mục deploy (đường dẫn đặt trong `DEPLOY_PATH`, vd `/opt/be-capstone`) với các file bên dưới. Service `be-api`/`db-init` chạy từ image GHCR, nhưng các service còn lại bind-mount config từ ổ đĩa nên các file này phải tồn tại.
 
-### Thiết lập production lần đầu
+```text
+$DEPLOY_PATH/
+├── docker-compose.yaml                     # stack compose production
+├── .env                                    # biến môi trường production
+├── nginx/
+│   └── nginx.conf                          # cấu hình reverse-proxy (ingress)
+├── keycloak/
+│   ├── realm-import/
+│   │   └── be-capstone-realm.json          # realm + client + Google IDP
+│   └── themes/
+│       └── capstone/                       # theme login tùy chỉnh
+└── observability/
+    ├── loki/
+    │   └── loki-config.yaml                # cấu hình lưu log Loki
+    ├── alloy/
+    │   └── config.alloy                    # cấu hình thu thập log Alloy
+    └── grafana/
+        └── provisioning/                   # datasource/dashboard Grafana
+```
 
-1. **Chuẩn bị env và Keycloak realm** (giống [Thiết lập ban đầu](#thiết-lập-ban-đầu) cho `keycloak/realm-import/`).
-2. **Tạo file env production:**
-   ```bash
-   cp .env.prod.example .env.prod.local
-   # Sửa .env.prod.local — PUBLIC_URL, DATABASE_URL, SESSION_SECRET, Keycloak URLs, ...
-   ```
-3. **Khởi động stack:**
-   ```bash
-   docker compose -f docker-compose.prod.yaml --env-file .env.prod.local up -d --build
-   ```
-4. **Chạy migration** (bắt buộc trước khi API phục vụ traffic):
-   ```bash
-   docker compose -f docker-compose.prod.yaml --env-file .env.prod.local run --rm --no-deps be-api \
-     node ./node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js
-   ```
-5. **Seed dữ liệu tham chiếu** (chỉ lần deploy đầu):
-   ```bash
-   docker compose -f docker-compose.prod.yaml --env-file .env.prod.local run --rm --no-deps be-api \
-     node dist/database/seeds/seed.js
-   ```
-6. **Kiểm tra health:**
-   ```bash
-   curl -f http://localhost/api/health
-   ```
+| Đường dẫn (so với `$DEPLOY_PATH`)              | Service cần | Mục đích                                                           |
+| ---------------------------------------------- | ----------- | ------------------------------------------------------------------ |
+| `docker-compose.yaml`                          | tất cả      | Stack compose production (bản copy của `docker-compose.prod.yaml`) |
+| `.env`                                         | tất cả      | Biến môi trường + `API_IMAGE=ghcr.io/<owner>/be-capstone:latest`   |
+| `nginx/nginx.conf`                             | `nginx`     | Reverse proxy ingress (`/api`, `/auth`, `/gfn`)                    |
+| `keycloak/realm-import/be-capstone-realm.json` | `keycloak`  | Realm, client và Google IDP tự import                              |
+| `keycloak/themes/capstone/`                    | `keycloak`  | Theme login tùy chỉnh                                              |
+| `observability/loki/loki-config.yaml`          | `loki`      | Cấu hình lưu trữ log                                               |
+| `observability/alloy/config.alloy`             | `alloy`     | Thu thập log container Docker                                      |
+| `observability/grafana/provisioning/`          | `grafana`   | Datasource/dashboard cấu hình sẵn                                  |
 
-### Deploy phiên bản mới lên production
+> Đổi tên `docker-compose.prod.yaml` thành `docker-compose.yaml` trên droplet (hoặc đặt `COMPOSE_FILE` trong `.env`). Cách đơn giản nhất là clone repo trên droplet rồi copy các đường dẫn này vào `$DEPLOY_PATH` và tạo `.env` từ secret của bạn.
 
-Checklist khi phát hành backend mới (sau khi merge vào `main` và CI pass).
+### Bước 2 — Secret GitHub cần thiết
 
-#### 1. Chuẩn bị trên server
+Cấu hình tại **Settings → Secrets and variables → Actions**:
+
+| Secret             | Mô tả                                       |
+| ------------------ | ------------------------------------------- |
+| `DROPLET_HOST`     | IP hoặc hostname của droplet                |
+| `DROPLET_USERNAME` | User SSH (vd `root` hoặc user deploy riêng) |
+| `DROPLET_SSH_KEY`  | Private SSH key được phép truy cập droplet  |
+| `DROPLET_SSH_PORT` | Cổng SSH (vd `22`)                          |
+| `DEPLOY_PATH`      | Đường dẫn tuyệt đối tới thư mục deploy      |
+
+`GITHUB_TOKEN` được cung cấp tự động, dùng để droplet `docker login` vào GHCR.
+
+### Phát hành phiên bản mới
+
+Từ máy local, tạo và push một tag semver trên commit thuộc `main`:
 
 ```bash
-cd /path/to/be-capstone
-git fetch origin
 git checkout main
 git pull origin main
-git log -1 --oneline
+git tag v1.2.3
+git push origin v1.2.3
 ```
 
-#### 2. Build image API mới
+Pipeline sẽ tự động:
+
+1. Build và push `ghcr.io/<owner>/<repo>:1.2.3` (kèm `1.2` và `latest`)
+2. Trên droplet, chạy:
+   ```bash
+   cd "$DEPLOY_PATH"
+   docker login ghcr.io ...
+   docker compose pull
+   docker compose up -d --remove-orphans
+   docker image prune -f
+   ```
+
+### Migration và seed
+
+`docker-compose.yaml` đi kèm có service `db-init` chạy migration và seed trước khi API khởi động, nên `docker compose up -d` thường tự áp dụng migration. Nếu compose trên droplet không có `db-init`, chạy migration thủ công sau deploy:
 
 ```bash
-docker compose -f docker-compose.prod.yaml --env-file .env.prod.local build be-api
-```
-
-> **Cách khác (GHCR):** Nếu dùng image từ workflow [Build & publish image](#build--publish-image), pull image đã tag và cập nhật service `be-api` thành `image: ghcr.io/<owner>/be-capstone:<git-sha>`.
-
-#### 3. Chạy migration database
-
-Luôn chạy migration **trước** khi restart API.
-
-```bash
-docker compose -f docker-compose.prod.yaml --env-file .env.prod.local run --rm --no-deps be-api \
+docker compose run --rm --no-deps be-api \
   node ./node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js
 ```
 
-Nếu migration lỗi, **không** restart `be-api`.
-
-#### 4. Restart API
+### Xác minh deploy
 
 ```bash
-docker compose -f docker-compose.prod.yaml --env-file .env.prod.local up -d --no-deps be-api
+curl -f http://<droplet-host>/health
+docker compose ps
+docker compose logs --tail=50 be-api
 ```
-
-#### 5. Xác minh deploy
-
-```bash
-curl -f "${PUBLIC_URL:-http://localhost}/api/health"
-docker compose -f docker-compose.prod.yaml ps be-api
-docker compose -f docker-compose.prod.yaml logs --tail=50 be-api
-```
-
-#### 6. Khi nào cần chạy lại seed
-
-Chỉ khi release notes yêu cầu. Deploy thường ngày **không** cần seed lại.
 
 ### Rollback
 
-1. Quay code về tag/commit trước, build và restart `be-api`.
-2. Revert migration chỉ khi hiểu rõ schema change:
-   ```bash
-   docker compose -f docker-compose.prod.yaml --env-file .env.prod.local run --rm --no-deps be-api \
-     node ./node_modules/typeorm/cli.js migration:revert -d dist/database/data-source.js
-   ```
+Gắn lại tag vào commit tốt đã biết (hoặc dời release tag) rồi push để chạy lại pipeline, hoặc trên droplet ghim image phiên bản trước và restart:
 
-### Checklist deploy (tóm tắt)
+```bash
+cd "$DEPLOY_PATH"
+# trỏ tag image be-api về phiên bản trước, rồi:
+docker compose pull
+docker compose up -d --no-deps be-api
+```
 
-| Bước        | Hành động                                                             |
-| ----------- | --------------------------------------------------------------------- |
-| Pull `main` | `git pull origin main`                                                |
-| Build image | `docker compose -f docker-compose.prod.yaml build be-api`             |
-| Migration   | `docker compose ... run --rm --no-deps be-api node ... migration:run` |
-| Restart API | `docker compose ... up -d --no-deps be-api`                           |
-| Verify      | `curl -f $PUBLIC_URL/api/health`                                      |
+> Nên fix tiến (forward-fix) migration trong release mới thay vì revert trên production.
 
 ---
 
