@@ -300,17 +300,22 @@ Tất cả env được quản lý tập trung trong `src/config/env.config.ts`.
 
 ## Các script có sẵn
 
-| Lệnh                  | Mô tả                       |
-| --------------------- | --------------------------- |
-| `npm run start:dev`   | Chạy ở chế độ watch         |
-| `npm run start:debug` | Chạy ở chế độ debug + watch |
-| `npm run start:prod`  | Chạy bản build production   |
-| `npm run build`       | Build TypeScript ra `dist/` |
-| `npm run test`        | Chạy unit test              |
-| `npm run test:e2e`    | Chạy e2e test               |
-| `npm run test:cov`    | Chạy test và xuất coverage  |
-| `npm run lint`        | Lint và auto-fix            |
-| `npm run format`      | Format code bằng Prettier   |
+| Lệnh                         | Mô tả                                 |
+| ---------------------------- | ------------------------------------- |
+| `npm run start:dev`          | Chạy ở chế độ watch                   |
+| `npm run start:debug`        | Chạy ở chế độ debug + watch           |
+| `npm run start:prod`         | Chạy bản build production             |
+| `npm run build`              | Build TypeScript ra `dist/`           |
+| `npm run test`               | Chạy unit test                        |
+| `npm run test:e2e`           | Chạy e2e test                         |
+| `npm run test:cov`           | Chạy test và xuất coverage            |
+| `npm run lint`               | Lint và auto-fix                      |
+| `npm run migration:run`      | Chạy migration TypeORM (development)  |
+| `npm run migration:run:prod` | Chạy migration từ bản build `dist/`   |
+| `npm run migration:revert`   | Hoàn tác migration gần nhất           |
+| `npm run seed`               | Seed dữ liệu tham chiếu (development) |
+| `npm run seed:prod`          | Seed dữ liệu tham chiếu từ `dist/`    |
+| `npm run format`             | Format code bằng Prettier             |
 
 ---
 
@@ -499,9 +504,120 @@ Workflow `build.yaml` chạy khi push vào `main`:
 
 ---
 
-## Docker (chỉ dùng cho production deployment)
+## Triển khai production
 
-Dockerfile tạo ra image production. **Không dùng ở local** — các URL `localhost` trong `.env` sẽ không hoạt động bên trong container. Để phát triển, hãy chạy API trực tiếp bằng `npm run start:dev`.
+Môi trường production chạy toàn bộ stack qua [`docker-compose.prod.yaml`](docker-compose.prod.yaml): **nginx** (ingress), **be-api**, **postgres**, **redis**, **keycloak**, và observability (**loki**, **alloy**, **grafana**).
+
+| File                       | Mục đích                                   |
+| -------------------------- | ------------------------------------------ |
+| `docker-compose.prod.yaml` | Stack Compose production                   |
+| `.env.prod.example`        | Mẫu biến môi trường production             |
+| `.env.prod.local`          | Secret thật trên server (**không commit**) |
+
+> Trên server, dùng `.env.prod.local`. Copy từ `.env.prod.example` và thay mật khẩu, `SESSION_SECRET`, URL public bằng giá trị thật.
+
+### Thiết lập production lần đầu
+
+1. **Chuẩn bị env và Keycloak realm** (giống [Thiết lập ban đầu](#thiết-lập-ban-đầu) cho `keycloak/realm-import/`).
+2. **Tạo file env production:**
+   ```bash
+   cp .env.prod.example .env.prod.local
+   # Sửa .env.prod.local — PUBLIC_URL, DATABASE_URL, SESSION_SECRET, Keycloak URLs, ...
+   ```
+3. **Khởi động stack:**
+   ```bash
+   docker compose -f docker-compose.prod.yaml --env-file .env.prod.local up -d --build
+   ```
+4. **Chạy migration** (bắt buộc trước khi API phục vụ traffic):
+   ```bash
+   docker compose -f docker-compose.prod.yaml --env-file .env.prod.local run --rm --no-deps be-api \
+     node ./node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js
+   ```
+5. **Seed dữ liệu tham chiếu** (chỉ lần deploy đầu):
+   ```bash
+   docker compose -f docker-compose.prod.yaml --env-file .env.prod.local run --rm --no-deps be-api \
+     node dist/database/seeds/seed.js
+   ```
+6. **Kiểm tra health:**
+   ```bash
+   curl -f http://localhost/api/health
+   ```
+
+### Deploy phiên bản mới lên production
+
+Checklist khi phát hành backend mới (sau khi merge vào `main` và CI pass).
+
+#### 1. Chuẩn bị trên server
+
+```bash
+cd /path/to/be-capstone
+git fetch origin
+git checkout main
+git pull origin main
+git log -1 --oneline
+```
+
+#### 2. Build image API mới
+
+```bash
+docker compose -f docker-compose.prod.yaml --env-file .env.prod.local build be-api
+```
+
+> **Cách khác (GHCR):** Nếu dùng image từ workflow [Build & publish image](#build--publish-image), pull image đã tag và cập nhật service `be-api` thành `image: ghcr.io/<owner>/be-capstone:<git-sha>`.
+
+#### 3. Chạy migration database
+
+Luôn chạy migration **trước** khi restart API.
+
+```bash
+docker compose -f docker-compose.prod.yaml --env-file .env.prod.local run --rm --no-deps be-api \
+  node ./node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js
+```
+
+Nếu migration lỗi, **không** restart `be-api`.
+
+#### 4. Restart API
+
+```bash
+docker compose -f docker-compose.prod.yaml --env-file .env.prod.local up -d --no-deps be-api
+```
+
+#### 5. Xác minh deploy
+
+```bash
+curl -f "${PUBLIC_URL:-http://localhost}/api/health"
+docker compose -f docker-compose.prod.yaml ps be-api
+docker compose -f docker-compose.prod.yaml logs --tail=50 be-api
+```
+
+#### 6. Khi nào cần chạy lại seed
+
+Chỉ khi release notes yêu cầu. Deploy thường ngày **không** cần seed lại.
+
+### Rollback
+
+1. Quay code về tag/commit trước, build và restart `be-api`.
+2. Revert migration chỉ khi hiểu rõ schema change:
+   ```bash
+   docker compose -f docker-compose.prod.yaml --env-file .env.prod.local run --rm --no-deps be-api \
+     node ./node_modules/typeorm/cli.js migration:revert -d dist/database/data-source.js
+   ```
+
+### Checklist deploy (tóm tắt)
+
+| Bước        | Hành động                                                             |
+| ----------- | --------------------------------------------------------------------- |
+| Pull `main` | `git pull origin main`                                                |
+| Build image | `docker compose -f docker-compose.prod.yaml build be-api`             |
+| Migration   | `docker compose ... run --rm --no-deps be-api node ... migration:run` |
+| Restart API | `docker compose ... up -d --no-deps be-api`                           |
+| Verify      | `curl -f $PUBLIC_URL/api/health`                                      |
+
+---
+
+## Docker (ảnh production)
+
+Dockerfile tạo ra image production. **Không dùng cho local development** — các URL `localhost` trong `.env` sẽ không hoạt động bên trong container. Để phát triển, chạy API trực tiếp bằng `npm run start:dev`.
 
 ### Dockerfile nhiều stage
 
