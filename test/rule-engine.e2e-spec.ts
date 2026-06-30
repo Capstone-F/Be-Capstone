@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { join } from 'path';
+import { e2eTypeOrmConfig } from './e2e-typeorm.config';
 import { DataSource } from 'typeorm';
 import { LabelMatchType, TimeOfUse } from '../src/ingredients/enums';
 import { Ingredient } from '../src/ingredients/ingredient.entity';
@@ -27,15 +27,7 @@ describe('RuleEngineService (e2e)', () => {
 
   beforeAll(async () => {
     moduleFixture = await Test.createTestingModule({
-      imports: [
-        TypeOrmModule.forRoot({
-          type: 'better-sqlite3',
-          database: ':memory:',
-          entities: [join(__dirname, '../src/**/*.entity.ts')],
-          synchronize: true,
-        }),
-        RuleEngineModule,
-      ],
+      imports: [TypeOrmModule.forRoot(e2eTypeOrmConfig), RuleEngineModule],
     }).compile();
 
     ruleEngineService = moduleFixture.get(RuleEngineService);
