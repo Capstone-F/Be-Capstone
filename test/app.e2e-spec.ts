@@ -5,7 +5,7 @@ import { LoggerModule } from 'nestjs-pino';
 import request from 'supertest';
 import session = require('express-session');
 import { DataSource } from 'typeorm';
-import { join } from 'path';
+import { e2eTypeOrmConfig } from './e2e-typeorm.config';
 import { App } from 'supertest/types';
 import { AppController } from '../src/app.controller';
 import { AppService } from '../src/app.service';
@@ -58,7 +58,9 @@ import { KeycloakAdminModule } from '../src/keycloak/keycloak-admin.module';
 const TEST_CONFIG: Record<string, unknown> = {
   nodeEnv: 'test',
   port: 3000,
-  databaseUrl: 'sqlite::memory:',
+  databaseUrl:
+    process.env.DATABASE_URL ??
+    'postgresql://admin:admin@localhost:5432/be-capstone',
   keycloakPublicUrl: 'http://localhost:8080',
   keycloakInternalUrl: 'http://localhost:8080',
   keycloakHealthUrl: 'http://localhost:9000/health/ready',
@@ -102,12 +104,7 @@ describe('BE Capstone API (e2e)', () => {
         AuthModule,
         StockModule,
         ProductsModule,
-        TypeOrmModule.forRoot({
-          type: 'better-sqlite3',
-          database: ':memory:',
-          entities: [join(__dirname, '../src/**/*.entity.ts')],
-          synchronize: true,
-        }),
+        TypeOrmModule.forRoot(e2eTypeOrmConfig),
       ],
       controllers: [AppController, HealthController],
       providers: [AppService, HealthService],

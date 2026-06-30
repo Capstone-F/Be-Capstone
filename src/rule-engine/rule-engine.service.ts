@@ -121,7 +121,11 @@ export class RuleEngineService {
         ),
       )
       .filter((result): result is ScoredProtocol => result !== null)
-      .sort((a, b) => b.matchScore - a.matchScore);
+      .sort(
+        (a, b) =>
+          b.matchScore - a.matchScore ||
+          a.protocol.code.localeCompare(b.protocol.code),
+      );
 
     return {
       customerProfile,
