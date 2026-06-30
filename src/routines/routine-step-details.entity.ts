@@ -9,6 +9,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { ProductVariant } from '../products/product-variant.entity';
+import { ProductInstance } from '../stock/product-instance.entity';
 import { RoutinePeriod } from './enums';
 import { RoutineStep } from './routine-step.entity';
 import { RoutineEndpointForecast } from './routine-endpoint-forecast.entity';
@@ -57,6 +58,9 @@ export class RoutineStepDetails {
     (forecast) => forecast.routineStepDetails,
   )
   forecasts: RoutineEndpointForecast[];
+
+  @OneToMany(() => ProductInstance, (instance) => instance.routineStepDetails)
+  productInstances: ProductInstance[];
 
   @CreateDateColumn()
   createdAt: Date;

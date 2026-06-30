@@ -9,6 +9,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { ProductVariant } from '../products/product-variant.entity';
+import { ProductInstance } from './product-instance.entity';
 import { StockMovement } from './stock-movement.entity';
 
 @Entity('stock_batches')
@@ -42,6 +43,9 @@ export class StockBatch {
 
   @OneToMany(() => StockMovement, (movement) => movement.batch)
   movements: StockMovement[];
+
+  @OneToMany(() => ProductInstance, (instance) => instance.stockBatch)
+  instances: ProductInstance[];
 
   @CreateDateColumn()
   createdAt: Date;

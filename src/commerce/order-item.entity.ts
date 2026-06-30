@@ -4,9 +4,11 @@ import {
   Entity,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { ProductVariant } from '../products/product-variant.entity';
+import { ProductInstance } from '../stock/product-instance.entity';
 import { RoutineStepDetails } from '../routines/routine-step-details.entity';
 import { Order } from './order.entity';
 
@@ -46,6 +48,9 @@ export class OrderItem {
 
   @Column({ type: 'int' })
   lineTotalVnd: number;
+
+  @OneToMany(() => ProductInstance, (instance) => instance.orderItem)
+  productInstances: ProductInstance[];
 
   @CreateDateColumn()
   createdAt: Date;

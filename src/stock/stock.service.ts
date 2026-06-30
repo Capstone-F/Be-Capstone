@@ -7,7 +7,12 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, MoreThan, Repository } from 'typeorm';
 import { ProductVariant } from '../products/product-variant.entity';
-import { ShelfLifeUnit, StockMovementType } from './enums';
+import {
+  ProductInstanceStatus,
+  ShelfLifeUnit,
+  StockMovementType,
+} from './enums';
+import { ProductInstance } from './product-instance.entity';
 import { StockBatch } from './stock-batch.entity';
 import { StockMovement } from './stock-movement.entity';
 
@@ -35,6 +40,8 @@ export class StockService {
     private readonly batchRepository: Repository<StockBatch>,
     @InjectRepository(StockMovement)
     private readonly movementRepository: Repository<StockMovement>,
+    @InjectRepository(ProductInstance)
+    private readonly instanceRepository: Repository<ProductInstance>,
   ) {}
 
   async createBatch(input: CreateBatchInput): Promise<StockBatch> {
@@ -76,6 +83,14 @@ export class StockService {
         note: 'Initial batch stock input',
       });
       await manager.save(StockMovement, movement);
+
+      const instances = Array.from({ length: input.quantity }, () =>
+        manager.create(ProductInstance, {
+          stockBatchId: savedBatch.id,
+          status: ProductInstanceStatus.ON_RACK,
+        }),
+      );
+      await manager.save(ProductInstance, instances);
 
       this.logger.log(
         `Created stock batch ${savedBatch.id} for variant ${variant.id} (qty ${input.quantity})`,
@@ -151,6 +166,7 @@ export class StockService {
     productVariantId: string,
     quantity: number,
     note?: string,
+    orderItemId?: string,
   ): Promise<DeductByVariantResult> {
     if (quantity <= 0) {
       throw new BadRequestException('quantity must be positive');
@@ -197,6 +213,26 @@ export class StockService {
         needed -= take;
 
         await manager.save(StockBatch, batch);
+
+        const instances = await manager.find(ProductInstance, {
+          where: {
+            stockBatchId: batch.id,
+            status: ProductInstanceStatus.ON_RACK,
+          },
+          order: { createdAt: 'ASC' },
+          take,
+          ...this.pessimisticWriteLock(manager),
+        });
+
+        for (const instance of instances) {
+          instance.status = ProductInstanceStatus.SOLD;
+          if (orderItemId) {
+            instance.orderItemId = orderItemId;
+          }
+        }
+        if (instances.length > 0) {
+          await manager.save(ProductInstance, instances);
+        }
 
         const movement = manager.create(StockMovement, {
           batchId: batch.id,

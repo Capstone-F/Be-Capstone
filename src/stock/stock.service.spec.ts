@@ -1,7 +1,12 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { ProductVariant } from '../products/product-variant.entity';
-import { ShelfLifeUnit, StockMovementType } from './enums';
+import {
+  ProductInstanceStatus,
+  ShelfLifeUnit,
+  StockMovementType,
+} from './enums';
+import { ProductInstance } from './product-instance.entity';
 import { StockBatch } from './stock-batch.entity';
 import { StockMovement } from './stock-movement.entity';
 import { StockService } from './stock.service';
@@ -43,6 +48,26 @@ const makeVariantRepo = (overrides: Partial<Repository<ProductVariant>> = {}) =>
 
 const makeMovementRepo = () => ({}) as unknown as Repository<StockMovement>;
 
+const makeInstanceRepo = () => ({}) as unknown as Repository<ProductInstance>;
+
+const mockOnRackInstances = (
+  stockBatchId: string,
+  count: number,
+): ProductInstance[] =>
+  Array.from({ length: count }, (_, i) => ({
+    id: `inst-${stockBatchId}-${i}`,
+    stockBatchId,
+    orderItemId: null,
+    routineStepDetailsId: null,
+    serialNumber: null,
+    status: ProductInstanceStatus.ON_RACK,
+    stockBatch: {} as ProductInstance['stockBatch'],
+    orderItem: null,
+    routineStepDetails: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }));
+
 const baseVariant: ProductVariant = {
   id: 'variant-1',
   productId: 'product-1',
@@ -71,7 +96,12 @@ describe('StockService', () => {
     manager = makeManager();
     variantRepo = makeVariantRepo();
     batchRepo = makeBatchRepo(manager);
-    service = new StockService(variantRepo, batchRepo, makeMovementRepo());
+    service = new StockService(
+      variantRepo,
+      batchRepo,
+      makeMovementRepo(),
+      makeInstanceRepo(),
+    );
   });
 
   afterEach(() => jest.clearAllMocks());
@@ -119,7 +149,7 @@ describe('StockService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('should create batch and IMPORT movement in a transaction', async () => {
+    it('should create batch, instances, and IMPORT movement in a transaction', async () => {
       (variantRepo.findOneBy as jest.Mock).mockResolvedValue(baseVariant);
       const addShelfLifeSpy = jest.spyOn(service, 'addShelfLife');
 
@@ -131,8 +161,8 @@ describe('StockService', () => {
       });
 
       expect(batchRepo.manager.transaction).toHaveBeenCalledTimes(1);
-      expect(manager.create).toHaveBeenCalledTimes(2);
-      expect(manager.save).toHaveBeenCalledTimes(2);
+      expect(manager.create).toHaveBeenCalledTimes(102);
+      expect(manager.save).toHaveBeenCalledTimes(3);
       expect(manager.create).toHaveBeenNthCalledWith(
         1,
         StockBatch,
@@ -151,6 +181,25 @@ describe('StockService', () => {
           quantity: 100,
           note: 'Initial batch stock input',
         }),
+      );
+      expect(manager.create).toHaveBeenNthCalledWith(
+        3,
+        ProductInstance,
+        expect.objectContaining({
+          status: ProductInstanceStatus.ON_RACK,
+        }),
+      );
+      expect(manager.create).toHaveBeenLastCalledWith(
+        ProductInstance,
+        expect.objectContaining({
+          status: ProductInstanceStatus.ON_RACK,
+        }),
+      );
+      expect(manager.save).toHaveBeenCalledWith(
+        ProductInstance,
+        expect.arrayContaining([
+          expect.objectContaining({ status: ProductInstanceStatus.ON_RACK }),
+        ]),
       );
       expect(addShelfLifeSpy).toHaveBeenCalledWith(
         expect.any(Date),
@@ -254,6 +303,23 @@ describe('StockService', () => {
   });
 
   describe('deductByVariantId', () => {
+    const setupInstanceFindMock = (batches: StockBatch[]) => {
+      manager.find.mockImplementation((entity, options) => {
+        if (entity === StockBatch) {
+          return Promise.resolve(batches);
+        }
+        if (entity === ProductInstance) {
+          const take = (options as { take?: number })?.take ?? 0;
+          const batchId = (options as { where?: { stockBatchId?: string } })
+            ?.where?.stockBatchId;
+          return Promise.resolve(
+            mockOnRackInstances(batchId ?? 'unknown', take),
+          );
+        }
+        return Promise.resolve([]);
+      });
+    };
+
     it('should throw BadRequestException when quantity <= 0', async () => {
       await expect(service.deductByVariantId('variant-1', 0)).rejects.toThrow(
         BadRequestException,
@@ -270,9 +336,7 @@ describe('StockService', () => {
 
     it('should throw BadRequestException when insufficient stock', async () => {
       (variantRepo.findOneBy as jest.Mock).mockResolvedValue(baseVariant);
-      manager.find.mockResolvedValue([
-        { id: 'b1', remainingQuantity: 3 } as StockBatch,
-      ]);
+      setupInstanceFindMock([{ id: 'b1', remainingQuantity: 3 } as StockBatch]);
 
       await expect(service.deductByVariantId('variant-1', 10)).rejects.toThrow(
         BadRequestException,
@@ -281,7 +345,7 @@ describe('StockService', () => {
 
     it('should deduct fully from a single batch when sufficient', async () => {
       (variantRepo.findOneBy as jest.Mock).mockResolvedValue(baseVariant);
-      manager.find.mockResolvedValue([
+      setupInstanceFindMock([
         { id: 'b1', remainingQuantity: 50 } as StockBatch,
       ]);
 
@@ -292,7 +356,7 @@ describe('StockService', () => {
         totalDeducted: 30,
         batches: [{ batchId: 'b1', deducted: 30 }],
       });
-      expect(manager.save).toHaveBeenCalledTimes(2);
+      expect(manager.save).toHaveBeenCalledTimes(3);
       expect(manager.create).toHaveBeenCalledWith(
         StockMovement,
         expect.objectContaining({
@@ -302,13 +366,43 @@ describe('StockService', () => {
           note: 'Order deduction',
         }),
       );
+      expect(manager.save).toHaveBeenCalledWith(
+        ProductInstance,
+        expect.arrayContaining([
+          expect.objectContaining({ status: ProductInstanceStatus.SOLD }),
+        ]),
+      );
+    });
+
+    it('should link instances to orderItemId when provided', async () => {
+      (variantRepo.findOneBy as jest.Mock).mockResolvedValue(baseVariant);
+      setupInstanceFindMock([
+        { id: 'b1', remainingQuantity: 50 } as StockBatch,
+      ]);
+
+      await service.deductByVariantId(
+        'variant-1',
+        2,
+        'Order deduction',
+        'order-item-1',
+      );
+
+      expect(manager.save).toHaveBeenCalledWith(
+        ProductInstance,
+        expect.arrayContaining([
+          expect.objectContaining({
+            status: ProductInstanceStatus.SOLD,
+            orderItemId: 'order-item-1',
+          }),
+        ]),
+      );
     });
 
     it('should deduct across multiple batches in FEFO order', async () => {
       (variantRepo.findOneBy as jest.Mock).mockResolvedValue(baseVariant);
       const batch1 = { id: 'b1', remainingQuantity: 10 } as StockBatch;
       const batch2 = { id: 'b2', remainingQuantity: 20 } as StockBatch;
-      manager.find.mockResolvedValue([batch1, batch2]);
+      setupInstanceFindMock([batch1, batch2]);
 
       const result = await service.deductByVariantId(
         'variant-1',
@@ -323,7 +417,7 @@ describe('StockService', () => {
       ]);
       expect(batch1.remainingQuantity).toBe(0);
       expect(batch2.remainingQuantity).toBe(5);
-      expect(manager.save).toHaveBeenCalledTimes(4);
+      expect(manager.save).toHaveBeenCalledTimes(6);
       expect(manager.create).toHaveBeenCalledTimes(2);
       expect(manager.create).toHaveBeenLastCalledWith(
         StockMovement,
@@ -338,14 +432,14 @@ describe('StockService', () => {
         { id: 'b2', remainingQuantity: 50 } as StockBatch,
         { id: 'b3', remainingQuantity: 40 } as StockBatch,
       ];
-      manager.find.mockResolvedValue(batches);
+      setupInstanceFindMock(batches);
 
       await service.deductByVariantId('variant-1', 30);
 
       expect(batches[0].remainingQuantity).toBe(0);
       expect(batches[1].remainingQuantity).toBe(50);
       expect(batches[2].remainingQuantity).toBe(40);
-      expect(manager.save).toHaveBeenCalledTimes(2);
+      expect(manager.save).toHaveBeenCalledTimes(3);
     });
   });
 });
