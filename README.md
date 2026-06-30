@@ -299,17 +299,22 @@ All env vars are centrally managed in `src/config/env.config.ts`. The app valida
 
 ## Available scripts
 
-| Command               | Description                       |
-| --------------------- | --------------------------------- |
-| `npm run start:dev`   | Start in watch mode (development) |
-| `npm run start:debug` | Start in debug + watch mode       |
-| `npm run start:prod`  | Start compiled production build   |
-| `npm run build`       | Compile TypeScript to `dist/`     |
-| `npm run test`        | Run unit tests                    |
-| `npm run test:e2e`    | Run end-to-end tests              |
-| `npm run test:cov`    | Run tests with coverage report    |
-| `npm run lint`        | Lint and auto-fix with ESLint     |
-| `npm run format`      | Format code with Prettier         |
+| Command                      | Description                                  |
+| ---------------------------- | -------------------------------------------- |
+| `npm run start:dev`          | Start in watch mode (development)            |
+| `npm run start:debug`        | Start in debug + watch mode                  |
+| `npm run start:prod`         | Start compiled production build              |
+| `npm run build`              | Compile TypeScript to `dist/`                |
+| `npm run test`               | Run unit tests                               |
+| `npm run test:e2e`           | Run end-to-end tests                         |
+| `npm run test:cov`           | Run tests with coverage report               |
+| `npm run lint`               | Lint and auto-fix with ESLint                |
+| `npm run migration:run`      | Run pending TypeORM migrations (development) |
+| `npm run migration:run:prod` | Run migrations from compiled `dist/`         |
+| `npm run migration:revert`   | Revert the last migration                    |
+| `npm run seed`               | Seed reference data (development)            |
+| `npm run seed:prod`          | Seed reference data from compiled `dist/`    |
+| `npm run format`             | Format code with Prettier                    |
 
 ---
 
@@ -494,9 +499,143 @@ Runs on push to `main` only:
 
 ---
 
-## Docker (production deployment only)
+## Production deployment
 
-The Dockerfile produces a production image. **Do not use it locally** — `localhost` URLs in `.env` won't resolve inside a container. For local development, run the API directly with `npm run start:dev`.
+Production runs the full stack via [`docker-compose.prod.yaml`](docker-compose.prod.yaml): **nginx** (ingress), **be-api**, **postgres**, **redis**, **keycloak**, and observability (**loki**, **alloy**, **grafana**).
+
+| File                       | Purpose                                                         |
+| -------------------------- | --------------------------------------------------------------- |
+| `docker-compose.prod.yaml` | Production Compose stack                                        |
+| `.env.prod.example`        | Template for production env vars                                |
+| `.env.prod.local`          | Your real production secrets (create locally, **never commit**) |
+
+> Use `.env.prod.local` on the server. Copy from `.env.prod.example` and replace all placeholder passwords, `SESSION_SECRET`, and public URLs with real values.
+
+### First-time production setup
+
+1. **Prepare env and Keycloak realm** (same as [Initial setup](#initial-setup) for `keycloak/realm-import/`).
+2. **Create production env file:**
+   ```bash
+   cp .env.prod.example .env.prod.local
+   # Edit .env.prod.local — set PUBLIC_URL, DATABASE_URL, SESSION_SECRET, Keycloak URLs, etc.
+   ```
+3. **Start the stack:**
+   ```bash
+   docker compose -f docker-compose.prod.yaml --env-file .env.prod.local up -d --build
+   ```
+4. **Run database migrations** (required before the API can serve traffic):
+   ```bash
+   docker compose -f docker-compose.prod.yaml --env-file .env.prod.local run --rm --no-deps be-api \
+     node ./node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js
+   ```
+5. **Seed reference data** (first deploy only — labels, skin types, ingredients, etc.):
+   ```bash
+   docker compose -f docker-compose.prod.yaml --env-file .env.prod.local run --rm --no-deps be-api \
+     node dist/database/seeds/seed.js
+   ```
+6. **Verify health** (via nginx ingress):
+   ```bash
+   curl -f http://localhost/api/health
+   ```
+
+### Deploying a new version to production
+
+Use this checklist whenever you release a new backend version (after merging to `main` and CI passes).
+
+#### 1. Prepare the release on the server
+
+```bash
+cd /path/to/be-capstone
+git fetch origin
+git checkout main
+git pull origin main
+```
+
+Confirm the target commit:
+
+```bash
+git log -1 --oneline
+```
+
+#### 2. Build the new API image
+
+```bash
+docker compose -f docker-compose.prod.yaml --env-file .env.prod.local build be-api
+```
+
+> **Alternative (GHCR):** If you deploy the image published by [Build & Publish](#build--publish-githubworkflowsbuildyaml) instead of building on the server, pull the tagged image and update your Compose `be-api` service to use `image: ghcr.io/<owner>/be-capstone:<git-sha>` before continuing.
+
+#### 3. Run database migrations
+
+Always run migrations **before** restarting the API so the schema matches the new code.
+
+```bash
+docker compose -f docker-compose.prod.yaml --env-file .env.prod.local run --rm --no-deps be-api \
+  node ./node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js
+```
+
+Expected output ends with pending migrations reported as executed successfully. If a migration fails, **do not** restart `be-api` — fix the issue or roll back (see below).
+
+#### 4. Restart the API with zero-downtime-friendly recreate
+
+```bash
+docker compose -f docker-compose.prod.yaml --env-file .env.prod.local up -d --no-deps be-api
+```
+
+`--no-deps` avoids restarting postgres, redis, or keycloak during a routine API deploy.
+
+#### 5. Verify the deployment
+
+```bash
+# API health (through nginx)
+curl -f "${PUBLIC_URL:-http://localhost}/api/health"
+
+# Container status
+docker compose -f docker-compose.prod.yaml ps be-api
+
+# Recent API logs
+docker compose -f docker-compose.prod.yaml logs --tail=50 be-api
+```
+
+Check that `/api/health` reports database and Keycloak as healthy.
+
+#### 6. When to re-run seed
+
+Re-run `node dist/database/seeds/seed.js` only when release notes say so (e.g. new label categories). Routine deploys usually **do not** need seeding — the seed script upserts reference data and is safe to run, but is not required every release.
+
+### Rollback
+
+If the new version fails after deploy:
+
+1. **Revert application code** to the previous tag/commit:
+   ```bash
+   git checkout <previous-tag-or-commit>
+   docker compose -f docker-compose.prod.yaml --env-file .env.prod.local build be-api
+   docker compose -f docker-compose.prod.yaml --env-file .env.prod.local up -d --no-deps be-api
+   ```
+2. **Revert a failed migration** only if you understand the schema change and it is reversible:
+   ```bash
+   docker compose -f docker-compose.prod.yaml --env-file .env.prod.local run --rm --no-deps be-api \
+     node ./node_modules/typeorm/cli.js migration:revert -d dist/database/data-source.js
+   ```
+
+> Prefer forward-fixing migrations in a new release over reverting in production.
+
+### Production checklist (summary)
+
+| Step               | Command / action                                                      |
+| ------------------ | --------------------------------------------------------------------- |
+| Pull latest `main` | `git pull origin main`                                                |
+| Build API image    | `docker compose -f docker-compose.prod.yaml build be-api`             |
+| Run migrations     | `docker compose ... run --rm --no-deps be-api node ... migration:run` |
+| Restart API        | `docker compose ... up -d --no-deps be-api`                           |
+| Verify             | `curl -f $PUBLIC_URL/api/health`                                      |
+
+---
+
+## Docker (production image)
+
+The Dockerfile produces a production image. **Do not use it for local development** — `localhost` URLs in `.env` won't resolve inside a container. For local development, run the API directly with `npm run start:dev`.
 
 ### Multi-stage Dockerfile
 
