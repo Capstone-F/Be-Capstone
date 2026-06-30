@@ -53,10 +53,10 @@ export class Delivery {
   @Column({ nullable: true, type: 'varchar' })
   trackingNumber: string | null;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   shippedAt: Date | null;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   deliveredAt: Date | null;
 
   @CreateDateColumn()
