@@ -1,9 +1,14 @@
-name: Deploy to DigitalOcean
+name: Build, Publish & Deploy
 
-# Continuous deployment to a DigitalOcean droplet.
-# Triggers ONLY when a semver tag (e.g. v1.2.3) is pushed AND the tagged
-# commit is reachable from `main`. The workflow builds a versioned image,
-# publishes it to GHCR, then SSHes into the droplet and rolls the stack.
+# Single pipeline that builds the image ONCE and promotes it on release.
+#
+# Flow:
+#   - Push to `main`            -> build & push image (tags: sha-<commit>, latest)
+#   - Push a semver tag v1.2.3  -> NO rebuild. Re-tag the existing sha-<commit>
+#                                  image with semver tags, then deploy.
+#
+# Because a release tag only re-tags an image that was already built from the
+# same commit on `main`, the same code is never built twice.
 #
 # The droplet's deploy folder is expected to already contain:
 #   - docker-compose.yaml  (referencing the GHCR image, e.g. ghcr.io/<owner>/<repo>:latest)
@@ -18,17 +23,64 @@ name: Deploy to DigitalOcean
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*.*.*'
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Build & publish the image ONCE, on every push to `main`.
+  # ---------------------------------------------------------------------------
   build-and-push:
+    if: startsWith(github.ref, 'refs/heads/')
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    outputs:
-      image: ${{ steps.image.outputs.name }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set lowercase image name
+        id: image
+        shell: bash
+        run: |
+          echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=sha
+            type=raw,value=latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  # ---------------------------------------------------------------------------
+  # On a release tag: re-tag the already-built image with semver tags (no rebuild).
+  # ---------------------------------------------------------------------------
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -66,16 +118,40 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+      - name: Re-tag the image built from this commit on main (no rebuild)
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="${{ steps.image.outputs.name }}:sha-${GITHUB_SHA::7}"
+
+          # The image is published by the `build-and-push` job that ran on the
+          # `main` push for this commit. Wait briefly in case that build is
+          # still in flight when the tag is pushed right after the merge.
+          echo "Waiting for source image to be available: ${SRC}"
+          for attempt in $(seq 1 30); do
+            if docker buildx imagetools inspect "${SRC}" > /dev/null 2>&1; then
+              echo "Source image found."
+              break
+            fi
+            if [ "${attempt}" -eq 30 ]; then
+              echo "::error::Source image ${SRC} not found. Ensure the commit was built on main before tagging."
+              exit 1
+            fi
+            echo "Not ready yet (attempt ${attempt}/30); retrying in 10s..."
+            sleep 10
+          done
+
+          # Build the --tag args from the metadata-generated semver tags.
+          TAG_ARGS=()
+          while IFS= read -r t; do
+            [ -n "${t}" ] && TAG_ARGS+=("--tag" "${t}")
+          done <<< "${{ steps.meta.outputs.tags }}"
+
+          docker buildx imagetools create "${TAG_ARGS[@]}" "${SRC}"
 
   deploy:
-    needs: build-and-push
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to droplet over SSH
