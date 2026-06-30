@@ -35,6 +35,7 @@ docs/
   workflows/
     ci.yaml        PR/push: lint, build, test (with Postgres service)
     build.yaml     Push to main: build + publish Docker image to GHCR
+    cd.yaml        Push version tag: build image + deploy to DigitalOcean droplet
 ```
 
 ---
@@ -497,139 +498,127 @@ Runs on push to `main` only:
 
 > **This image is for deployed environments only** (e.g. Kubernetes, ECS, Docker Swarm). It is **not** meant for local development — see [Quick start](#quick-start).
 
+### Deploy (`.github/workflows/cd.yaml`)
+
+Runs **only when a semver tag (`v*.*.*`) is pushed** and the tagged commit is on `main`:
+
+1. Verifies the tag commit is reachable from `main` (otherwise it aborts)
+2. Builds the Docker image and pushes it to GHCR tagged with the version (`v1.2.3` → `1.2.3`, `1.2`, `latest`)
+3. SSHes into the DigitalOcean droplet and rolls the stack with the new image
+
+See [Production deployment](#production-deployment) for the droplet prerequisites and required secrets.
+
 ---
 
 ## Production deployment
 
-Production runs the full stack via [`docker-compose.prod.yaml`](docker-compose.prod.yaml): **nginx** (ingress), **be-api**, **postgres**, **redis**, **keycloak**, and observability (**loki**, **alloy**, **grafana**).
+Production is deployed to a **DigitalOcean droplet** by the [`cd.yaml`](.github/workflows/cd.yaml) pipeline. Pushing a version tag builds a versioned image, publishes it to GHCR, and remotely updates the running stack over SSH.
 
-| File                       | Purpose                                                         |
-| -------------------------- | --------------------------------------------------------------- |
-| `docker-compose.prod.yaml` | Production Compose stack                                        |
-| `.env.prod.example`        | Template for production env vars                                |
-| `.env.prod.local`          | Your real production secrets (create locally, **never commit**) |
+### Step 1 — Prepare the VPS deploy folder
 
-> Use `.env.prod.local` on the server. Copy from `.env.prod.example` and replace all placeholder passwords, `SESSION_SECRET`, and public URLs with real values.
+The CD pipeline only pulls the image and restarts the stack — it does **not** copy any config. Before the first deploy, provision the deploy folder (the path you set in `DEPLOY_PATH`, e.g. `/opt/be-capstone`) with the files below. The `be-api`/`db-init` services run from the GHCR image, but every other service bind-mounts config from disk, so these files must exist.
 
-### First-time production setup
+```text
+$DEPLOY_PATH/
+├── docker-compose.yaml                     # the production compose stack
+├── .env                                    # production environment variables
+├── nginx/
+│   └── nginx.conf                          # reverse-proxy config (ingress)
+├── keycloak/
+│   ├── realm-import/
+│   │   └── be-capstone-realm.json          # realm + client + Google IDP
+│   └── themes/
+│       └── capstone/                       # custom login theme
+└── observability/
+    ├── loki/
+    │   └── loki-config.yaml                # Loki log storage config
+    ├── alloy/
+    │   └── config.alloy                    # Alloy log collector config
+    └── grafana/
+        └── provisioning/                   # Grafana datasources/dashboards
+```
 
-1. **Prepare env and Keycloak realm** (same as [Initial setup](#initial-setup) for `keycloak/realm-import/`).
-2. **Create production env file:**
-   ```bash
-   cp .env.prod.example .env.prod.local
-   # Edit .env.prod.local — set PUBLIC_URL, DATABASE_URL, SESSION_SECRET, Keycloak URLs, etc.
-   ```
-3. **Start the stack:**
-   ```bash
-   docker compose -f docker-compose.prod.yaml --env-file .env.prod.local up -d --build
-   ```
-4. **Run database migrations** (required before the API can serve traffic):
-   ```bash
-   docker compose -f docker-compose.prod.yaml --env-file .env.prod.local run --rm --no-deps be-api \
-     node ./node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js
-   ```
-5. **Seed reference data** (first deploy only — labels, skin types, ingredients, etc.):
-   ```bash
-   docker compose -f docker-compose.prod.yaml --env-file .env.prod.local run --rm --no-deps be-api \
-     node dist/database/seeds/seed.js
-   ```
-6. **Verify health** (via nginx ingress):
-   ```bash
-   curl -f http://localhost/api/health
-   ```
+| Path (relative to `$DEPLOY_PATH`)              | Required by service | Purpose                                                       |
+| ---------------------------------------------- | ------------------- | ------------------------------------------------------------- |
+| `docker-compose.yaml`                          | all                 | Production compose stack (copy of `docker-compose.prod.yaml`) |
+| `.env`                                         | all                 | Env vars + `API_IMAGE=ghcr.io/<owner>/be-capstone:latest`     |
+| `nginx/nginx.conf`                             | `nginx`             | Ingress reverse proxy (`/api`, `/auth`, `/gfn`)               |
+| `keycloak/realm-import/be-capstone-realm.json` | `keycloak`          | Auto-imported realm, client, and Google IDP                   |
+| `keycloak/themes/capstone/`                    | `keycloak`          | Custom login theme                                            |
+| `observability/loki/loki-config.yaml`          | `loki`              | Log aggregation storage config                                |
+| `observability/alloy/config.alloy`             | `alloy`             | Log collector (scrapes Docker container logs)                 |
+| `observability/grafana/provisioning/`          | `grafana`           | Pre-provisioned datasources/dashboards                        |
 
-### Deploying a new version to production
+> Rename `docker-compose.prod.yaml` to `docker-compose.yaml` on the droplet (or set `COMPOSE_FILE` in `.env`). The simplest way to provision everything is to clone the repo on the droplet, then copy these paths into `$DEPLOY_PATH` and create `.env` from your secrets.
 
-Use this checklist whenever you release a new backend version (after merging to `main` and CI passes).
+### Step 2 — Required GitHub secrets
 
-#### 1. Prepare the release on the server
+### Required GitHub secrets
+
+Configure these under **Settings → Secrets and variables → Actions**:
+
+| Secret             | Description                                       |
+| ------------------ | ------------------------------------------------- |
+| `DROPLET_HOST`     | Droplet IP or hostname                            |
+| `DROPLET_USERNAME` | SSH user (e.g. `root` or a dedicated deploy user) |
+| `DROPLET_SSH_KEY`  | Private SSH key authorized on the droplet         |
+| `DROPLET_SSH_PORT` | SSH port (e.g. `22`)                              |
+| `DEPLOY_PATH`      | Absolute path of the deploy folder on the droplet |
+
+`GITHUB_TOKEN` is provided automatically and is used to authenticate the droplet's `docker login` to GHCR.
+
+### Releasing a new version
+
+From your local machine, create and push a semver tag on a commit that is on `main`:
 
 ```bash
-cd /path/to/be-capstone
-git fetch origin
 git checkout main
 git pull origin main
+git tag v1.2.3
+git push origin v1.2.3
 ```
 
-Confirm the target commit:
+The pipeline then automatically:
+
+1. Builds and pushes `ghcr.io/<owner>/<repo>:1.2.3` (plus `1.2` and `latest`)
+2. On the droplet, runs:
+   ```bash
+   cd "$DEPLOY_PATH"
+   docker login ghcr.io ...
+   docker compose pull
+   docker compose up -d --remove-orphans
+   docker image prune -f
+   ```
+
+### Migrations and seeding
+
+The bundled `docker-compose.yaml` includes a `db-init` service that runs migrations and the seed before the API starts, so a routine `docker compose up -d` applies pending migrations automatically. If your droplet compose omits `db-init`, run migrations manually after deploy:
 
 ```bash
-git log -1 --oneline
-```
-
-#### 2. Build the new API image
-
-```bash
-docker compose -f docker-compose.prod.yaml --env-file .env.prod.local build be-api
-```
-
-> **Alternative (GHCR):** If you deploy the image published by [Build & Publish](#build--publish-githubworkflowsbuildyaml) instead of building on the server, pull the tagged image and update your Compose `be-api` service to use `image: ghcr.io/<owner>/be-capstone:<git-sha>` before continuing.
-
-#### 3. Run database migrations
-
-Always run migrations **before** restarting the API so the schema matches the new code.
-
-```bash
-docker compose -f docker-compose.prod.yaml --env-file .env.prod.local run --rm --no-deps be-api \
+docker compose run --rm --no-deps be-api \
   node ./node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js
 ```
 
-Expected output ends with pending migrations reported as executed successfully. If a migration fails, **do not** restart `be-api` — fix the issue or roll back (see below).
-
-#### 4. Restart the API with zero-downtime-friendly recreate
+### Verify the deployment
 
 ```bash
-docker compose -f docker-compose.prod.yaml --env-file .env.prod.local up -d --no-deps be-api
+curl -f http://<droplet-host>/health
+docker compose ps
+docker compose logs --tail=50 be-api
 ```
-
-`--no-deps` avoids restarting postgres, redis, or keycloak during a routine API deploy.
-
-#### 5. Verify the deployment
-
-```bash
-# API health (through nginx)
-curl -f "${PUBLIC_URL:-http://localhost}/api/health"
-
-# Container status
-docker compose -f docker-compose.prod.yaml ps be-api
-
-# Recent API logs
-docker compose -f docker-compose.prod.yaml logs --tail=50 be-api
-```
-
-Check that `/api/health` reports database and Keycloak as healthy.
-
-#### 6. When to re-run seed
-
-Re-run `node dist/database/seeds/seed.js` only when release notes say so (e.g. new label categories). Routine deploys usually **do not** need seeding — the seed script upserts reference data and is safe to run, but is not required every release.
 
 ### Rollback
 
-If the new version fails after deploy:
+Re-tag a known-good commit (or move a release tag) and push it to re-trigger the pipeline, or on the droplet pin the previous image and restart:
 
-1. **Revert application code** to the previous tag/commit:
-   ```bash
-   git checkout <previous-tag-or-commit>
-   docker compose -f docker-compose.prod.yaml --env-file .env.prod.local build be-api
-   docker compose -f docker-compose.prod.yaml --env-file .env.prod.local up -d --no-deps be-api
-   ```
-2. **Revert a failed migration** only if you understand the schema change and it is reversible:
-   ```bash
-   docker compose -f docker-compose.prod.yaml --env-file .env.prod.local run --rm --no-deps be-api \
-     node ./node_modules/typeorm/cli.js migration:revert -d dist/database/data-source.js
-   ```
+```bash
+cd "$DEPLOY_PATH"
+# point the be-api image tag to the previous version, then:
+docker compose pull
+docker compose up -d --no-deps be-api
+```
 
 > Prefer forward-fixing migrations in a new release over reverting in production.
-
-### Production checklist (summary)
-
-| Step               | Command / action                                                      |
-| ------------------ | --------------------------------------------------------------------- |
-| Pull latest `main` | `git pull origin main`                                                |
-| Build API image    | `docker compose -f docker-compose.prod.yaml build be-api`             |
-| Run migrations     | `docker compose ... run --rm --no-deps be-api node ... migration:run` |
-| Restart API        | `docker compose ... up -d --no-deps be-api`                           |
-| Verify             | `curl -f $PUBLIC_URL/api/health`                                      |
 
 ---
 
