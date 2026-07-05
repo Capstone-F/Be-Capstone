@@ -63,6 +63,7 @@ Sau đó tạo file `keycloak/realm-import/be-capstone-realm.json` với nội d
 {
   "realm": "be-capstone",
   "enabled": true,
+  "sslRequired": "none",
   "loginTheme": "capstone",
   "registrationAllowed": true,
   "resetPasswordAllowed": true,
@@ -363,6 +364,27 @@ Service `keycloak` được cấu hình với `--import-realm`. Khi khởi độ
 File realm nằm tại `keycloak/realm-import/be-capstone-realm.json`.
 
 > Thư mục này đang **gitignore**. Xem lại phần [Thiết lập ban đầu](#thiết-lập-ban-đầu) để tạo file nếu máy mới clone repo.
+
+> **Dev đã có file cũ:** Nếu bạn đã tạo `be-capstone-realm.json` trước thay đổi này, thêm `"sslRequired": "none"` vào JSON realm, rồi recreate Keycloak: `docker compose up -d --force-recreate keycloak`. Để import lại realm từ đầu, xóa volume Postgres trước (`docker compose down -v`).
+
+### Xử lý lỗi: "HTTPS required" trên macOS
+
+**Triệu chứng:** Mở `http://localhost:8080/admin` hoặc luồng đăng nhập app hiện trang `HTTPS required`, thường gặp trên macOS với Docker Desktop.
+
+**Nguyên nhân:** Docker Desktop chạy container trong VM Linux. Request tới Keycloak có thể không được nhận diện là từ địa chỉ local/private, nên chính sách mặc định `sslRequired: EXTERNAL` của Keycloak chặn truy cập HTTP.
+
+**Cách xử lý (đã áp dụng trong repo):**
+
+1. Port Keycloak trong `docker-compose.yaml` được bind tới `127.0.0.1` (không phải `0.0.0.0`).
+2. Template realm `be-capstone` đặt `"sslRequired": "none"` cho môi trường dev local.
+
+Sau khi pull thay đổi, recreate container Keycloak để port binding mới có hiệu lực:
+
+```bash
+docker compose up -d --force-recreate keycloak
+```
+
+Nếu admin console (realm `master`) vẫn báo lỗi, bind port loopback là cách xử lý cho realm đó. Cài đặt `sslRequired: none` chỉ áp dụng cho `be-capstone`.
 
 ### Luồng xác thực tùy chỉnh
 

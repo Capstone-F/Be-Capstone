@@ -62,6 +62,7 @@ Then create `keycloak/realm-import/be-capstone-realm.json` with the following co
 {
   "realm": "be-capstone",
   "enabled": true,
+  "sslRequired": "none",
   "loginTheme": "capstone",
   "registrationAllowed": true,
   "resetPasswordAllowed": true,
@@ -362,6 +363,27 @@ The `keycloak` service is configured with `--import-realm`. On first start it au
 The realm file is at `keycloak/realm-import/be-capstone-realm.json`.
 
 > This directory is **gitignored** because it can contain real OAuth secrets. See [Initial setup](#initial-setup) for how to create it.
+
+> **Existing devs:** If you already created `be-capstone-realm.json` before this change, add `"sslRequired": "none"` to the realm JSON, then recreate Keycloak: `docker compose up -d --force-recreate keycloak`. To re-import the realm from scratch, wipe the Postgres volume first (`docker compose down -v`).
+
+### Troubleshooting: "HTTPS required" on macOS
+
+**Symptom:** Opening `http://localhost:8080/admin` or the app login flow shows a `HTTPS required` page, most commonly on macOS with Docker Desktop.
+
+**Cause:** Docker Desktop runs containers inside a Linux VM. Requests reaching Keycloak may not be recognized as coming from a local/private address, so Keycloak's default `sslRequired: EXTERNAL` policy blocks HTTP access.
+
+**Fix (already applied in this repo):**
+
+1. Keycloak ports in `docker-compose.yaml` are bound to `127.0.0.1` (not `0.0.0.0`).
+2. The `be-capstone` realm template sets `"sslRequired": "none"` for local development.
+
+After pulling these changes, recreate the Keycloak container so the new port binding takes effect:
+
+```bash
+docker compose up -d --force-recreate keycloak
+```
+
+If the admin console (`master` realm) still shows the error, the loopback port binding is the fix for that realm. The `sslRequired: none` setting only applies to `be-capstone`.
 
 ### Custom authentication flow
 

@@ -71,8 +71,8 @@ services:
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
       KC_LOG_CONSOLE_OUTPUT: json
     ports:
-      - '8080:8080'
-      - '9000:9000'
+      - '127.0.0.1:8080:8080'
+      - '127.0.0.1:9000:9000'
     volumes:
       - ./keycloak/realm-import:/opt/keycloak/data/import
       - ./keycloak/themes:/opt/keycloak/themes
