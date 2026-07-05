@@ -149,7 +149,7 @@ services:
       test:
         [
           'CMD-SHELL',
-          'wget --quiet --tries=1 --output-document=- http://localhost:3001/health || exit 1',
+          'wget --quiet --tries=1 --output-document=- http://localhost:3000/health || exit 1',
         ]
       interval: 10s
       timeout: 5s
