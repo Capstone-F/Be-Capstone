@@ -37,6 +37,7 @@ import { Label } from '../src/survey/label.entity';
 import { LabelCategory } from '../src/survey/label-category.entity';
 import { CustomerSurvey } from '../src/survey/customer-survey.entity';
 import { Customer } from '../src/users/customer.entity';
+import { Expert } from '../src/users/expert.entity';
 import { CustomerSkinTypeDetails } from '../src/users/customer-skin-type-details.entity';
 import { SkinType } from '../src/users/skin-type.entity';
 import {
@@ -47,6 +48,7 @@ import {
 } from '../src/users/skin-type.enums';
 import { StockModule } from '../src/stock/stock.module';
 import { ProductsModule } from '../src/products/products.module';
+import { ExpertsModule } from '../src/experts/experts.module';
 import { StockBatch } from '../src/stock/stock-batch.entity';
 import { StockMovement } from '../src/stock/stock-movement.entity';
 import { ProductInstance } from '../src/stock/product-instance.entity';
@@ -112,6 +114,7 @@ describe('BE Capstone API (e2e)', () => {
         AuthModule,
         StockModule,
         ProductsModule,
+        ExpertsModule,
         TypeOrmModule.forRoot(e2eTypeOrmConfig),
       ],
       controllers: [AppController, HealthController],
@@ -1050,6 +1053,220 @@ describe('BE Capstone API (e2e)', () => {
         expect(body.ingredients[0]).toHaveProperty('name');
         expect(body.ingredients[0]).toHaveProperty('concentrationPct');
         expect(body.ingredients[0]).toHaveProperty('isKeyIngredient');
+      });
+    });
+  });
+
+  // ─── Experts module endpoints ─────────────────────────────────
+
+  describe('Experts module endpoints', () => {
+    let customerSid: string;
+
+    beforeEach(async () => {
+      customerSid = await performMockLogin({
+        userId: 'customer-experts-e2e',
+        keycloakSub: 'kc-customer-experts-e2e',
+        roles: [Role.Customer],
+      });
+      jest
+        .spyOn(authService, 'refreshTokenIfNeeded')
+        .mockResolvedValue(undefined);
+    });
+
+    async function seedExpert(
+      overrides: {
+        name?: string;
+        email?: string;
+        specialization?: string;
+        rating?: number;
+        consultationFee?: number;
+        clinicName?: string;
+        latitude?: number | null;
+        longitude?: number | null;
+        isActive?: boolean;
+      } = {},
+    ): Promise<Expert> {
+      const clinic = await dataSource.getRepository(Clinic).save(
+        dataSource.getRepository(Clinic).create({
+          name:
+            overrides.clinicName ??
+            `Clinic ${Math.random().toString(36).slice(2, 6)}`,
+          address: 'E2E Address',
+          latitude: overrides.latitude ?? null,
+          longitude: overrides.longitude ?? null,
+        }),
+      );
+
+      const user = await seedUser({
+        keycloakSub: `kc-expert-${Math.random().toString(36).slice(2)}`,
+        email: overrides.email ?? 'expert@example.com',
+        name: overrides.name ?? 'Dr. Expert',
+        roles: [Role.Expert],
+        clinicId: clinic.id,
+      });
+
+      return dataSource.getRepository(Expert).save(
+        dataSource.getRepository(Expert).create({
+          userId: user.id,
+          clinicId: clinic.id,
+          specialization: overrides.specialization ?? 'Dermatology',
+          licenseNumber: 'LIC-E2E',
+          bio: 'E2E expert bio',
+          rating: overrides.rating ?? 4.5,
+          consultationFee: overrides.consultationFee ?? 300000,
+          isActive: overrides.isActive ?? true,
+        }),
+      );
+    }
+
+    describe('GET /experts', () => {
+      it('should return 401 without session cookie', async () => {
+        await request(app.getHttpServer()).get('/experts').expect(401);
+      });
+
+      it('should return paginated experts for authenticated user', async () => {
+        await seedExpert({ name: 'Dr. A' });
+        await seedExpert({ name: 'Dr. B' });
+
+        const { body } = await request(app.getHttpServer())
+          .get('/experts?page=1&limit=10')
+          .set('Cookie', customerSid)
+          .expect(200);
+
+        expect(body.total).toBeGreaterThanOrEqual(2);
+        expect(body.page).toBe(1);
+        expect(body.limit).toBe(10);
+        expect(Array.isArray(body.items)).toBe(true);
+        expect(body.items[0]).toHaveProperty('id');
+        expect(body.items[0]).toHaveProperty('name');
+        expect(body.items[0]).toHaveProperty('rating');
+        expect(body.items[0]).toHaveProperty('consultationFee');
+      });
+
+      it('should filter by specialization', async () => {
+        await seedExpert({
+          name: 'Derma Expert',
+          specialization: 'Dermatology',
+        });
+        await seedExpert({
+          name: 'Cosmetic Expert',
+          specialization: 'Cosmetic Surgery',
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .get('/experts?specialization=derma')
+          .set('Cookie', customerSid)
+          .expect(200);
+
+        expect(body.items.length).toBeGreaterThanOrEqual(1);
+        for (const item of body.items) {
+          expect(item.specialization?.toLowerCase()).toContain('derma');
+        }
+      });
+
+      it('should filter by minRating', async () => {
+        await seedExpert({ name: 'High Rated', rating: 4.8 });
+        await seedExpert({ name: 'Low Rated', rating: 2.5 });
+
+        const { body } = await request(app.getHttpServer())
+          .get('/experts?minRating=4')
+          .set('Cookie', customerSid)
+          .expect(200);
+
+        expect(body.items.length).toBeGreaterThanOrEqual(1);
+        for (const item of body.items) {
+          expect(item.rating).toBeGreaterThanOrEqual(4);
+        }
+      });
+
+      it('should filter by minFee and maxFee', async () => {
+        await seedExpert({
+          name: 'Affordable',
+          consultationFee: 150000,
+        });
+        await seedExpert({
+          name: 'Premium',
+          consultationFee: 800000,
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .get('/experts?minFee=100000&maxFee=500000')
+          .set('Cookie', customerSid)
+          .expect(200);
+
+        expect(body.items.length).toBeGreaterThanOrEqual(1);
+        for (const item of body.items) {
+          expect(item.consultationFee).toBeGreaterThanOrEqual(100000);
+          expect(item.consultationFee).toBeLessThanOrEqual(500000);
+        }
+      });
+
+      it('should filter and sort by distance using clinic coordinates', async () => {
+        const clientLat = 10.7769;
+        const clientLng = 106.7009;
+
+        await seedExpert({
+          name: 'Near Expert',
+          clinicName: 'Near Clinic',
+          latitude: 10.777,
+          longitude: 106.701,
+        });
+        await seedExpert({
+          name: 'Far Expert',
+          clinicName: 'Far Clinic',
+          latitude: 21.0285,
+          longitude: 105.8542,
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .get(
+            `/experts?lat=${clientLat}&lng=${clientLng}&radiusKm=50&page=1&limit=10`,
+          )
+          .set('Cookie', customerSid)
+          .expect(200);
+
+        expect(body.items.length).toBeGreaterThanOrEqual(1);
+        expect(body.items[0].name).toBe('Near Expert');
+        expect(body.items[0].distanceKm).not.toBeNull();
+        expect(body.items[0].distanceKm).toBeLessThan(50);
+        for (const item of body.items) {
+          expect(item.distanceKm).toBeLessThanOrEqual(50);
+        }
+      });
+    });
+
+    describe('GET /experts/:id', () => {
+      it('should return 401 without session cookie', async () => {
+        await request(app.getHttpServer())
+          .get('/experts/00000000-0000-0000-0000-000000000001')
+          .expect(401);
+      });
+
+      it('should return 404 when expert does not exist', async () => {
+        await request(app.getHttpServer())
+          .get('/experts/00000000-0000-0000-0000-000000000099')
+          .set('Cookie', customerSid)
+          .expect(404);
+      });
+
+      it('should return expert detail for valid id', async () => {
+        const expert = await seedExpert({
+          name: 'Detail Expert',
+          specialization: 'Acne Treatment',
+          consultationFee: 250000,
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .get(`/experts/${expert.id}`)
+          .set('Cookie', customerSid)
+          .expect(200);
+
+        expect(body.id).toBe(expert.id);
+        expect(body.name).toBe('Detail Expert');
+        expect(body.specialization).toBe('Acne Treatment');
+        expect(body.consultationFee).toBe(250000);
+        expect(body.rating).toBe(4.5);
+        expect(body.clinicName).toBeTruthy();
       });
     });
   });

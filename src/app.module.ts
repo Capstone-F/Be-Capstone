@@ -13,6 +13,7 @@ import { StockModule } from './stock/stock.module';
 import { KeycloakAdminModule } from './keycloak/keycloak-admin.module';
 import { ClinicsModule } from './clinics/clinics.module';
 import { ProductsModule } from './products/products.module';
+import { ExpertsModule } from './experts/experts.module';
 import { SurveyModule } from './survey/survey.module';
 import { IngredientsModule } from './ingredients/ingredients.module';
 import { RoutinesModule } from './routines/routines.module';
@@ -45,6 +46,7 @@ import { RuleEngineModule } from './rule-engine/rule-engine.module';
     SurveyModule,
     IngredientsModule,
     ProductsModule,
+    ExpertsModule,
     StockModule,
     RoutinesModule,
     TreatmentsModule,
