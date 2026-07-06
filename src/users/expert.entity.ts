@@ -42,6 +42,9 @@ export class Expert {
   @Column({ type: 'decimal', precision: 3, scale: 2, default: 0 })
   rating: number;
 
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  consultationFee: number;
+
   @Column({ default: true })
   isActive: boolean;
 

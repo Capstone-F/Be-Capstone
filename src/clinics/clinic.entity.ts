@@ -17,6 +17,12 @@ export class Clinic {
   @Column({ nullable: true, type: 'varchar' })
   address: string | null;
 
+  @Column({ nullable: true, type: 'decimal', precision: 9, scale: 6 })
+  latitude: number | null;
+
+  @Column({ nullable: true, type: 'decimal', precision: 9, scale: 6 })
+  longitude: number | null;
+
   @Column({ default: true })
   isActive: boolean;
 
