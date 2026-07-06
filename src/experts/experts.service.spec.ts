@@ -3,13 +3,14 @@ import { Repository } from 'typeorm';
 import { Clinic } from '../clinics/clinic.entity';
 import { Expert } from '../users/expert.entity';
 import { User } from '../users/user.entity';
+import { ExpertSpecialty } from './expert-specialty.enum';
 import { ExpertsService } from './experts.service';
 
 const makeExpert = (overrides: Partial<Expert> = {}): Expert => ({
   id: 'expert-1',
   userId: 'user-1',
   clinicId: 'clinic-1',
-  specialization: 'Dermatology',
+  specialization: ExpertSpecialty.DERMATOLOGY,
   licenseNumber: 'LIC-001',
   bio: 'Expert bio',
   rating: 4.5,
@@ -66,7 +67,7 @@ describe('ExpertsService', () => {
     const service = new ExpertsService(expertRepo);
 
     await service.findMany({
-      specialization: 'Derma',
+      specialization: ExpertSpecialty.DERMATOLOGY,
       minRating: 4,
       minFee: 100000,
       maxFee: 500000,
@@ -76,8 +77,8 @@ describe('ExpertsService', () => {
 
     expect(expertRepo.createQueryBuilder).toHaveBeenCalledWith('expert');
     expect(qb.andWhere).toHaveBeenCalledWith(
-      'expert.specialization ILIKE :specialization',
-      { specialization: '%Derma%' },
+      'expert.specialization = :specialization',
+      { specialization: ExpertSpecialty.DERMATOLOGY },
     );
     expect(qb.andWhere).toHaveBeenCalledWith('expert.rating >= :minRating', {
       minRating: 4,

@@ -104,9 +104,9 @@ export class ExpertsService {
       .leftJoinAndSelect('expert.clinic', 'clinic')
       .where('expert.isActive = :isActive', { isActive: true });
 
-    if (query.specialization?.trim()) {
-      qb.andWhere('expert.specialization ILIKE :specialization', {
-        specialization: `%${query.specialization.trim()}%`,
+    if (query.specialization) {
+      qb.andWhere('expert.specialization = :specialization', {
+        specialization: query.specialization,
       });
     }
 
