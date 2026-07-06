@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ExpertSpecialty } from '../expert-specialty.enum';
 
 export class ExpertResponseDto {
   @ApiProperty({ example: 'uuid' })
@@ -16,8 +17,11 @@ export class ExpertResponseDto {
   @ApiPropertyOptional({ example: 'GlowScan Clinic', nullable: true })
   clinicName!: string | null;
 
-  @ApiPropertyOptional({ example: 'Dermatology', nullable: true })
-  specialization!: string | null;
+  @ApiProperty({
+    enum: ExpertSpecialty,
+    example: ExpertSpecialty.DERMATOLOGY,
+  })
+  specialization!: ExpertSpecialty;
 
   @ApiPropertyOptional({ example: 'LIC-12345', nullable: true })
   licenseNumber!: string | null;

@@ -9,6 +9,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Clinic } from '../clinics/clinic.entity';
+import { ExpertSpecialty } from '../experts/expert-specialty.enum';
 import { User } from './user.entity';
 
 @Entity('experts')
@@ -30,8 +31,8 @@ export class Expert {
   @JoinColumn({ name: 'clinicId' })
   clinic: Clinic | null;
 
-  @Column({ nullable: true, type: 'varchar' })
-  specialization: string | null;
+  @Column({ type: 'varchar', enum: ExpertSpecialty })
+  specialization: ExpertSpecialty;
 
   @Column({ nullable: true, type: 'varchar' })
   licenseNumber: string | null;

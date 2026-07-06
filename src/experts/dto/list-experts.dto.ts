@@ -1,22 +1,17 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import {
-  IsInt,
-  IsNumber,
-  IsOptional,
-  IsString,
-  Max,
-  Min,
-} from 'class-validator';
+import { IsEnum, IsInt, IsNumber, IsOptional, Max, Min } from 'class-validator';
+import { ExpertSpecialty } from '../expert-specialty.enum';
 
 export class ListExpertsQueryDto {
   @ApiPropertyOptional({
-    example: 'Dermatology',
-    description: 'Filter by specialization (case-insensitive partial match)',
+    enum: ExpertSpecialty,
+    example: ExpertSpecialty.DERMATOLOGY,
+    description: 'Filter by specialization (exact enum match)',
   })
   @IsOptional()
-  @IsString()
-  specialization?: string;
+  @IsEnum(ExpertSpecialty)
+  specialization?: ExpertSpecialty;
 
   @ApiPropertyOptional({ example: 4, minimum: 0, maximum: 5 })
   @IsOptional()

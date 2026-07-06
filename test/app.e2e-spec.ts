@@ -38,6 +38,7 @@ import { LabelCategory } from '../src/survey/label-category.entity';
 import { CustomerSurvey } from '../src/survey/customer-survey.entity';
 import { Customer } from '../src/users/customer.entity';
 import { Expert } from '../src/users/expert.entity';
+import { ExpertSpecialty } from '../src/experts/expert-specialty.enum';
 import { CustomerSkinTypeDetails } from '../src/users/customer-skin-type-details.entity';
 import { SkinType } from '../src/users/skin-type.entity';
 import {
@@ -1077,7 +1078,7 @@ describe('BE Capstone API (e2e)', () => {
       overrides: {
         name?: string;
         email?: string;
-        specialization?: string;
+        specialization?: ExpertSpecialty;
         rating?: number;
         consultationFee?: number;
         clinicName?: string;
@@ -1109,7 +1110,8 @@ describe('BE Capstone API (e2e)', () => {
         dataSource.getRepository(Expert).create({
           userId: user.id,
           clinicId: clinic.id,
-          specialization: overrides.specialization ?? 'Dermatology',
+          specialization:
+            overrides.specialization ?? ExpertSpecialty.DERMATOLOGY,
           licenseNumber: 'LIC-E2E',
           bio: 'E2E expert bio',
           rating: overrides.rating ?? 4.5,
@@ -1146,22 +1148,29 @@ describe('BE Capstone API (e2e)', () => {
       it('should filter by specialization', async () => {
         await seedExpert({
           name: 'Derma Expert',
-          specialization: 'Dermatology',
+          specialization: ExpertSpecialty.DERMATOLOGY,
         });
         await seedExpert({
           name: 'Cosmetic Expert',
-          specialization: 'Cosmetic Surgery',
+          specialization: ExpertSpecialty.COSMETIC_DERMATOLOGY,
         });
 
         const { body } = await request(app.getHttpServer())
-          .get('/experts?specialization=derma')
+          .get(`/experts?specialization=${ExpertSpecialty.DERMATOLOGY}`)
           .set('Cookie', customerSid)
           .expect(200);
 
         expect(body.items.length).toBeGreaterThanOrEqual(1);
         for (const item of body.items) {
-          expect(item.specialization?.toLowerCase()).toContain('derma');
+          expect(item.specialization).toBe(ExpertSpecialty.DERMATOLOGY);
         }
+      });
+
+      it('should reject an invalid (free-text) specialization', async () => {
+        await request(app.getHttpServer())
+          .get('/experts?specialization=not-a-real-specialty')
+          .set('Cookie', customerSid)
+          .expect(400);
       });
 
       it('should filter by minRating', async () => {
@@ -1252,7 +1261,7 @@ describe('BE Capstone API (e2e)', () => {
       it('should return expert detail for valid id', async () => {
         const expert = await seedExpert({
           name: 'Detail Expert',
-          specialization: 'Acne Treatment',
+          specialization: ExpertSpecialty.ACNE_TREATMENT,
           consultationFee: 250000,
         });
 
@@ -1263,7 +1272,7 @@ describe('BE Capstone API (e2e)', () => {
 
         expect(body.id).toBe(expert.id);
         expect(body.name).toBe('Detail Expert');
-        expect(body.specialization).toBe('Acne Treatment');
+        expect(body.specialization).toBe(ExpertSpecialty.ACNE_TREATMENT);
         expect(body.consultationFee).toBe(250000);
         expect(body.rating).toBe(4.5);
         expect(body.clinicName).toBeTruthy();

@@ -18,6 +18,11 @@ import { ProductCategory } from '../../products/product-category.entity';
 import { DeliveryProvider } from '../../delivery/delivery-provider.entity';
 import { SupportHabit } from '../../routines/support-habit.entity';
 import { SupportHabitType } from '../../routines/enums';
+import { Clinic } from '../../clinics/clinic.entity';
+import { User } from '../../users/user.entity';
+import { Expert } from '../../users/expert.entity';
+import { ExpertSpecialty } from '../../experts/expert-specialty.enum';
+import { Role } from '../../auth/roles.enum';
 
 type LabelCategorySeed = { code: string; name: string; description: string };
 type LabelSeed = {
@@ -871,6 +876,104 @@ const PROTOCOL_CONFLICTS: Array<{
   },
 ];
 
+type ExpertSeed = {
+  keycloakSub: string;
+  email: string;
+  name: string;
+  specialization: ExpertSpecialty;
+  licenseNumber: string;
+  bio: string;
+  rating: number;
+  consultationFee: number;
+};
+
+type ClinicSeed = {
+  name: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+  experts: ExpertSeed[];
+};
+
+const CLINICS: ClinicSeed[] = [
+  {
+    name: 'GlowScan District 1 Clinic',
+    address: '12 Nguyen Hue, District 1, Ho Chi Minh City',
+    latitude: 10.7769,
+    longitude: 106.7009,
+    experts: [
+      {
+        keycloakSub: 'seed-expert-d1-derma',
+        email: 'derma.d1@glowscan.example.com',
+        name: 'Dr. Nguyen Van An',
+        specialization: ExpertSpecialty.DERMATOLOGY,
+        licenseNumber: 'LIC-D1-001',
+        bio: 'Board-certified dermatologist with 12 years of clinical experience.',
+        rating: 4.8,
+        consultationFee: 400000,
+      },
+      {
+        keycloakSub: 'seed-expert-d1-acne',
+        email: 'acne.d1@glowscan.example.com',
+        name: 'Dr. Tran Thi Bich',
+        specialization: ExpertSpecialty.ACNE_TREATMENT,
+        licenseNumber: 'LIC-D1-002',
+        bio: 'Specialist in inflammatory acne and scar management.',
+        rating: 4.6,
+        consultationFee: 350000,
+      },
+      {
+        keycloakSub: 'seed-expert-d1-laser',
+        email: 'laser.d1@glowscan.example.com',
+        name: 'Dr. Le Minh Cuong',
+        specialization: ExpertSpecialty.LASER_THERAPY,
+        licenseNumber: 'LIC-D1-003',
+        bio: 'Laser and light-based therapy expert for pigmentation and rejuvenation.',
+        rating: 4.7,
+        consultationFee: 500000,
+      },
+    ],
+  },
+  {
+    name: 'GlowScan District 3 Clinic',
+    address: '88 Vo Van Tan, District 3, Ho Chi Minh City',
+    latitude: 10.7797,
+    longitude: 106.6899,
+    experts: [
+      {
+        keycloakSub: 'seed-expert-d3-cosmetic',
+        email: 'cosmetic.d3@glowscan.example.com',
+        name: 'Dr. Pham Thu Ha',
+        specialization: ExpertSpecialty.COSMETIC_DERMATOLOGY,
+        licenseNumber: 'LIC-D3-001',
+        bio: 'Cosmetic dermatologist focused on non-invasive facial aesthetics.',
+        rating: 4.9,
+        consultationFee: 550000,
+      },
+      {
+        keycloakSub: 'seed-expert-d3-antiaging',
+        email: 'antiaging.d3@glowscan.example.com',
+        name: 'Dr. Hoang Quoc Dat',
+        specialization: ExpertSpecialty.ANTI_AGING,
+        licenseNumber: 'LIC-D3-002',
+        bio: 'Anti-aging medicine specialist with a focus on collagen restoration.',
+        rating: 4.5,
+        consultationFee: 450000,
+      },
+      {
+        keycloakSub: 'seed-expert-d3-pigment',
+        email: 'pigment.d3@glowscan.example.com',
+        name: 'Dr. Vo Thi Kim',
+        specialization: ExpertSpecialty.PIGMENTATION,
+        licenseNumber: 'LIC-D3-003',
+        bio: 'Pigmentation disorder specialist treating melasma and PIH.',
+        rating: 4.4,
+        consultationFee: 380000,
+      },
+    ],
+  },
+];
+
 async function upsertLabelCategory(
   repo: ReturnType<typeof AppDataSource.getRepository<LabelCategory>>,
   seed: LabelCategorySeed,
@@ -969,6 +1072,9 @@ async function seed(): Promise<void> {
   const protocolRepo = AppDataSource.getRepository(IngredientProtocol);
   const protocolLabelRepo = AppDataSource.getRepository(ProtocolLabel);
   const conflictRepo = AppDataSource.getRepository(IngredientConflict);
+  const clinicRepo = AppDataSource.getRepository(Clinic);
+  const userRepo = AppDataSource.getRepository(User);
+  const expertRepo = AppDataSource.getRepository(Expert);
 
   const categoriesByCode = new Map<string, LabelCategory>();
   for (const cat of LABEL_CATEGORIES) {
@@ -1163,6 +1269,78 @@ async function seed(): Promise<void> {
       existing.severity = conflict.severity;
       existing.reason = conflict.reason;
       await conflictRepo.save(existing);
+    }
+  }
+
+  for (const clinicSeed of CLINICS) {
+    let clinic = await clinicRepo.findOneBy({ name: clinicSeed.name });
+    if (!clinic) {
+      clinic = await clinicRepo.save(
+        clinicRepo.create({
+          name: clinicSeed.name,
+          address: clinicSeed.address,
+          latitude: clinicSeed.latitude,
+          longitude: clinicSeed.longitude,
+          isActive: true,
+        }),
+      );
+    } else {
+      clinic.address = clinicSeed.address;
+      clinic.latitude = clinicSeed.latitude;
+      clinic.longitude = clinicSeed.longitude;
+      clinic.isActive = true;
+      clinic = await clinicRepo.save(clinic);
+    }
+
+    for (const expertSeed of clinicSeed.experts) {
+      let user = await userRepo.findOneBy({
+        keycloakSub: expertSeed.keycloakSub,
+      });
+      if (!user) {
+        user = await userRepo.save(
+          userRepo.create({
+            keycloakSub: expertSeed.keycloakSub,
+            email: expertSeed.email,
+            name: expertSeed.name,
+            provider: 'keycloak',
+            roles: [Role.Expert],
+            clinicId: clinic.id,
+            isActive: true,
+          }),
+        );
+      } else {
+        user.email = expertSeed.email;
+        user.name = expertSeed.name;
+        user.roles = [Role.Expert];
+        user.clinicId = clinic.id;
+        user.isActive = true;
+        user = await userRepo.save(user);
+      }
+
+      const expert = await expertRepo.findOneBy({ userId: user.id });
+      if (!expert) {
+        await expertRepo.save(
+          expertRepo.create({
+            userId: user.id,
+            clinicId: clinic.id,
+            specialization: expertSeed.specialization,
+            licenseNumber: expertSeed.licenseNumber,
+            bio: expertSeed.bio,
+            rating: expertSeed.rating,
+            consultationFee: expertSeed.consultationFee,
+            isActive: true,
+          }),
+        );
+      } else {
+        expert.clinicId = clinic.id;
+        expert.specialization = expertSeed.specialization;
+        expert.licenseNumber = expertSeed.licenseNumber;
+        expert.bio = expertSeed.bio;
+        expert.rating = expertSeed.rating;
+        expert.consultationFee = expertSeed.consultationFee;
+        expert.isActive = true;
+        await expertRepo.save(expert);
+      }
     }
   }
 
