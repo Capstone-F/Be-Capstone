@@ -199,6 +199,9 @@ export class InitialSchema1749900000000 implements MigrationInterface {
         CONSTRAINT "PK_stock_batches" PRIMARY KEY ("id")
       )
     `);
+    await queryRunner.query(`
+      ALTER TABLE "stock_batches" ADD COLUMN IF NOT EXISTS "productId" uuid
+    `);
     await this.addForeignKeyIfMissing(
       queryRunner,
       'stock_batches',
