@@ -231,6 +231,9 @@ export class InitialSchema1749900000000 implements MigrationInterface {
     constraintName: string,
     definition: string,
   ): Promise<void> {
+    // Also catch undefined_column (42703): pre-existing tables created by
+    // TypeORM synchronize may have different column names than this initial
+    // schema. Subsequent migrations rebuild the correct final schema anyway.
     await queryRunner.query(`
       DO $$ BEGIN
         ALTER TABLE "${table}"
@@ -238,6 +241,7 @@ export class InitialSchema1749900000000 implements MigrationInterface {
         FOREIGN KEY ${definition};
       EXCEPTION
         WHEN duplicate_object THEN NULL;
+        WHEN undefined_column THEN NULL;
       END $$;
     `);
   }

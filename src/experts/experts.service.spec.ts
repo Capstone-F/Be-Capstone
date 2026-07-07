@@ -15,6 +15,7 @@ const makeExpert = (overrides: Partial<Expert> = {}): Expert => ({
   bio: 'Expert bio',
   rating: 4.5,
   consultationFee: 300000,
+  sessionLengthHours: 1,
   isActive: true,
   user: {
     id: 'user-1',

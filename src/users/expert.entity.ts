@@ -46,6 +46,9 @@ export class Expert {
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
   consultationFee: number;
 
+  @Column({ type: 'int', default: 1 })
+  sessionLengthHours: number;
+
   @Column({ default: true })
   isActive: boolean;
 

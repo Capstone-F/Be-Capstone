@@ -21,6 +21,7 @@ import { SupportHabitType } from '../../routines/enums';
 import { Clinic } from '../../clinics/clinic.entity';
 import { User } from '../../users/user.entity';
 import { Expert } from '../../users/expert.entity';
+import { ExpertAvailability } from '../../bookings/expert-availability.entity';
 import { ExpertSpecialty } from '../../experts/expert-specialty.enum';
 import { Role } from '../../auth/roles.enum';
 
@@ -885,7 +886,26 @@ type ExpertSeed = {
   bio: string;
   rating: number;
   consultationFee: number;
+  sessionLengthHours: number;
 };
+
+/** Mon-Fri recurring availability blocks (dayOfWeek 1-5). */
+const DEFAULT_EXPERT_AVAILABILITY: Array<{
+  dayOfWeek: number;
+  startHour: number;
+  endHour: number;
+}> = [
+  { dayOfWeek: 1, startHour: 9, endHour: 12 },
+  { dayOfWeek: 1, startHour: 13, endHour: 18 },
+  { dayOfWeek: 2, startHour: 9, endHour: 12 },
+  { dayOfWeek: 2, startHour: 13, endHour: 18 },
+  { dayOfWeek: 3, startHour: 9, endHour: 12 },
+  { dayOfWeek: 3, startHour: 13, endHour: 18 },
+  { dayOfWeek: 4, startHour: 9, endHour: 12 },
+  { dayOfWeek: 4, startHour: 13, endHour: 18 },
+  { dayOfWeek: 5, startHour: 9, endHour: 12 },
+  { dayOfWeek: 5, startHour: 13, endHour: 18 },
+];
 
 type ClinicSeed = {
   name: string;
@@ -911,6 +931,7 @@ const CLINICS: ClinicSeed[] = [
         bio: 'Board-certified dermatologist with 12 years of clinical experience.',
         rating: 4.8,
         consultationFee: 400000,
+        sessionLengthHours: 1,
       },
       {
         keycloakSub: 'seed-expert-d1-acne',
@@ -921,6 +942,7 @@ const CLINICS: ClinicSeed[] = [
         bio: 'Specialist in inflammatory acne and scar management.',
         rating: 4.6,
         consultationFee: 350000,
+        sessionLengthHours: 2,
       },
       {
         keycloakSub: 'seed-expert-d1-laser',
@@ -931,6 +953,7 @@ const CLINICS: ClinicSeed[] = [
         bio: 'Laser and light-based therapy expert for pigmentation and rejuvenation.',
         rating: 4.7,
         consultationFee: 500000,
+        sessionLengthHours: 1,
       },
     ],
   },
@@ -949,6 +972,7 @@ const CLINICS: ClinicSeed[] = [
         bio: 'Cosmetic dermatologist focused on non-invasive facial aesthetics.',
         rating: 4.9,
         consultationFee: 550000,
+        sessionLengthHours: 2,
       },
       {
         keycloakSub: 'seed-expert-d3-antiaging',
@@ -959,6 +983,7 @@ const CLINICS: ClinicSeed[] = [
         bio: 'Anti-aging medicine specialist with a focus on collagen restoration.',
         rating: 4.5,
         consultationFee: 450000,
+        sessionLengthHours: 1,
       },
       {
         keycloakSub: 'seed-expert-d3-pigment',
@@ -969,6 +994,7 @@ const CLINICS: ClinicSeed[] = [
         bio: 'Pigmentation disorder specialist treating melasma and PIH.',
         rating: 4.4,
         consultationFee: 380000,
+        sessionLengthHours: 2,
       },
     ],
   },
@@ -1075,6 +1101,7 @@ async function seed(): Promise<void> {
   const clinicRepo = AppDataSource.getRepository(Clinic);
   const userRepo = AppDataSource.getRepository(User);
   const expertRepo = AppDataSource.getRepository(Expert);
+  const availabilityRepo = AppDataSource.getRepository(ExpertAvailability);
 
   const categoriesByCode = new Map<string, LabelCategory>();
   for (const cat of LABEL_CATEGORIES) {
@@ -1318,8 +1345,9 @@ async function seed(): Promise<void> {
       }
 
       const expert = await expertRepo.findOneBy({ userId: user.id });
+      let savedExpert: Expert;
       if (!expert) {
-        await expertRepo.save(
+        savedExpert = await expertRepo.save(
           expertRepo.create({
             userId: user.id,
             clinicId: clinic.id,
@@ -1328,6 +1356,7 @@ async function seed(): Promise<void> {
             bio: expertSeed.bio,
             rating: expertSeed.rating,
             consultationFee: expertSeed.consultationFee,
+            sessionLengthHours: expertSeed.sessionLengthHours,
             isActive: true,
           }),
         );
@@ -1338,8 +1367,21 @@ async function seed(): Promise<void> {
         expert.bio = expertSeed.bio;
         expert.rating = expertSeed.rating;
         expert.consultationFee = expertSeed.consultationFee;
+        expert.sessionLengthHours = expertSeed.sessionLengthHours;
         expert.isActive = true;
-        await expertRepo.save(expert);
+        savedExpert = await expertRepo.save(expert);
+      }
+
+      await availabilityRepo.delete({ expertId: savedExpert.id });
+      for (const block of DEFAULT_EXPERT_AVAILABILITY) {
+        await availabilityRepo.save(
+          availabilityRepo.create({
+            expertId: savedExpert.id,
+            dayOfWeek: block.dayOfWeek,
+            startHour: block.startHour,
+            endHour: block.endHour,
+          }),
+        );
       }
     }
   }

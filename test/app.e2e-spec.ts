@@ -50,6 +50,10 @@ import {
 import { StockModule } from '../src/stock/stock.module';
 import { ProductsModule } from '../src/products/products.module';
 import { ExpertsModule } from '../src/experts/experts.module';
+import { BookingsModule } from '../src/bookings/bookings.module';
+import { ExpertAvailability } from '../src/bookings/expert-availability.entity';
+import { ConsultationRequest } from '../src/consultations/consultation-request.entity';
+import { ConsultationStatus } from '../src/consultations/enums';
 import { StockBatch } from '../src/stock/stock-batch.entity';
 import { StockMovement } from '../src/stock/stock-movement.entity';
 import { ProductInstance } from '../src/stock/product-instance.entity';
@@ -116,6 +120,7 @@ describe('BE Capstone API (e2e)', () => {
         StockModule,
         ProductsModule,
         ExpertsModule,
+        BookingsModule,
         TypeOrmModule.forRoot(e2eTypeOrmConfig),
       ],
       controllers: [AppController, HealthController],
@@ -1276,6 +1281,192 @@ describe('BE Capstone API (e2e)', () => {
         expect(body.consultationFee).toBe(250000);
         expect(body.rating).toBe(4.5);
         expect(body.clinicName).toBeTruthy();
+      });
+    });
+  });
+
+  // ─── Bookings module endpoints ──────────────────────────────────
+
+  describe('Bookings module endpoints', () => {
+    let customerSid: string;
+
+    beforeEach(async () => {
+      customerSid = await performMockLogin({
+        userId: 'customer-bookings-e2e',
+        keycloakSub: 'kc-customer-bookings-e2e',
+        roles: [Role.Customer],
+      });
+      jest
+        .spyOn(authService, 'refreshTokenIfNeeded')
+        .mockResolvedValue(undefined);
+    });
+
+    async function seedExpertForBookings(
+      overrides: {
+        name?: string;
+        sessionLengthHours?: number;
+        isActive?: boolean;
+      } = {},
+    ): Promise<Expert> {
+      const clinic = await dataSource.getRepository(Clinic).save(
+        dataSource.getRepository(Clinic).create({
+          name: `Booking Clinic ${Math.random().toString(36).slice(2, 6)}`,
+          address: 'E2E Address',
+        }),
+      );
+
+      const user = await seedUser({
+        keycloakSub: `kc-booking-expert-${Math.random().toString(36).slice(2)}`,
+        email: 'booking-expert@example.com',
+        name: overrides.name ?? 'Dr. Booking Expert',
+        roles: [Role.Expert],
+        clinicId: clinic.id,
+      });
+
+      return dataSource.getRepository(Expert).save(
+        dataSource.getRepository(Expert).create({
+          userId: user.id,
+          clinicId: clinic.id,
+          specialization: ExpertSpecialty.DERMATOLOGY,
+          licenseNumber: 'LIC-BOOKING',
+          bio: 'Booking e2e expert',
+          rating: 4.5,
+          consultationFee: 300000,
+          sessionLengthHours: overrides.sessionLengthHours ?? 2,
+          isActive: overrides.isActive ?? true,
+        }),
+      );
+    }
+
+    async function seedAvailability(
+      expertId: string,
+      blocks: Array<{ dayOfWeek: number; startHour: number; endHour: number }>,
+    ): Promise<void> {
+      const repo = dataSource.getRepository(ExpertAvailability);
+      for (const block of blocks) {
+        await repo.save(
+          repo.create({
+            expertId,
+            dayOfWeek: block.dayOfWeek,
+            startHour: block.startHour,
+            endHour: block.endHour,
+          }),
+        );
+      }
+    }
+
+    async function seedConsultation(options: {
+      expertId: string;
+      scheduledAt: Date;
+      status?: ConsultationStatus;
+    }): Promise<ConsultationRequest> {
+      const user = await seedUser({
+        keycloakSub: `kc-booking-customer-${Math.random().toString(36).slice(2)}`,
+        email: 'booking-customer@example.com',
+        name: 'Booking Customer',
+        roles: [Role.Customer],
+      });
+      const customer = await dataSource
+        .getRepository(Customer)
+        .save(dataSource.getRepository(Customer).create({ userId: user.id }));
+
+      return dataSource.getRepository(ConsultationRequest).save(
+        dataSource.getRepository(ConsultationRequest).create({
+          customerId: customer.id,
+          expertId: options.expertId,
+          reason: 'E2E booking',
+          status: options.status ?? ConsultationStatus.CONFIRMED,
+          scheduledAt: options.scheduledAt,
+        }),
+      );
+    }
+
+    describe('GET /bookings/:expertId', () => {
+      it('should return 401 without session cookie', async () => {
+        await request(app.getHttpServer())
+          .get('/bookings/00000000-0000-0000-0000-000000000001')
+          .expect(401);
+      });
+
+      it('should return 404 when expert does not exist', async () => {
+        await request(app.getHttpServer())
+          .get('/bookings/00000000-0000-0000-0000-000000000099')
+          .set('Cookie', customerSid)
+          .expect(404);
+      });
+
+      it('should return hourly-stepped slots spanning sessionLengthHours', async () => {
+        const expert = await seedExpertForBookings({ sessionLengthHours: 2 });
+        await seedAvailability(expert.id, [
+          { dayOfWeek: 2, startHour: 9, endHour: 18 },
+        ]);
+
+        const { body } = await request(app.getHttpServer())
+          .get(`/bookings/${expert.id}?date=2026-07-07`)
+          .set('Cookie', customerSid)
+          .expect(200);
+
+        expect(body.expertId).toBe(expert.id);
+        expect(body.sessionLengthHours).toBe(2);
+        expect(body.range).toBe('week');
+        expect(body.from).toBe('2026-07-06');
+        expect(body.to).toBe('2026-07-12');
+
+        const tuesday = body.days.find(
+          (d: { date: string }) => d.date === '2026-07-07',
+        );
+        expect(tuesday).toBeDefined();
+        expect(tuesday.slots).toHaveLength(8);
+        expect(
+          tuesday.slots.every((s: { available: boolean }) => s.available),
+        ).toBe(true);
+        expect(new Date(tuesday.slots[0].startAt).getUTCHours()).toBe(9);
+        expect(new Date(tuesday.slots[0].endAt).getUTCHours()).toBe(11);
+      });
+
+      it('should return month range when range=month', async () => {
+        const expert = await seedExpertForBookings({ sessionLengthHours: 1 });
+
+        const { body } = await request(app.getHttpServer())
+          .get(`/bookings/${expert.id}?date=2026-07-15&range=month`)
+          .set('Cookie', customerSid)
+          .expect(200);
+
+        expect(body.range).toBe('month');
+        expect(body.from).toBe('2026-07-01');
+        expect(body.to).toBe('2026-07-31');
+        expect(body.days).toHaveLength(31);
+      });
+
+      it('should mark overlapping candidate starts unavailable when booked at 10:00', async () => {
+        const expert = await seedExpertForBookings({ sessionLengthHours: 2 });
+        await seedAvailability(expert.id, [
+          { dayOfWeek: 2, startHour: 9, endHour: 18 },
+        ]);
+        await seedConsultation({
+          expertId: expert.id,
+          scheduledAt: new Date('2026-07-07T10:00:00.000Z'),
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .get(`/bookings/${expert.id}?date=2026-07-07`)
+          .set('Cookie', customerSid)
+          .expect(200);
+
+        const tuesday = body.days.find(
+          (d: { date: string }) => d.date === '2026-07-07',
+        );
+        const byStartHour = (hour: number) =>
+          tuesday.slots.find(
+            (s: { startAt: string }) =>
+              new Date(s.startAt).getUTCHours() === hour,
+          );
+
+        expect(byStartHour(9).available).toBe(false);
+        expect(byStartHour(10).available).toBe(false);
+        expect(byStartHour(11).available).toBe(false);
+        expect(byStartHour(12).available).toBe(true);
+        expect(byStartHour(16).available).toBe(true);
       });
     });
   });
