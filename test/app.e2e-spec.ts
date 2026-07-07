@@ -1552,6 +1552,308 @@ describe('BE Capstone API (e2e)', () => {
         expect(byStartHour(16).available).toBe(true);
       });
     });
+
+    describe('POST /bookings', () => {
+      const futureSlot = '2030-01-09T09:00:00.000Z'; // Wednesday
+
+      it('should return 401 without session cookie', async () => {
+        await request(app.getHttpServer())
+          .post('/bookings')
+          .send({
+            expertId: '00000000-0000-0000-0000-000000000001',
+            scheduledAt: futureSlot,
+          })
+          .expect(401);
+      });
+
+      it('should return 403 when caller is not a customer', async () => {
+        const expertSid = await performMockLogin({
+          userId: 'expert-booking-create',
+          keycloakSub: 'kc-expert-booking-create',
+          roles: [Role.Expert],
+        });
+
+        await request(app.getHttpServer())
+          .post('/bookings')
+          .set('Cookie', expertSid)
+          .send({
+            expertId: '00000000-0000-0000-0000-000000000001',
+            scheduledAt: futureSlot,
+          })
+          .expect(403);
+      });
+
+      it('should return 404 when expert does not exist', async () => {
+        await request(app.getHttpServer())
+          .post('/bookings')
+          .set('Cookie', customerSid)
+          .send({
+            expertId: '00000000-0000-4000-8000-000000000099',
+            scheduledAt: futureSlot,
+          })
+          .expect(404);
+      });
+
+      it('should return 400 when scheduledAt is in the past', async () => {
+        const expert = await seedExpertForBookings();
+        await seedAvailability(expert.id, [
+          { dayOfWeek: 3, startHour: 9, endHour: 18 },
+        ]);
+
+        await request(app.getHttpServer())
+          .post('/bookings')
+          .set('Cookie', customerSid)
+          .send({
+            expertId: expert.id,
+            scheduledAt: '2020-01-08T09:00:00.000Z',
+          })
+          .expect(400);
+      });
+
+      it('should return 400 when scheduledAt is outside expert availability', async () => {
+        const expert = await seedExpertForBookings();
+
+        await request(app.getHttpServer())
+          .post('/bookings')
+          .set('Cookie', customerSid)
+          .send({
+            expertId: expert.id,
+            scheduledAt: futureSlot,
+          })
+          .expect(400);
+      });
+
+      it('should return 409 when the slot is already booked', async () => {
+        const expert = await seedExpertForBookings({ sessionLengthHours: 2 });
+        await seedAvailability(expert.id, [
+          { dayOfWeek: 3, startHour: 9, endHour: 18 },
+        ]);
+        await seedConsultation({
+          expertId: expert.id,
+          scheduledAt: new Date(futureSlot),
+        });
+
+        await request(app.getHttpServer())
+          .post('/bookings')
+          .set('Cookie', customerSid)
+          .send({
+            expertId: expert.id,
+            scheduledAt: futureSlot,
+          })
+          .expect(409);
+      });
+
+      it('should create a consultation request and auto-create customer profile', async () => {
+        const user = await seedUser({
+          keycloakSub: 'kc-booking-create-customer',
+          email: 'booking-create@example.com',
+          name: 'Create Booking Customer',
+          roles: [Role.Customer],
+        });
+        const sid = await performMockLogin({
+          userId: user.id,
+          keycloakSub: user.keycloakSub,
+          roles: [Role.Customer],
+        });
+
+        const expert = await seedExpertForBookings({ sessionLengthHours: 2 });
+        await seedAvailability(expert.id, [
+          { dayOfWeek: 3, startHour: 9, endHour: 18 },
+        ]);
+
+        const { body } = await request(app.getHttpServer())
+          .post('/bookings')
+          .set('Cookie', sid)
+          .send({
+            expertId: expert.id,
+            scheduledAt: futureSlot,
+            reason: 'Need a skin consultation',
+          })
+          .expect(201);
+
+        expect(body.expertId).toBe(expert.id);
+        expect(body.status).toBe(ConsultationStatus.PENDING);
+        expect(body.reason).toBe('Need a skin consultation');
+        expect(body.scheduledAt).toBe(futureSlot);
+        expect(body.customerName).toBe('Create Booking Customer');
+        expect(body.expertName).toBe('Dr. Booking Expert');
+
+        const customer = await dataSource
+          .getRepository(Customer)
+          .findOne({ where: { userId: user.id } });
+        expect(customer).not.toBeNull();
+        expect(body.customerId).toBe(customer!.id);
+      });
+    });
+
+    describe('GET /bookings/me', () => {
+      it('should return 401 without session cookie', async () => {
+        await request(app.getHttpServer()).get('/bookings/me').expect(401);
+      });
+
+      it('should return customer bookings for the logged-in customer', async () => {
+        const user = await seedUser({
+          keycloakSub: 'kc-booking-list-customer',
+          email: 'booking-list@example.com',
+          name: 'List Booking Customer',
+          roles: [Role.Customer],
+        });
+        const customer = await dataSource
+          .getRepository(Customer)
+          .save(dataSource.getRepository(Customer).create({ userId: user.id }));
+        const expert = await seedExpertForBookings();
+        const consultation = await dataSource
+          .getRepository(ConsultationRequest)
+          .save(
+            dataSource.getRepository(ConsultationRequest).create({
+              customerId: customer.id,
+              expertId: expert.id,
+              reason: 'Listed booking',
+              status: ConsultationStatus.PENDING,
+              scheduledAt: new Date('2030-01-09T10:00:00.000Z'),
+            }),
+          );
+
+        const sid = await performMockLogin({
+          userId: user.id,
+          keycloakSub: user.keycloakSub,
+          roles: [Role.Customer],
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .get('/bookings/me')
+          .set('Cookie', sid)
+          .expect(200);
+
+        expect(body.total).toBe(1);
+        expect(body.items).toHaveLength(1);
+        expect(body.items[0].id).toBe(consultation.id);
+        expect(body.items[0].customerId).toBe(customer.id);
+        expect(body.items[0].status).toBe(ConsultationStatus.PENDING);
+      });
+
+      it('should return expert bookings when as=expert', async () => {
+        const clinic = await seedClinic('Expert List Clinic');
+        const expertUser = await seedUser({
+          keycloakSub: 'kc-booking-list-expert',
+          email: 'expert-list@example.com',
+          name: 'List Booking Expert',
+          roles: [Role.Expert],
+          clinicId: clinic.id,
+        });
+        const expert = await dataSource.getRepository(Expert).save(
+          dataSource.getRepository(Expert).create({
+            userId: expertUser.id,
+            clinicId: clinic.id,
+            specialization: ExpertSpecialty.DERMATOLOGY,
+            licenseNumber: 'LIC-LIST',
+            bio: 'List expert',
+            rating: 4.5,
+            consultationFee: 300000,
+            sessionLengthHours: 1,
+            isActive: true,
+          }),
+        );
+        const consultation = await seedConsultation({
+          expertId: expert.id,
+          scheduledAt: new Date('2030-01-09T11:00:00.000Z'),
+          status: ConsultationStatus.CONFIRMED,
+        });
+
+        const sid = await performMockLogin({
+          userId: expertUser.id,
+          keycloakSub: expertUser.keycloakSub,
+          roles: [Role.Expert],
+          clinicId: clinic.id,
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .get('/bookings/me?as=expert')
+          .set('Cookie', sid)
+          .expect(200);
+
+        expect(body.total).toBe(1);
+        expect(body.items).toHaveLength(1);
+        expect(body.items[0].id).toBe(consultation.id);
+        expect(body.items[0].expertId).toBe(expert.id);
+        expect(body.items[0].status).toBe(ConsultationStatus.CONFIRMED);
+      });
+
+      it('should return 403 when customer requests as=expert', async () => {
+        await request(app.getHttpServer())
+          .get('/bookings/me?as=expert')
+          .set('Cookie', customerSid)
+          .expect(403);
+      });
+
+      it('should return empty list when customer has no profile yet', async () => {
+        const user = await seedUser({
+          keycloakSub: 'kc-booking-no-profile',
+          email: 'no-profile@example.com',
+          name: 'No Profile Customer',
+          roles: [Role.Customer],
+        });
+        const sid = await performMockLogin({
+          userId: user.id,
+          keycloakSub: user.keycloakSub,
+          roles: [Role.Customer],
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .get('/bookings/me')
+          .set('Cookie', sid)
+          .expect(200);
+
+        expect(body.total).toBe(0);
+        expect(body.items).toEqual([]);
+      });
+
+      it('should filter bookings by status', async () => {
+        const user = await seedUser({
+          keycloakSub: 'kc-booking-status-filter',
+          email: 'status-filter@example.com',
+          name: 'Status Filter Customer',
+          roles: [Role.Customer],
+        });
+        const customer = await dataSource
+          .getRepository(Customer)
+          .save(dataSource.getRepository(Customer).create({ userId: user.id }));
+        const expert = await seedExpertForBookings();
+        await dataSource.getRepository(ConsultationRequest).save(
+          dataSource.getRepository(ConsultationRequest).create({
+            customerId: customer.id,
+            expertId: expert.id,
+            reason: 'Pending booking',
+            status: ConsultationStatus.PENDING,
+            scheduledAt: new Date('2030-01-09T12:00:00.000Z'),
+          }),
+        );
+        await dataSource.getRepository(ConsultationRequest).save(
+          dataSource.getRepository(ConsultationRequest).create({
+            customerId: customer.id,
+            expertId: expert.id,
+            reason: 'Completed booking',
+            status: ConsultationStatus.COMPLETED,
+            scheduledAt: new Date('2030-01-09T13:00:00.000Z'),
+          }),
+        );
+
+        const sid = await performMockLogin({
+          userId: user.id,
+          keycloakSub: user.keycloakSub,
+          roles: [Role.Customer],
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .get(`/bookings/me?status=${ConsultationStatus.PENDING}`)
+          .set('Cookie', sid)
+          .expect(200);
+
+        expect(body.total).toBe(1);
+        expect(body.items).toHaveLength(1);
+        expect(body.items[0].status).toBe(ConsultationStatus.PENDING);
+      });
+    });
   });
 
   // ─── Stock: POST /stock/batches ────────────────────────────────
