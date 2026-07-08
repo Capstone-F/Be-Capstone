@@ -23,6 +23,7 @@ import { ConsultationsModule } from './consultations/consultations.module';
 import { CommerceModule } from './commerce/commerce.module';
 import { DeliveryModule } from './delivery/delivery.module';
 import { RuleEngineModule } from './rule-engine/rule-engine.module';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { RuleEngineModule } from './rule-engine/rule-engine.module';
     CommerceModule,
     DeliveryModule,
     RuleEngineModule,
+    PaymentsModule,
     AuthModule,
     TypeOrmModule.forRootAsync({
       inject: [AppConfigService],

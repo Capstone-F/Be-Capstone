@@ -24,6 +24,9 @@ import { Expert } from '../../users/expert.entity';
 import { ExpertAvailability } from '../../bookings/expert-availability.entity';
 import { ExpertSpecialty } from '../../experts/expert-specialty.enum';
 import { Role } from '../../auth/roles.enum';
+import { Customer } from '../../users/customer.entity';
+import { Order } from '../../commerce/order.entity';
+import { OrderStatus } from '../../commerce/enums';
 
 type LabelCategorySeed = { code: string; name: string; description: string };
 type LabelSeed = {
@@ -1384,6 +1387,48 @@ async function seed(): Promise<void> {
         );
       }
     }
+  }
+
+  // Demo customer + a PENDING order for payment-flow testing (see docs/payments.md).
+  const customerRepo = AppDataSource.getRepository(Customer);
+  const orderRepo = AppDataSource.getRepository(Order);
+
+  let demoUser = await userRepo.findOneBy({
+    keycloakSub: 'seed-customer-demo',
+  });
+  if (!demoUser) {
+    demoUser = await userRepo.save(
+      userRepo.create({
+        keycloakSub: 'seed-customer-demo',
+        email: 'demo.customer@glowscan.example.com',
+        name: 'Demo Customer',
+        provider: 'keycloak',
+        roles: [Role.Customer],
+        isActive: true,
+      }),
+    );
+  }
+
+  let demoCustomer = await customerRepo.findOneBy({ userId: demoUser.id });
+  if (!demoCustomer) {
+    demoCustomer = await customerRepo.save(
+      customerRepo.create({ userId: demoUser.id }),
+    );
+  }
+
+  const existingPendingOrder = await orderRepo.findOneBy({
+    customerId: demoCustomer.id,
+    status: OrderStatus.PENDING,
+  });
+  if (!existingPendingOrder) {
+    const order = await orderRepo.save(
+      orderRepo.create({
+        customerId: demoCustomer.id,
+        status: OrderStatus.PENDING,
+        totalVnd: 199000,
+      }),
+    );
+    console.log(`Seeded PENDING order ${order.id} for demo customer`);
   }
 
   console.log('Seed completed successfully');
