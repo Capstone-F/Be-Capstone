@@ -15,6 +15,7 @@ import { AuthModule } from '../src/auth/auth.module';
 import { AuthController } from '../src/auth/auth.controller';
 import { AuthService } from '../src/auth/auth.service';
 import { UsersModule } from '../src/users/users.module';
+import { CustomersModule } from '../src/customers/customers.module';
 import { ConfigModule } from '../src/config/config.module';
 import { AppConfigService } from '../src/config/config.service';
 import { User } from '../src/users/user.entity';
@@ -35,8 +36,12 @@ import {
 } from '../src/ingredients/enums';
 import { Label } from '../src/survey/label.entity';
 import { LabelCategory } from '../src/survey/label-category.entity';
+import { Answer } from '../src/survey/answer.entity';
+import { AnswerLabel } from '../src/survey/answer-label.entity';
+import { Question } from '../src/survey/question.entity';
 import { CustomerSurvey } from '../src/survey/customer-survey.entity';
 import { Customer } from '../src/users/customer.entity';
+import { Gender } from '../src/users/gender.enum';
 import { Expert } from '../src/users/expert.entity';
 import { ExpertSpecialty } from '../src/experts/expert-specialty.enum';
 import { CustomerSkinTypeDetails } from '../src/users/customer-skin-type-details.entity';
@@ -121,6 +126,7 @@ describe('BE Capstone API (e2e)', () => {
         KeycloakAdminModule,
         LoggerModule.forRoot({ pinoHttp: { level: 'silent' } }),
         UsersModule,
+        CustomersModule,
         AuthModule,
         StockModule,
         ProductsModule,
@@ -507,6 +513,316 @@ describe('BE Capstone API (e2e)', () => {
       expect(body.name).toBe('E2E User');
       expect(body.provider).toBe('keycloak');
       expect(body.isActive).toBe(true);
+    });
+  });
+
+  // ─── Customers: GET/PATCH /customers/me ──────────────────────────
+
+  describe('GET /customers/me', () => {
+    it('should return 401 without session', async () => {
+      await request(app.getHttpServer()).get('/customers/me').expect(401);
+    });
+
+    it('should return empty customer profile before customer row exists', async () => {
+      const user = await seedUser({
+        keycloakSub: 'kc-customer-profile-empty',
+        email: 'customer-empty@example.com',
+        roles: [Role.Customer],
+      });
+      const sid = await performMockLogin({
+        userId: user.id,
+        keycloakSub: user.keycloakSub,
+        roles: [Role.Customer],
+      });
+
+      jest
+        .spyOn(authService, 'refreshTokenIfNeeded')
+        .mockResolvedValueOnce(undefined);
+
+      const { body } = await request(app.getHttpServer())
+        .get('/customers/me')
+        .set('Cookie', sid)
+        .expect(200);
+
+      expect(body.customer).toBeNull();
+      expect(body.allergies).toEqual([]);
+      expect(body.surveyHistory).toEqual([]);
+    });
+  });
+
+  describe('PATCH /customers/me', () => {
+    async function getOrCreateAllergyCategory(): Promise<LabelCategory> {
+      const categoryRepo = dataSource.getRepository(LabelCategory);
+      const existing = await categoryRepo.findOneBy({ code: 'ALLERGY' });
+      if (existing) {
+        return existing;
+      }
+      return categoryRepo.save(
+        categoryRepo.create({
+          code: 'ALLERGY',
+          name: 'Allergy',
+        }),
+      );
+    }
+
+    async function upsertAllergyLabel(
+      code: string,
+      name: string,
+      categoryId: string,
+    ): Promise<Label> {
+      const labelRepo = dataSource.getRepository(Label);
+      const existing = await labelRepo.findOneBy({ code });
+      if (existing) {
+        return existing;
+      }
+      return labelRepo.save(
+        labelRepo.create({
+          categoryId,
+          code,
+          name,
+          isActive: true,
+        }),
+      );
+    }
+
+    it('should update customer profile and allergies', async () => {
+      const allergyCategory = await getOrCreateAllergyCategory();
+      const fragrance = await upsertAllergyLabel(
+        'FRAGRANCE',
+        'Fragrance',
+        allergyCategory.id,
+      );
+      await upsertAllergyLabel('RETINOIDS', 'Retinoids', allergyCategory.id);
+
+      const suffix = Math.random().toString(36).slice(2, 8);
+      const user = await seedUser({
+        keycloakSub: `kc-customer-patch-${suffix}`,
+        email: `customer-patch-${suffix}@example.com`,
+        roles: [Role.Customer],
+      });
+      const sid = await performMockLogin({
+        userId: user.id,
+        keycloakSub: user.keycloakSub,
+        roles: [Role.Customer],
+      });
+
+      jest
+        .spyOn(authService, 'refreshTokenIfNeeded')
+        .mockResolvedValue(undefined);
+
+      const patchRes = await request(app.getHttpServer())
+        .patch('/customers/me')
+        .set('Cookie', sid)
+        .send({
+          phone: '+84901234567',
+          avatarUrl: 'https://cdn.example.com/avatar.jpg',
+          dateOfBirth: '1995-06-15',
+          gender: Gender.FEMALE,
+          allergyLabelCodes: ['FRAGRANCE'],
+        })
+        .expect(200);
+
+      expect(patchRes.body.customer).toEqual(
+        expect.objectContaining({
+          phone: '+84901234567',
+          avatarUrl: 'https://cdn.example.com/avatar.jpg',
+          dateOfBirth: '1995-06-15',
+          gender: Gender.FEMALE,
+        }),
+      );
+      expect(patchRes.body.allergies).toEqual([
+        expect.objectContaining({
+          id: fragrance.id,
+          code: 'FRAGRANCE',
+          name: 'Fragrance',
+        }),
+      ]);
+
+      const getRes = await request(app.getHttpServer())
+        .get('/customers/me')
+        .set('Cookie', sid)
+        .expect(200);
+
+      expect(getRes.body.customer.phone).toBe('+84901234567');
+      expect(getRes.body.allergies).toHaveLength(1);
+    });
+
+    it('should replace and clear allergies', async () => {
+      const allergyCategory = await getOrCreateAllergyCategory();
+      await upsertAllergyLabel('FRAGRANCE', 'Fragrance', allergyCategory.id);
+      await upsertAllergyLabel('RETINOIDS', 'Retinoids', allergyCategory.id);
+
+      const suffix = Math.random().toString(36).slice(2, 8);
+      const user = await seedUser({
+        keycloakSub: `kc-customer-clear-${suffix}`,
+        email: `customer-clear-${suffix}@example.com`,
+        roles: [Role.Customer],
+      });
+      const sid = await performMockLogin({
+        userId: user.id,
+        keycloakSub: user.keycloakSub,
+        roles: [Role.Customer],
+      });
+
+      jest
+        .spyOn(authService, 'refreshTokenIfNeeded')
+        .mockResolvedValue(undefined);
+
+      await request(app.getHttpServer())
+        .patch('/customers/me')
+        .set('Cookie', sid)
+        .send({ allergyLabelCodes: ['FRAGRANCE', 'RETINOIDS'] })
+        .expect(200);
+
+      const replaced = await request(app.getHttpServer())
+        .patch('/customers/me')
+        .set('Cookie', sid)
+        .send({ allergyLabelCodes: ['RETINOIDS'] })
+        .expect(200);
+
+      expect(replaced.body.allergies).toHaveLength(1);
+      expect(replaced.body.allergies[0].code).toBe('RETINOIDS');
+
+      const cleared = await request(app.getHttpServer())
+        .patch('/customers/me')
+        .set('Cookie', sid)
+        .send({ allergyLabelCodes: [] })
+        .expect(200);
+
+      expect(cleared.body.allergies).toEqual([]);
+    });
+
+    it('should return 400 for invalid gender, future DOB, and unknown allergy code', async () => {
+      await getOrCreateAllergyCategory();
+
+      const user = await seedUser({
+        keycloakSub: 'kc-customer-invalid',
+        email: 'customer-invalid@example.com',
+        roles: [Role.Customer],
+      });
+      const sid = await performMockLogin({
+        userId: user.id,
+        keycloakSub: user.keycloakSub,
+        roles: [Role.Customer],
+      });
+
+      jest
+        .spyOn(authService, 'refreshTokenIfNeeded')
+        .mockResolvedValue(undefined);
+
+      await request(app.getHttpServer())
+        .patch('/customers/me')
+        .set('Cookie', sid)
+        .send({ gender: 'INVALID_GENDER' })
+        .expect(400);
+
+      await request(app.getHttpServer())
+        .patch('/customers/me')
+        .set('Cookie', sid)
+        .send({ dateOfBirth: '2099-01-01' })
+        .expect(400);
+
+      await request(app.getHttpServer())
+        .patch('/customers/me')
+        .set('Cookie', sid)
+        .send({ allergyLabelCodes: ['DOES_NOT_EXIST'] })
+        .expect(400);
+    });
+
+    it('should include survey history in GET /customers/me', async () => {
+      const suffix = Math.random().toString(36).slice(2, 8);
+      const user = await seedUser({
+        keycloakSub: `kc-customer-survey-${suffix}`,
+        email: `customer-survey-${suffix}@example.com`,
+        roles: [Role.Customer],
+      });
+      const customer = await dataSource.getRepository(Customer).save(
+        dataSource.getRepository(Customer).create({
+          userId: user.id,
+          gender: Gender.FEMALE,
+        }),
+      );
+
+      const questionRepo = dataSource.getRepository(Question);
+      const surveyRepo = dataSource.getRepository(CustomerSurvey);
+      const answerRepo = dataSource.getRepository(Answer);
+      const answerLabelRepo = dataSource.getRepository(AnswerLabel);
+      const categoryRepo = dataSource.getRepository(LabelCategory);
+      const labelRepo = dataSource.getRepository(Label);
+
+      const question = await questionRepo.save(
+        questionRepo.create({
+          code: `Q_E2E_${suffix}`,
+          text: 'Do you have sensitive skin?',
+          displayOrder: 1,
+          isActive: true,
+        }),
+      );
+      const labelCategory = await categoryRepo.save(
+        categoryRepo.create({
+          code: `CONCERN_E2E_${suffix}`,
+          name: 'Skin Concern',
+        }),
+      );
+      const label = await labelRepo.save(
+        labelRepo.create({
+          categoryId: labelCategory.id,
+          code: `SENSITIVE_E2E_${suffix}`,
+          name: 'Sensitive Skin',
+          isActive: true,
+        }),
+      );
+      const survey = await surveyRepo.save(
+        surveyRepo.create({
+          customerId: customer.id,
+          isCompleted: true,
+          completedAt: new Date('2026-02-01'),
+        }),
+      );
+      const answer = await answerRepo.save(
+        answerRepo.create({
+          surveyId: survey.id,
+          questionId: question.id,
+          value: 'yes',
+        }),
+      );
+      await answerLabelRepo.save(
+        answerLabelRepo.create({
+          answerId: answer.id,
+          labelId: label.id,
+        }),
+      );
+
+      const sid = await performMockLogin({
+        userId: user.id,
+        keycloakSub: user.keycloakSub,
+        roles: [Role.Customer],
+      });
+
+      jest
+        .spyOn(authService, 'refreshTokenIfNeeded')
+        .mockResolvedValueOnce(undefined);
+
+      const { body } = await request(app.getHttpServer())
+        .get('/customers/me')
+        .set('Cookie', sid)
+        .expect(200);
+
+      expect(body.surveyHistory).toHaveLength(1);
+      expect(body.surveyHistory[0]).toEqual(
+        expect.objectContaining({
+          id: survey.id,
+          isCompleted: true,
+        }),
+      );
+      expect(body.surveyHistory[0].answers[0]).toEqual(
+        expect.objectContaining({
+          questionCode: question.code,
+          questionText: question.text,
+          value: 'yes',
+          labels: [{ code: label.code, name: label.name }],
+        }),
+      );
     });
   });
 
