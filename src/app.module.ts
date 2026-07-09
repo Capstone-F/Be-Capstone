@@ -9,6 +9,7 @@ import { ConfigModule } from './config/config.module';
 import { AppConfigService } from './config/config.service';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { CustomersModule } from './customers/customers.module';
 import { StockModule } from './stock/stock.module';
 import { KeycloakAdminModule } from './keycloak/keycloak-admin.module';
 import { ClinicsModule } from './clinics/clinics.module';
@@ -45,6 +46,7 @@ import { RedisModule } from './redis/redis.module';
       }),
     }),
     UsersModule,
+    CustomersModule,
     ClinicsModule,
     SurveyModule,
     IngredientsModule,
