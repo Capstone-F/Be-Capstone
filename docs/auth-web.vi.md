@@ -1,8 +1,10 @@
-# Hướng dẫn Authentication (BFF Pattern)
+# Hướng dẫn Authentication — Web (BFF Pattern)
 
-[English version](auth.md)
+[English version](auth-web.md) · [Hướng dẫn mobile](auth-mobile.vi.md)
 
-Tài liệu này hướng dẫn frontend tích hợp với backend authentication API. Backend sử dụng **BFF (Backend For Frontend)** pattern — mọi tương tác với Keycloak đều diễn ra ở phía server. Frontend chỉ cần làm việc với **session cookie**, không bao giờ phải xử lý token.
+Tài liệu này hướng dẫn **web SPA** tích hợp với backend authentication API. Backend sử dụng **BFF (Backend For Frontend)** pattern — mọi tương tác với Keycloak đều diễn ra ở phía server. Frontend chỉ cần làm việc với **session cookie**, không bao giờ phải xử lý token.
+
+Cho Expo / React Native, xem [auth-mobile.vi.md](auth-mobile.vi.md).
 
 ---
 

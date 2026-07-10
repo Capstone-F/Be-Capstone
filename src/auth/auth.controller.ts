@@ -26,6 +26,8 @@ import { AuthService } from './auth.service';
 import { SessionGuard } from './guards/session.guard';
 import { AppConfigService } from '../config/config.service';
 import { LoginPostDto } from './dto/login-post.dto';
+import { MobileOauthStateService } from './mobile-oauth-state.service';
+import { MobileAuthCodeService } from './mobile-auth-code.service';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -35,16 +37,19 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly config: AppConfigService,
+    private readonly mobileOauthState: MobileOauthStateService,
+    private readonly mobileAuthCode: MobileAuthCodeService,
   ) {}
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Start login (SPA): return Keycloak login_uri',
+    summary: 'Start login (SPA or mobile): return Keycloak login_uri',
     description:
-      'Stores client_redirect_uri in the session, returns login_uri for the browser ' +
-      '(e.g. window.location.href = login_uri). After OAuth, GET /auth/callback ' +
-      'redirects the browser to client_redirect_uri.',
+      'Web: stores client_redirect_uri in the session cookie. ' +
+      'Mobile (whitelisted deep link): stores OAuth state in Redis (no session). ' +
+      'Returns login_uri for the browser / system browser. After OAuth, GET /auth/callback ' +
+      'redirects to client_redirect_uri (web) or deep link with a one-time code (mobile).',
   })
   @ApiBody({ type: LoginPostDto })
   @ApiOkResponse({
@@ -59,13 +64,19 @@ export class AuthController {
     },
   })
   async postLogin(@Body() body: LoginPostDto, @Req() req: Request) {
-    const clientUri = this.authService.validateClientRedirectUri(
+    const { uri: clientUri, flow } = this.authService.resolveClientRedirect(
       body?.client_redirect_uri,
     );
     const idpHint =
       typeof body?.idpHint === 'string' && body.idpHint.trim()
         ? body.idpHint.trim()
         : undefined;
+
+    if (flow === 'mobile') {
+      const state = await this.mobileOauthState.create(clientUri, idpHint);
+      const { url } = this.authService.buildLoginUrl(idpHint, state);
+      return { login_uri: url };
+    }
 
     const { url, state } = this.authService.buildLoginUrl(idpHint);
 
@@ -101,8 +112,9 @@ export class AuthController {
     summary: 'OAuth callback (Keycloak redirects here)',
     description:
       'Keycloak redirects the browser here after authentication. ' +
-      'The backend exchanges the code for tokens, stores them in the session, ' +
-      'and redirects to client_redirect_uri from POST /auth/login.',
+      'Web: exchanges the code for tokens, stores them in the session, redirects to SPA. ' +
+      'Mobile: exchanges the code, issues a one-time code, redirects to the deep link ' +
+      '(never puts access/refresh tokens in the URL).',
   })
   async callback(
     @Query('code') code: string,
@@ -111,6 +123,16 @@ export class AuthController {
     @Res() res: Response,
   ) {
     const defaultFront = this.config.frontendUrl;
+
+    // Mobile branch: Redis-backed state (no session cookie required).
+    if (state) {
+      const mobileState = await this.mobileOauthState.consume(state);
+      if (mobileState) {
+        await this.handleMobileCallback(code, mobileState, res);
+        return;
+      }
+    }
+
     const postLoginBase = req.session.clientRedirectUri ?? defaultFront;
 
     if (!code || !state) {
@@ -121,6 +143,16 @@ export class AuthController {
     }
 
     if (state !== req.session.oauthState) {
+      // No web session state — likely an expired/invalid mobile OAuth state.
+      if (!req.session.oauthState && this.config.mobileRedirectUris[0]) {
+        res.redirect(
+          this.authService.mobileErrorRedirectUrl(
+            this.config.mobileRedirectUris[0],
+            'state_mismatch',
+          ),
+        );
+        return;
+      }
       res.redirect(
         this.authService.authErrorUrl(postLoginBase, 'state_mismatch'),
       );
@@ -165,6 +197,59 @@ export class AuthController {
           req.session.clientRedirectUri ?? defaultFront,
           'exchange_failed',
         ),
+      );
+    }
+  }
+
+  private async handleMobileCallback(
+    code: string | undefined,
+    mobileState: {
+      clientRedirectUri: string;
+      idpHint?: string;
+    },
+    res: Response,
+  ): Promise<void> {
+    const deepLink = mobileState.clientRedirectUri;
+
+    if (!code) {
+      res.redirect(
+        this.authService.mobileErrorRedirectUrl(deepLink, 'missing_params'),
+      );
+      return;
+    }
+
+    try {
+      const result = await this.authService.exchangeCodeAndUpsertUser(
+        code,
+        mobileState.idpHint,
+      );
+
+      const expiresIn = Math.max(
+        1,
+        Math.floor((result.tokenExpiresAt - Date.now()) / 1000) + 30,
+      );
+
+      const mobileCode = await this.mobileAuthCode.issue({
+        userId: result.user.id,
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        tokenExpiresAt: result.tokenExpiresAt,
+        expiresIn,
+        roles: result.roles,
+        isNewUser: result.isNewUser,
+        idpHint: result.idpHint,
+      });
+
+      const separator = deepLink.includes('?') ? '&' : '?';
+      let redirect = `${deepLink}${separator}code=${encodeURIComponent(mobileCode)}`;
+      if (result.isNewUser) {
+        redirect += '&isNewUser=true';
+      }
+      res.redirect(redirect);
+    } catch (err) {
+      this.logger.error('Mobile OAuth callback failed', err);
+      res.redirect(
+        this.authService.mobileErrorRedirectUrl(deepLink, 'exchange_failed'),
       );
     }
   }

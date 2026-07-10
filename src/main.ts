@@ -57,6 +57,7 @@ async function bootstrap() {
         in: 'cookie',
         name: 'sid',
       })
+      .addBearerAuth()
       .build();
     const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
     SwaggerModule.setup('docs', app, swaggerDocument);

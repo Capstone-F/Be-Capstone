@@ -142,6 +142,27 @@ export const ENV_DEFINITIONS = {
     description:
       'Mobile deep link the return endpoint 302s to when checkout was initiated by the mobile client.',
   },
+  MOBILE_REDIRECT_URIS: {
+    required: false,
+    defaultValue: 'glowscan://auth/callback',
+    description:
+      'Comma-separated whitelist of mobile deep-link redirect URIs ' +
+      '(e.g. glowscan://auth/callback). Used by POST /auth/login for Expo.',
+  },
+  MOBILE_AUTH_CODE_TTL_SECONDS: {
+    required: false,
+    defaultValue: '120',
+    description:
+      'TTL in seconds for one-time mobile auth codes stored in Redis ' +
+      '(POST /auth/mobile/exchange).',
+  },
+  MOBILE_OAUTH_STATE_TTL_SECONDS: {
+    required: false,
+    defaultValue: '600',
+    description:
+      'TTL in seconds for mobile OAuth state entries stored in Redis ' +
+      '(POST /auth/login mobile flow).',
+  },
 } as const satisfies Record<string, EnvDefinition>;
 
 export type EnvKey = keyof typeof ENV_DEFINITIONS;
@@ -174,6 +195,9 @@ export type AppEnv = {
   VNP_IPN_URL: string;
   VNP_CLIENT_RETURN_URL: string;
   VNP_MOBILE_RETURN_URL: string;
+  MOBILE_REDIRECT_URIS: string[];
+  MOBILE_AUTH_CODE_TTL_SECONDS: number;
+  MOBILE_OAUTH_STATE_TTL_SECONDS: number;
 };
 
 export function getMissingRequiredEnv(
@@ -212,6 +236,32 @@ function parseOptionalBool(
   throw new Error(
     `Invalid ${varName} value "${value}". Use true/false, 1/0, or yes/no.`,
   );
+}
+
+function parsePositiveInt(
+  value: string | undefined,
+  varName: string,
+  defaultValue: string,
+): number {
+  const raw = value?.trim() || defaultValue;
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isNaN(parsed) || parsed <= 0) {
+    throw new Error(
+      `Invalid ${varName} value "${raw}". Must be a positive integer.`,
+    );
+  }
+  return parsed;
+}
+
+function parseCommaSeparatedList(
+  value: string | undefined,
+  defaultValue: string,
+): string[] {
+  const raw = value?.trim() || defaultValue;
+  return raw
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
 }
 
 export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
@@ -293,5 +343,19 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
     VNP_MOBILE_RETURN_URL:
       raw.VNP_MOBILE_RETURN_URL?.trim() ||
       ENV_DEFINITIONS.VNP_MOBILE_RETURN_URL.defaultValue,
+    MOBILE_REDIRECT_URIS: parseCommaSeparatedList(
+      raw.MOBILE_REDIRECT_URIS,
+      ENV_DEFINITIONS.MOBILE_REDIRECT_URIS.defaultValue,
+    ),
+    MOBILE_AUTH_CODE_TTL_SECONDS: parsePositiveInt(
+      raw.MOBILE_AUTH_CODE_TTL_SECONDS,
+      'MOBILE_AUTH_CODE_TTL_SECONDS',
+      ENV_DEFINITIONS.MOBILE_AUTH_CODE_TTL_SECONDS.defaultValue,
+    ),
+    MOBILE_OAUTH_STATE_TTL_SECONDS: parsePositiveInt(
+      raw.MOBILE_OAUTH_STATE_TTL_SECONDS,
+      'MOBILE_OAUTH_STATE_TTL_SECONDS',
+      ENV_DEFINITIONS.MOBILE_OAUTH_STATE_TTL_SECONDS.defaultValue,
+    ),
   };
 }

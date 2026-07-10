@@ -440,17 +440,34 @@ export class KnowledgeDrivenSchema1750000000000 implements MigrationInterface {
     await queryRunner.query(`
       ALTER TABLE "stock_batches" ADD COLUMN IF NOT EXISTS "productVariantId" uuid
     `);
-    await queryRunner.query(`
-      UPDATE "stock_batches" sb SET "productVariantId" = pv."id"
-      FROM "product_variants" pv
-      WHERE pv."productId" = sb."productId" AND sb."productVariantId" IS NULL
-    `);
-    await queryRunner.query(
-      `ALTER TABLE "stock_batches" DROP CONSTRAINT IF EXISTS "FK_stock_batches_product"`,
+    const stockBatchCols = (await queryRunner.query(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'stock_batches'
+        ORDER BY ordinal_position
+      `)) as Array<{ column_name: string }>;
+    const hasProductId = stockBatchCols.some(
+      (c) => c.column_name === 'productId',
     );
-    await queryRunner.query(
-      `ALTER TABLE "stock_batches" DROP COLUMN IF EXISTS "productId"`,
-    );
+    // Stale volumes may already have productVariantId-only schema (CREATE IF NOT EXISTS
+    // in InitialSchema skips recreating the table). Only backfill when productId exists.
+    if (hasProductId) {
+      await queryRunner.query(`
+        UPDATE "stock_batches" sb SET "productVariantId" = pv."id"
+        FROM "product_variants" pv
+        WHERE pv."productId" = sb."productId" AND sb."productVariantId" IS NULL
+      `);
+      await queryRunner.query(
+        `ALTER TABLE "stock_batches" DROP CONSTRAINT IF EXISTS "FK_stock_batches_product"`,
+      );
+      await queryRunner.query(
+        `ALTER TABLE "stock_batches" DROP COLUMN IF EXISTS "productId"`,
+      );
+    } else {
+      await queryRunner.query(
+        `ALTER TABLE "stock_batches" DROP CONSTRAINT IF EXISTS "FK_stock_batches_product"`,
+      );
+    }
     await this.addFk(
       queryRunner,
       'stock_batches',

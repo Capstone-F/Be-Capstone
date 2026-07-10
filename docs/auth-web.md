@@ -1,8 +1,10 @@
-# Authentication Guide (BFF Pattern)
+# Authentication Guide — Web (BFF Pattern)
 
-[Vietnamese version](auth.vi.md)
+[Vietnamese version](auth-web.vi.md) · [Mobile auth guide](auth-mobile.md)
 
-This guide walks frontend clients through integrating with the backend authentication API. The backend uses a **BFF (Backend For Frontend)** pattern — all Keycloak interactions happen server-side. The frontend only deals with **session cookies**, never with tokens.
+This guide walks **web SPA** clients through integrating with the backend authentication API. The backend uses a **BFF (Backend For Frontend)** pattern — all Keycloak interactions happen server-side. The frontend only deals with **session cookies**, never with tokens.
+
+For Expo / React Native, see [auth-mobile.md](auth-mobile.md).
 
 ---
 
@@ -287,7 +289,7 @@ For the session cookie to flow between the frontend and backend (different origi
 
 - CORS: `origin: FRONTEND_URL`, `credentials: true`
 - Cookie: `httpOnly: true`, `sameSite: 'lax'`, `secure: true` (in production)
-- Session store: Redis (via `connect-redis` + `ioredis`)
+- Session store: Redis (via `connect-redis` + official `redis` client)
 
 ### Frontend
 

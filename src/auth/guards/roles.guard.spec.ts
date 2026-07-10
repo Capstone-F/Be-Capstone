@@ -11,10 +11,15 @@ describe('RolesGuard', () => {
 
   const guard = new RolesGuard(reflector);
 
-  const buildContext = (session: { roles?: string[] }): ExecutionContext =>
+  const buildContext = (session: {
+    userId?: string;
+    roles?: string[];
+  }): ExecutionContext =>
     ({
       switchToHttp: () => ({
-        getRequest: () => ({ session }),
+        getRequest: () => ({
+          session: { userId: 'u1', ...session },
+        }),
       }),
       getHandler: () => ({}),
       getClass: () => ({}),

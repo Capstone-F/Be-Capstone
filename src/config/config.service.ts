@@ -105,6 +105,21 @@ export class AppConfigService {
     };
   }
 
+  /** Whitelisted mobile deep-link redirect URIs (exact match). */
+  get mobileRedirectUris(): string[] {
+    return this.env.MOBILE_REDIRECT_URIS;
+  }
+
+  /** TTL for one-time mobile auth codes in Redis (seconds). */
+  get mobileAuthCodeTtlSeconds(): number {
+    return this.env.MOBILE_AUTH_CODE_TTL_SECONDS;
+  }
+
+  /** TTL for mobile OAuth state entries in Redis (seconds). */
+  get mobileOauthStateTtlSeconds(): number {
+    return this.env.MOBILE_OAUTH_STATE_TTL_SECONDS;
+  }
+
   getMissingRequiredKeys(): string[] {
     return getMissingRequiredEnv();
   }

@@ -24,6 +24,7 @@ import { CommerceModule } from './commerce/commerce.module';
 import { DeliveryModule } from './delivery/delivery.module';
 import { RuleEngineModule } from './rule-engine/rule-engine.module';
 import { PaymentsModule } from './payments/payments.module';
+import { RedisModule } from './redis/redis.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { PaymentsModule } from './payments/payments.module';
     RuleEngineModule,
     PaymentsModule,
     AuthModule,
+    RedisModule,
     TypeOrmModule.forRootAsync({
       inject: [AppConfigService],
       useFactory: (config: AppConfigService) => ({

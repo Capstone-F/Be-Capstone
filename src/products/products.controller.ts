@@ -24,7 +24,9 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
 import { Role } from '../auth/roles.enum';
 import { CreateProductDto } from './dto/create-product.dto';
+import { ListProductCategoriesQueryDto } from './dto/list-product-categories.dto';
 import { ListProductsQueryDto } from './dto/list-products.dto';
+import { ProductCategoryResponseDto } from './dto/product-category-response.dto';
 import {
   PaginatedProductsDto,
   ProductDetailResponseDto,
@@ -58,7 +60,6 @@ export class ProductsController {
   }
 
   @Get()
-  @UseGuards(SessionGuard)
   @ApiOperation({
     summary: 'List products',
     description: 'Filter by category, brand, or ingredient name.',
@@ -68,8 +69,18 @@ export class ProductsController {
     return this.productsService.findMany(query);
   }
 
+  @Get('categories')
+  @ApiOperation({
+    summary: 'List product categories',
+    description:
+      'Returns active product categories for catalog filters and onboarding.',
+  })
+  @ApiOkResponse({ type: [ProductCategoryResponseDto] })
+  listCategories(@Query() query: ListProductCategoriesQueryDto) {
+    return this.productsService.findCategories(query);
+  }
+
   @Get(':id')
-  @UseGuards(SessionGuard)
   @ApiOperation({ summary: 'Get product by id with ingredients' })
   @ApiOkResponse({ type: ProductDetailResponseDto })
   @ApiNotFoundResponse({ description: 'Product not found' })

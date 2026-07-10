@@ -1,8 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
-import { SessionGuard } from '../auth/guards/session.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
 import { ClinicsModule } from '../clinics/clinics.module';
 import { Customer } from './customer.entity';
 import { CustomerSkinTypeDetails } from './customer-skin-type-details.entity';
@@ -27,7 +25,7 @@ import { UsersService } from './users.service';
     forwardRef(() => AuthModule),
   ],
   controllers: [UsersController],
-  providers: [UsersService, SessionGuard, RolesGuard],
+  providers: [UsersService],
   exports: [UsersService],
 })
 export class UsersModule {}

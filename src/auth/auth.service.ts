@@ -34,10 +34,14 @@ export class AuthService {
 
   /**
    * Build the Keycloak authorization URL and return a random `state` for CSRF.
+   * Pass `stateOverride` when the caller already persisted state (e.g. mobile Redis).
    */
-  buildLoginUrl(idpHint?: string): { url: string; state: string } {
+  buildLoginUrl(
+    idpHint?: string,
+    stateOverride?: string,
+  ): { url: string; state: string } {
     const endpoint = `${this.keycloakAdmin.getPublicIssuer()}/protocol/openid-connect/auth`;
-    const state = randomUUID();
+    const state = stateOverride ?? randomUUID();
     const url = new URL(endpoint);
     url.searchParams.set('client_id', this.config.keycloakClientId);
     url.searchParams.set('redirect_uri', this.config.keycloakRedirectUri);
@@ -110,9 +114,35 @@ export class AuthService {
 
     this.logger.debug(`Refreshing token for user ${session.userId}`);
 
+    try {
+      const refreshed = await this.refreshWithToken(session.refreshToken);
+      session.accessToken = refreshed.accessToken;
+      session.refreshToken = refreshed.refreshToken;
+      session.tokenExpiresAt = refreshed.tokenExpiresAt;
+      session.roles = refreshed.roles;
+    } catch (err) {
+      this.logger.warn('Session token refresh failed — forcing re-login', err);
+      throw new UnauthorizedException('Session expired, please login again');
+    }
+  }
+
+  /**
+   * Refresh Keycloak tokens using a refresh_token grant (mobile / public API).
+   */
+  async refreshWithToken(refreshToken: string): Promise<{
+    accessToken: string;
+    refreshToken: string;
+    expiresIn: number;
+    tokenExpiresAt: number;
+    roles: string[];
+  }> {
+    if (!refreshToken?.trim()) {
+      throw new UnauthorizedException('refreshToken is required');
+    }
+
     const params = new URLSearchParams({
       grant_type: 'refresh_token',
-      refresh_token: session.refreshToken,
+      refresh_token: refreshToken,
     });
 
     try {
@@ -121,15 +151,25 @@ export class AuthService {
         params,
       );
 
-      session.accessToken = token.access_token;
-      session.refreshToken = token.refresh_token ?? session.refreshToken;
-      session.tokenExpiresAt = Date.now() + (token.expires_in - 30) * 1000;
-      session.roles = filterAppRoles(
-        this.keycloakAdmin.extractRolesFromToken(token.access_token),
-      );
+      if (!token.access_token) {
+        throw new UnauthorizedException('Token refresh failed');
+      }
+
+      return {
+        accessToken: token.access_token,
+        refreshToken: token.refresh_token ?? refreshToken,
+        expiresIn: token.expires_in,
+        tokenExpiresAt: Date.now() + (token.expires_in - 30) * 1000,
+        roles: filterAppRoles(
+          this.keycloakAdmin.extractRolesFromToken(token.access_token),
+        ),
+      };
     } catch (err) {
-      this.logger.warn('Session token refresh failed — forcing re-login', err);
-      throw new UnauthorizedException('Session expired, please login again');
+      if (err instanceof UnauthorizedException) {
+        throw err;
+      }
+      this.logger.warn('Keycloak refresh_token grant failed', err);
+      throw new UnauthorizedException('Invalid or expired refresh token');
     }
   }
 
@@ -150,37 +190,71 @@ export class AuthService {
   }
 
   /**
-   * Ensures `client_redirect_uri` is a safe post-login URL: http(s) and same
-   * origin as FRONTEND_URL (open redirect protection).
+   * Resolve client_redirect_uri for web (FRONTEND_URL origin) or mobile
+   * (exact match against MOBILE_REDIRECT_URIS whitelist).
    */
-  validateClientRedirectUri(raw: string | undefined): string {
+  resolveClientRedirect(raw: string | undefined): {
+    uri: string;
+    flow: 'web' | 'mobile';
+  } {
     if (!raw?.trim()) {
       throw new BadRequestException('client_redirect_uri is required');
     }
+
+    const trimmed = raw.trim();
+    const mobileAllowed = this.config.mobileRedirectUris;
+    if (mobileAllowed.includes(trimmed)) {
+      return { uri: trimmed, flow: 'mobile' };
+    }
+
     let url: URL;
     try {
-      url = new URL(raw.trim());
+      url = new URL(trimmed);
     } catch {
       throw new BadRequestException('Invalid client_redirect_uri');
     }
+
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
       throw new BadRequestException(
-        'client_redirect_uri must use http or https',
+        'client_redirect_uri must use http or https, or a whitelisted mobile deep link',
       );
     }
+
     const allowed = new URL(this.config.frontendUrl);
     if (url.origin !== allowed.origin) {
       throw new BadRequestException(
         'client_redirect_uri origin must match FRONTEND_URL',
       );
     }
-    return url.toString();
+
+    return { uri: url.toString(), flow: 'web' };
+  }
+
+  /**
+   * Ensures `client_redirect_uri` is a safe post-login URL: http(s) and same
+   * origin as FRONTEND_URL (open redirect protection).
+   * @deprecated Prefer resolveClientRedirect for web+mobile support.
+   */
+  validateClientRedirectUri(raw: string | undefined): string {
+    const resolved = this.resolveClientRedirect(raw);
+    if (resolved.flow !== 'web') {
+      throw new BadRequestException(
+        'client_redirect_uri must use http or https',
+      );
+    }
+    return resolved.uri;
   }
 
   /** Build `/auth/error?reason=` on the same origin as the given base URL. */
   authErrorUrl(frontendBaseUrl: string, reason: string): string {
     const u = new URL(frontendBaseUrl);
     return `${u.origin}/auth/error?reason=${encodeURIComponent(reason)}`;
+  }
+
+  /** Build deep-link error redirect for mobile: `{deepLink}?error=reason`. */
+  mobileErrorRedirectUrl(deepLink: string, reason: string): string {
+    const separator = deepLink.includes('?') ? '&' : '?';
+    return `${deepLink}${separator}error=${encodeURIComponent(reason)}`;
   }
 
   /**

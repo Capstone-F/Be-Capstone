@@ -1,11 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
-/** Body for POST /auth/login (SPA flow: receive login_uri, then window.location). */
+/** Body for POST /auth/login (SPA or mobile: receive login_uri). */
 export class LoginPostDto {
   @ApiProperty({
     description:
-      'Absolute URL to open after successful login (must be same origin as FRONTEND_URL).',
+      'Post-login redirect. Web: absolute http(s) URL with same origin as FRONTEND_URL. ' +
+      'Mobile: exact match against MOBILE_REDIRECT_URIS (e.g. glowscan://auth/callback).',
     example: 'http://localhost:5173/dashboard',
   })
   @IsString()

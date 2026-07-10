@@ -14,6 +14,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiCookieAuth,
   ApiCreatedResponse,
   ApiForbiddenResponse,
@@ -28,6 +29,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { SessionGuard } from '../auth/guards/session.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Role } from '../auth/roles.enum';
+import { getAuthContext } from '../auth/auth-context';
 import { AssignRolesDto } from './dto/assign-roles.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { ListUsersQueryDto } from './dto/list-users.dto';
@@ -40,6 +42,7 @@ import { CallerContext, UsersService } from './users.service';
 @Controller('users')
 @UseGuards(SessionGuard, RolesGuard)
 @ApiCookieAuth()
+@ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Not authenticated' })
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
@@ -145,19 +148,22 @@ export class UsersController {
   }
 
   private requireUserId(req: Request): string {
-    const userId = req.session?.userId;
-    if (!userId) {
+    const auth = getAuthContext(req);
+    if (!auth?.userId) {
       throw new UnauthorizedException('Not authenticated');
     }
-    return userId;
+    return auth.userId;
   }
 
   private buildCallerContext(req: Request): CallerContext {
-    const userId = this.requireUserId(req);
+    const auth = getAuthContext(req);
+    if (!auth?.userId) {
+      throw new UnauthorizedException('Not authenticated');
+    }
     return {
-      userId,
-      roles: (req.session.roles ?? [Role.Customer]) as Role[],
-      clinicId: req.session.clinicId ?? null,
+      userId: auth.userId,
+      roles: (auth.roles?.length ? auth.roles : [Role.Customer]) as Role[],
+      clinicId: auth.clinicId ?? null,
     };
   }
 }

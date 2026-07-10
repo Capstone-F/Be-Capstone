@@ -15,6 +15,11 @@ import {
   WrinkledTight,
 } from '../../users/skin-type.enums';
 import { ProductCategory } from '../../products/product-category.entity';
+import { ProductBrand } from '../../products/product-brand.entity';
+import { Product } from '../../products/product.entity';
+import { ProductVariant } from '../../products/product-variant.entity';
+import { ProductIngredient } from '../../products/product-ingredient.entity';
+import { ShelfLifeUnit } from '../../stock/enums';
 import { DeliveryProvider } from '../../delivery/delivery-provider.entity';
 import { SupportHabit } from '../../routines/support-habit.entity';
 import { SupportHabitType } from '../../routines/enums';
@@ -42,6 +47,32 @@ type IngredientSeed = {
   ingredientType: string;
   isActiveIngredient: boolean;
   description?: string;
+};
+
+type ProductCategorySeed = {
+  code: string;
+  name: string;
+  description: string;
+};
+
+type ProductIngredientSeed = {
+  ingredientName: string;
+  concentrationPct?: number;
+  isKeyIngredient?: boolean;
+};
+
+type ProductSeed = {
+  name: string;
+  brandName: string;
+  categoryCode: string;
+  description: string;
+  sku: string;
+  volume?: string;
+  packaging?: string;
+  priceVnd: number;
+  shelfLifeValue?: number;
+  shelfLifeUnit?: ShelfLifeUnit;
+  ingredients: ProductIngredientSeed[];
 };
 
 const LABEL_CATEGORIES: LabelCategorySeed[] = [
@@ -721,13 +752,137 @@ const SKIN_TYPES = [
   },
 ];
 
-const PRODUCT_CATEGORIES = [
-  { code: 'CLEANSER', name: 'Cleanser' },
-  { code: 'TONER', name: 'Toner' },
-  { code: 'SERUM', name: 'Serum' },
-  { code: 'MOISTURIZER', name: 'Moisturizer' },
-  { code: 'SUNSCREEN', name: 'Sunscreen' },
-  { code: 'TREATMENT', name: 'Treatment' },
+const PRODUCT_CATEGORIES: ProductCategorySeed[] = [
+  {
+    code: 'CLEANSER',
+    name: 'Cleanser',
+    description:
+      'Face washes and cleansing products that remove dirt, oil, and makeup',
+  },
+  {
+    code: 'TONER',
+    name: 'Toner',
+    description: 'Balancing toners and essences applied after cleansing',
+  },
+  {
+    code: 'SERUM',
+    name: 'Serum',
+    description:
+      'Concentrated treatment serums targeting specific skin concerns',
+  },
+  {
+    code: 'MOISTURIZER',
+    name: 'Moisturizer',
+    description: 'Hydrating creams and lotions that support the skin barrier',
+  },
+  {
+    code: 'SUNSCREEN',
+    name: 'Sunscreen',
+    description: 'UV protection products for daily sun defense',
+  },
+  {
+    code: 'TREATMENT',
+    name: 'Treatment',
+    description:
+      'Targeted treatments for acne, pigmentation, and other concerns',
+  },
+];
+
+const PRODUCTS: ProductSeed[] = [
+  {
+    name: 'CeraVe Foaming Facial Cleanser',
+    brandName: 'CeraVe',
+    categoryCode: 'CLEANSER',
+    description:
+      'Gentle foaming cleanser for normal to oily skin with ceramides',
+    sku: 'CERAVE-FOAM-CLEANSER-236ML',
+    volume: '236ml',
+    packaging: 'Pump bottle',
+    priceVnd: 320000,
+    ingredients: [
+      { ingredientName: 'Ceramide', isKeyIngredient: true },
+      { ingredientName: 'Niacinamide', concentrationPct: 2 },
+    ],
+  },
+  {
+    name: 'Some By Mi AHA BHA PHA 30 Days Miracle Toner',
+    brandName: 'Some By Mi',
+    categoryCode: 'TONER',
+    description: 'Exfoliating toner with AHA, BHA, and PHA for clearer skin',
+    sku: 'SOMEBYMI-MIRACLE-TONER-150ML',
+    volume: '150ml',
+    packaging: 'Bottle',
+    priceVnd: 280000,
+    ingredients: [
+      {
+        ingredientName: 'Glycolic Acid',
+        concentrationPct: 7,
+        isKeyIngredient: true,
+      },
+      { ingredientName: 'Salicylic Acid', concentrationPct: 2 },
+    ],
+  },
+  {
+    name: 'The Ordinary Niacinamide 10% + Zinc 1%',
+    brandName: 'The Ordinary',
+    categoryCode: 'SERUM',
+    description: 'High-strength vitamin and mineral blemish formula',
+    sku: 'TO-NIACINAMIDE-10-ZINC-30ML',
+    volume: '30ml',
+    packaging: 'Dropper bottle',
+    priceVnd: 180000,
+    ingredients: [
+      {
+        ingredientName: 'Niacinamide',
+        concentrationPct: 10,
+        isKeyIngredient: true,
+      },
+    ],
+  },
+  {
+    name: 'CeraVe Moisturizing Cream',
+    brandName: 'CeraVe',
+    categoryCode: 'MOISTURIZER',
+    description: 'Rich moisturizing cream with ceramides and hyaluronic acid',
+    sku: 'CERAVE-MOIST-CREAM-454G',
+    volume: '454g',
+    packaging: 'Jar',
+    priceVnd: 450000,
+    ingredients: [
+      { ingredientName: 'Ceramide', isKeyIngredient: true },
+      { ingredientName: 'Hyaluronic Acid' },
+    ],
+  },
+  {
+    name: 'La Roche-Posay Anthelios UVMune 400 SPF50+',
+    brandName: 'La Roche-Posay',
+    categoryCode: 'SUNSCREEN',
+    description: 'Broad-spectrum sunscreen with Mexoryl 400 for UVA protection',
+    sku: 'LRP-ANTHELIOS-UVMUNE-50ML',
+    volume: '50ml',
+    packaging: 'Tube',
+    priceVnd: 520000,
+    ingredients: [{ ingredientName: 'Hyaluronic Acid' }],
+  },
+  {
+    name: 'La Roche-Posay Effaclar Duo+ Anti-Acne Treatment',
+    brandName: 'La Roche-Posay',
+    categoryCode: 'TREATMENT',
+    description:
+      'Dual-action acne treatment with benzoyl peroxide and niacinamide',
+    sku: 'LRP-EFFAC-DUO-40ML',
+    volume: '40ml',
+    packaging: 'Tube',
+    priceVnd: 380000,
+    ingredients: [
+      {
+        ingredientName: 'Benzoyl Peroxide',
+        concentrationPct: 2.5,
+        isKeyIngredient: true,
+      },
+      { ingredientName: 'Azelaic Acid', concentrationPct: 10 },
+    ],
+  },
 ];
 
 const DELIVERY_PROVIDERS = [
@@ -1088,6 +1243,117 @@ async function upsertProtocol(
   return repo.save(protocol);
 }
 
+async function upsertProductCategory(
+  repo: ReturnType<typeof AppDataSource.getRepository<ProductCategory>>,
+  seed: ProductCategorySeed,
+): Promise<ProductCategory> {
+  let row = await repo.findOneBy({ code: seed.code });
+  if (!row) {
+    row = repo.create({ ...seed, isActive: true });
+    return repo.save(row);
+  }
+  row.name = seed.name;
+  row.description = seed.description;
+  row.isActive = true;
+  return repo.save(row);
+}
+
+async function upsertProductBrand(
+  repo: ReturnType<typeof AppDataSource.getRepository<ProductBrand>>,
+  name: string,
+): Promise<ProductBrand> {
+  let brand = await repo.findOneBy({ name });
+  if (!brand) {
+    brand = repo.create({ name, isActive: true });
+    return repo.save(brand);
+  }
+  brand.isActive = true;
+  return repo.save(brand);
+}
+
+async function upsertProductWithVariant(
+  productRepo: ReturnType<typeof AppDataSource.getRepository<Product>>,
+  variantRepo: ReturnType<typeof AppDataSource.getRepository<ProductVariant>>,
+  productIngredientRepo: ReturnType<
+    typeof AppDataSource.getRepository<ProductIngredient>
+  >,
+  seed: ProductSeed,
+  brandId: string,
+  categoryId: string,
+  ingredientsByName: Map<string, Ingredient>,
+): Promise<void> {
+  const variant = await variantRepo.findOne({
+    where: { sku: seed.sku },
+    relations: ['product'],
+  });
+
+  let product: Product;
+  if (variant) {
+    product = variant.product;
+    product.name = seed.name;
+    product.brandId = brandId;
+    product.categoryId = categoryId;
+    product.description = seed.description;
+    product.isActive = true;
+    product = await productRepo.save(product);
+
+    variant.volume = seed.volume ?? null;
+    variant.packaging = seed.packaging ?? null;
+    variant.priceVnd = seed.priceVnd;
+    variant.shelfLifeValue = seed.shelfLifeValue ?? 365;
+    variant.shelfLifeUnit = seed.shelfLifeUnit ?? ShelfLifeUnit.DAY;
+    variant.isActive = true;
+    await variantRepo.save(variant);
+  } else {
+    product = await productRepo.save(
+      productRepo.create({
+        name: seed.name,
+        brandId,
+        categoryId,
+        description: seed.description,
+        isActive: true,
+      }),
+    );
+
+    await variantRepo.save(
+      variantRepo.create({
+        productId: product.id,
+        sku: seed.sku,
+        volume: seed.volume ?? null,
+        packaging: seed.packaging ?? null,
+        priceVnd: seed.priceVnd,
+        shelfLifeValue: seed.shelfLifeValue ?? 365,
+        shelfLifeUnit: seed.shelfLifeUnit ?? ShelfLifeUnit.DAY,
+        isActive: true,
+      }),
+    );
+  }
+
+  for (const ingredientSeed of seed.ingredients) {
+    const ingredient = ingredientsByName.get(ingredientSeed.ingredientName);
+    if (!ingredient) continue;
+
+    const existing = await productIngredientRepo.findOneBy({
+      productId: product.id,
+      ingredientId: ingredient.id,
+    });
+    if (!existing) {
+      await productIngredientRepo.save(
+        productIngredientRepo.create({
+          productId: product.id,
+          ingredientId: ingredient.id,
+          concentrationPct: ingredientSeed.concentrationPct ?? null,
+          isKeyIngredient: ingredientSeed.isKeyIngredient ?? false,
+        }),
+      );
+    } else {
+      existing.concentrationPct = ingredientSeed.concentrationPct ?? null;
+      existing.isKeyIngredient = ingredientSeed.isKeyIngredient ?? false;
+      await productIngredientRepo.save(existing);
+    }
+  }
+}
+
 async function seed(): Promise<void> {
   await AppDataSource.initialize();
 
@@ -1095,6 +1361,10 @@ async function seed(): Promise<void> {
   const labelRepo = AppDataSource.getRepository(Label);
   const skinTypeRepo = AppDataSource.getRepository(SkinType);
   const productCategoryRepo = AppDataSource.getRepository(ProductCategory);
+  const productBrandRepo = AppDataSource.getRepository(ProductBrand);
+  const productRepo = AppDataSource.getRepository(Product);
+  const productVariantRepo = AppDataSource.getRepository(ProductVariant);
+  const productIngredientRepo = AppDataSource.getRepository(ProductIngredient);
   const deliveryProviderRepo = AppDataSource.getRepository(DeliveryProvider);
   const supportHabitRepo = AppDataSource.getRepository(SupportHabit);
   const ingredientRepo = AppDataSource.getRepository(Ingredient);
@@ -1127,11 +1397,10 @@ async function seed(): Promise<void> {
     }
   }
 
+  const productCategoriesByCode = new Map<string, ProductCategory>();
   for (const pc of PRODUCT_CATEGORIES) {
-    const existing = await productCategoryRepo.findOneBy({ code: pc.code });
-    if (!existing) {
-      await productCategoryRepo.save(productCategoryRepo.create(pc));
-    }
+    const row = await upsertProductCategory(productCategoryRepo, pc);
+    productCategoriesByCode.set(row.code, row);
   }
 
   for (const dp of DELIVERY_PROVIDERS) {
@@ -1154,6 +1423,25 @@ async function seed(): Promise<void> {
   for (const ingredientSeed of INGREDIENTS) {
     const ingredient = await upsertIngredient(ingredientRepo, ingredientSeed);
     ingredientsByName.set(ingredient.name, ingredient);
+  }
+
+  for (const productSeed of PRODUCTS) {
+    const category = productCategoriesByCode.get(productSeed.categoryCode);
+    if (!category) continue;
+
+    const brand = await upsertProductBrand(
+      productBrandRepo,
+      productSeed.brandName,
+    );
+    await upsertProductWithVariant(
+      productRepo,
+      productVariantRepo,
+      productIngredientRepo,
+      productSeed,
+      brand.id,
+      category.id,
+      ingredientsByName,
+    );
   }
 
   const protocolsByCode = new Map<string, IngredientProtocol>();
