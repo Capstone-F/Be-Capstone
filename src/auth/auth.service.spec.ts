@@ -36,6 +36,7 @@ describe('AuthService', () => {
     keycloakClientSecret: 'be-capstone-secret',
     keycloakRedirectUri: 'http://localhost:3000/auth/callback',
     frontendUrl: 'http://localhost:5173',
+    mobileRedirectUris: ['glowscan://auth/callback'],
   } as AppConfigService;
   const keycloakAdmin = new KeycloakAdminService(config);
   const service = new AuthService(config, mockUsersService, keycloakAdmin);
@@ -231,6 +232,50 @@ describe('AuthService', () => {
     });
   });
 
+  describe('resolveClientRedirect', () => {
+    it('should accept whitelisted mobile deep link', () => {
+      expect(service.resolveClientRedirect('glowscan://auth/callback')).toEqual(
+        {
+          uri: 'glowscan://auth/callback',
+          flow: 'mobile',
+        },
+      );
+    });
+
+    it('should accept web URL matching FRONTEND_URL origin', () => {
+      expect(
+        service.resolveClientRedirect('http://localhost:5173/app'),
+      ).toEqual({
+        uri: 'http://localhost:5173/app',
+        flow: 'web',
+      });
+    });
+
+    it('should reject evil http origin', () => {
+      expect(() => service.resolveClientRedirect('http://evil.com/')).toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should reject unknown deep-link scheme', () => {
+      expect(() =>
+        service.resolveClientRedirect('evil://auth/callback'),
+      ).toThrow(BadRequestException);
+    });
+
+    it('should reject non-whitelisted glowscan path', () => {
+      expect(() =>
+        service.resolveClientRedirect('glowscan://auth/other'),
+      ).toThrow(BadRequestException);
+    });
+
+    it('should throw when missing', () => {
+      expect(() => service.resolveClientRedirect(undefined)).toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
   describe('validateClientRedirectUri', () => {
     it('should return normalized URL when origin matches FRONTEND_URL', () => {
       expect(
@@ -248,6 +293,17 @@ describe('AuthService', () => {
       expect(() => service.validateClientRedirectUri(undefined)).toThrow(
         BadRequestException,
       );
+    });
+  });
+
+  describe('mobileErrorRedirectUrl', () => {
+    it('should append error query param to deep link', () => {
+      expect(
+        service.mobileErrorRedirectUrl(
+          'glowscan://auth/callback',
+          'state_mismatch',
+        ),
+      ).toBe('glowscan://auth/callback?error=state_mismatch');
     });
   });
 

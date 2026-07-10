@@ -1,6 +1,8 @@
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { AppConfigService } from '../config/config.service';
+import { MobileOauthStateService } from './mobile-oauth-state.service';
+import { MobileAuthCodeService } from './mobile-auth-code.service';
 
 describe('AuthController', () => {
   const authService = {
@@ -8,21 +10,43 @@ describe('AuthController', () => {
     exchangeCodeAndUpsertUser: jest.fn(),
     revokeToken: jest.fn(),
     refreshTokenIfNeeded: jest.fn(),
-    validateClientRedirectUri: jest.fn((u: string | undefined) => {
+    resolveClientRedirect: jest.fn((u: string | undefined) => {
       if (!u) throw new Error('client_redirect_uri required');
-      return u;
+      if (u.startsWith('glowscan://')) {
+        return { uri: u, flow: 'mobile' as const };
+      }
+      return { uri: u, flow: 'web' as const };
     }),
     authErrorUrl: jest.fn((base: string, reason: string) => {
       const o = new URL(base);
       return `${o.origin}/auth/error?reason=${reason}`;
     }),
+    mobileErrorRedirectUrl: jest.fn(
+      (deepLink: string, reason: string) => `${deepLink}?error=${reason}`,
+    ),
   } as unknown as jest.Mocked<AuthService>;
 
   const configService = {
     frontendUrl: 'http://localhost:5173',
+    mobileRedirectUris: ['glowscan://auth/callback'],
   } as AppConfigService;
 
-  const controller = new AuthController(authService, configService);
+  const mobileOauthState = {
+    create: jest.fn(),
+    consume: jest.fn(),
+  } as unknown as jest.Mocked<MobileOauthStateService>;
+
+  const mobileAuthCode = {
+    issue: jest.fn(),
+    consume: jest.fn(),
+  } as unknown as jest.Mocked<MobileAuthCodeService>;
+
+  const controller = new AuthController(
+    authService,
+    configService,
+    mobileOauthState,
+    mobileAuthCode,
+  );
 
   function mockSession(data: Record<string, unknown> = {}): any {
     return {
@@ -42,10 +66,11 @@ describe('AuthController', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mobileOauthState.consume.mockResolvedValue(null);
   });
 
   describe('POST /auth/login', () => {
-    it('should return login_uri and store client_redirect_uri', async () => {
+    it('should return login_uri and store client_redirect_uri (web)', async () => {
       authService.buildLoginUrl.mockReturnValue({
         url: 'http://kc/auth?state=1',
         state: 'oauth-state',
@@ -59,13 +84,44 @@ describe('AuthController', () => {
         req,
       );
 
-      expect(authService.validateClientRedirectUri).toHaveBeenCalledWith(
+      expect(authService.resolveClientRedirect).toHaveBeenCalledWith(
         'http://localhost:5173/app',
       );
       expect(session.oauthState).toBe('oauth-state');
       expect(session.clientRedirectUri).toBe('http://localhost:5173/app');
+      expect(mobileOauthState.create).not.toHaveBeenCalled();
       expect(result).toEqual({
         login_uri: 'http://kc/auth?state=1',
+      });
+    });
+
+    it('should store state in Redis and not touch session (mobile)', async () => {
+      mobileOauthState.create.mockResolvedValue('mobile-state');
+      authService.buildLoginUrl.mockReturnValue({
+        url: 'http://kc/auth?state=mobile-state',
+        state: 'mobile-state',
+      });
+
+      const session = mockSession();
+      const req = { session } as any;
+
+      const result = await controller.postLogin(
+        { client_redirect_uri: 'glowscan://auth/callback' },
+        req,
+      );
+
+      expect(mobileOauthState.create).toHaveBeenCalledWith(
+        'glowscan://auth/callback',
+        undefined,
+      );
+      expect(authService.buildLoginUrl).toHaveBeenCalledWith(
+        undefined,
+        'mobile-state',
+      );
+      expect(session.oauthState).toBeUndefined();
+      expect(session.clientRedirectUri).toBeUndefined();
+      expect(result).toEqual({
+        login_uri: 'http://kc/auth?state=mobile-state',
       });
     });
 
@@ -92,8 +148,10 @@ describe('AuthController', () => {
   });
 
   describe('GET /auth/callback', () => {
-    it('should redirect to frontend with error on missing params', async () => {
-      const req = { session: mockSession() } as any;
+    it('should redirect to frontend with error on missing params (web session)', async () => {
+      const req = {
+        session: mockSession({ oauthState: 'expected' }),
+      } as any;
       const res = mockRes() as any;
 
       await controller.callback('', '', req, res);
@@ -122,6 +180,7 @@ describe('AuthController', () => {
         refreshToken: 'rt',
         tokenExpiresAt: Date.now() + 300_000,
         idpHint: 'keycloak',
+        roles: ['customer'],
       });
 
       const session = mockSession({ oauthState: 'state-ok' });
@@ -149,6 +208,7 @@ describe('AuthController', () => {
         refreshToken: 'rt',
         tokenExpiresAt: Date.now() + 300_000,
         idpHint: 'keycloak',
+        roles: ['customer'],
       });
 
       const session = mockSession({
@@ -162,6 +222,61 @@ describe('AuthController', () => {
 
       expect(res.redirect).toHaveBeenCalledWith(
         'http://localhost:5173/dashboard',
+      );
+    });
+
+    it('should issue one-time code and deep-link redirect for mobile (no cookie)', async () => {
+      mobileOauthState.consume.mockResolvedValue({
+        clientRedirectUri: 'glowscan://auth/callback',
+        flow: 'mobile',
+        createdAt: Date.now(),
+      });
+      authService.exchangeCodeAndUpsertUser.mockResolvedValue({
+        user: { id: 'u1', keycloakSub: 'kc-sub' } as any,
+        isNewUser: false,
+        accessToken: 'secret-access',
+        refreshToken: 'secret-refresh',
+        tokenExpiresAt: Date.now() + 300_000,
+        idpHint: 'keycloak',
+        roles: ['customer'],
+      });
+      mobileAuthCode.issue.mockResolvedValue('MOBILE_CODE');
+
+      const req = { session: mockSession() } as any;
+      const res = mockRes() as any;
+
+      await controller.callback('kc-code', 'mobile-state', req, res);
+
+      expect(mobileAuthCode.issue).toHaveBeenCalled();
+      const redirectUrl = res.redirect.mock.calls[0][0] as string;
+      expect(redirectUrl).toContain(
+        'glowscan://auth/callback?code=MOBILE_CODE',
+      );
+      expect(redirectUrl).not.toContain('secret-access');
+      expect(redirectUrl).not.toContain('secret-refresh');
+      expect(redirectUrl).not.toContain('accessToken');
+      expect(redirectUrl).not.toContain('refreshToken');
+      expect(req.session.userId).toBeUndefined();
+    });
+
+    it('should redirect mobile error on exchange failure', async () => {
+      mobileOauthState.consume.mockResolvedValue({
+        clientRedirectUri: 'glowscan://auth/callback',
+        flow: 'mobile',
+        createdAt: Date.now(),
+      });
+      authService.exchangeCodeAndUpsertUser.mockRejectedValue(
+        new Error('kc fail'),
+      );
+
+      const req = { session: mockSession() } as any;
+      const res = mockRes() as any;
+
+      await controller.callback('kc-code', 'mobile-state', req, res);
+
+      expect(authService.mobileErrorRedirectUrl).toHaveBeenCalledWith(
+        'glowscan://auth/callback',
+        'exchange_failed',
       );
     });
   });

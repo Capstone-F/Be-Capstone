@@ -1,5 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { Repository } from 'typeorm';
+import { ProductCategory } from './product-category.entity';
 import { ProductIngredient } from './product-ingredient.entity';
 import { ProductVariant } from './product-variant.entity';
 import { Product } from './product.entity';
@@ -61,6 +62,7 @@ type MockQb = {
   skip: jest.Mock;
   take: jest.Mock;
   getManyAndCount: jest.Mock;
+  getMany: jest.Mock;
 };
 
 const makeQueryBuilder = (products: Product[] = []): MockQb => ({
@@ -72,6 +74,35 @@ const makeQueryBuilder = (products: Product[] = []): MockQb => ({
   skip: jest.fn().mockReturnThis(),
   take: jest.fn().mockReturnThis(),
   getManyAndCount: jest.fn().mockResolvedValue([products, products.length]),
+  getMany: jest.fn().mockResolvedValue([]),
+});
+
+const makeCategory = (
+  overrides: Partial<ProductCategory> = {},
+): ProductCategory => ({
+  id: 'cat-1',
+  code: 'SERUM',
+  name: 'Serum',
+  description: 'Concentrated treatment serums',
+  isActive: true,
+  products: [],
+  createdAt: new Date('2026-01-01'),
+  updatedAt: new Date('2026-01-01'),
+  ...overrides,
+});
+
+const makeCategoryQueryBuilder = (
+  categories: ProductCategory[] = [],
+): MockQb => ({
+  where: jest.fn().mockReturnThis(),
+  andWhere: jest.fn().mockReturnThis(),
+  innerJoin: jest.fn().mockReturnThis(),
+  leftJoinAndSelect: jest.fn().mockReturnThis(),
+  orderBy: jest.fn().mockReturnThis(),
+  skip: jest.fn().mockReturnThis(),
+  take: jest.fn().mockReturnThis(),
+  getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+  getMany: jest.fn().mockResolvedValue(categories),
 });
 
 describe('ProductsService', () => {
@@ -85,7 +116,13 @@ describe('ProductsService', () => {
     const piRepo = {
       find: jest.fn().mockResolvedValue([makeMapping()]),
     } as unknown as Repository<ProductIngredient>;
-    const service = new ProductsService(productRepo, variantRepo, piRepo);
+    const categoryRepo = {} as unknown as Repository<ProductCategory>;
+    const service = new ProductsService(
+      productRepo,
+      variantRepo,
+      piRepo,
+      categoryRepo,
+    );
 
     const result = await service.findOne('product-1');
 
@@ -106,7 +143,13 @@ describe('ProductsService', () => {
     } as unknown as Repository<Product>;
     const variantRepo = {} as unknown as Repository<ProductVariant>;
     const piRepo = {} as unknown as Repository<ProductIngredient>;
-    const service = new ProductsService(productRepo, variantRepo, piRepo);
+    const categoryRepo = {} as unknown as Repository<ProductCategory>;
+    const service = new ProductsService(
+      productRepo,
+      variantRepo,
+      piRepo,
+      categoryRepo,
+    );
 
     await expect(service.findOne('missing')).rejects.toThrow(NotFoundException);
   });
@@ -120,7 +163,13 @@ describe('ProductsService', () => {
     const piRepo = {
       find: jest.fn().mockResolvedValue([]),
     } as unknown as Repository<ProductIngredient>;
-    const service = new ProductsService(productRepo, variantRepo, piRepo);
+    const categoryRepo = {} as unknown as Repository<ProductCategory>;
+    const service = new ProductsService(
+      productRepo,
+      variantRepo,
+      piRepo,
+      categoryRepo,
+    );
 
     await service.findMany({
       categoryId: 'cat-1',
@@ -154,5 +203,79 @@ describe('ProductsService', () => {
     );
     expect(qb.skip).toHaveBeenCalledWith(10);
     expect(qb.take).toHaveBeenCalledWith(10);
+  });
+
+  describe('findCategories', () => {
+    it('should return mapped active categories ordered by name', async () => {
+      const categories = [
+        makeCategory({ id: 'cat-1', code: 'CLEANSER', name: 'Cleanser' }),
+        makeCategory({ id: 'cat-2', code: 'SERUM', name: 'Serum' }),
+      ];
+      const qb = makeCategoryQueryBuilder(categories);
+      const categoryRepo = {
+        createQueryBuilder: jest.fn().mockReturnValue(qb),
+      } as unknown as Repository<ProductCategory>;
+      const service = new ProductsService(
+        {} as Repository<Product>,
+        {} as Repository<ProductVariant>,
+        {} as Repository<ProductIngredient>,
+        categoryRepo,
+      );
+
+      const result = await service.findCategories({});
+
+      expect(categoryRepo.createQueryBuilder).toHaveBeenCalledWith('category');
+      expect(qb.where).toHaveBeenCalledWith('category.isActive = :isActive', {
+        isActive: true,
+      });
+      expect(qb.orderBy).toHaveBeenCalledWith('category.name', 'ASC');
+      expect(result).toHaveLength(2);
+      expect(result[0]).toEqual({
+        id: 'cat-1',
+        code: 'CLEANSER',
+        name: 'Cleanser',
+        description: 'Concentrated treatment serums',
+        isActive: true,
+        createdAt: categories[0].createdAt,
+        updatedAt: categories[0].updatedAt,
+      });
+    });
+
+    it('should apply search filter on name and code', async () => {
+      const qb = makeCategoryQueryBuilder([makeCategory()]);
+      const categoryRepo = {
+        createQueryBuilder: jest.fn().mockReturnValue(qb),
+      } as unknown as Repository<ProductCategory>;
+      const service = new ProductsService(
+        {} as Repository<Product>,
+        {} as Repository<ProductVariant>,
+        {} as Repository<ProductIngredient>,
+        categoryRepo,
+      );
+
+      await service.findCategories({ search: 'Serum' });
+
+      expect(qb.andWhere).toHaveBeenCalledWith(
+        '(category.name ILIKE :term OR category.code ILIKE :term)',
+        { term: '%Serum%' },
+      );
+    });
+
+    it('should return empty array when no categories match', async () => {
+      const qb = makeCategoryQueryBuilder([]);
+      const categoryRepo = {
+        createQueryBuilder: jest.fn().mockReturnValue(qb),
+      } as unknown as Repository<ProductCategory>;
+      const service = new ProductsService(
+        {} as Repository<Product>,
+        {} as Repository<ProductVariant>,
+        {} as Repository<ProductIngredient>,
+        categoryRepo,
+      );
+
+      const result = await service.findCategories({ search: 'nonexistent' });
+
+      expect(result).toEqual([]);
+    });
   });
 });

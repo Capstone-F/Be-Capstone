@@ -25,6 +25,9 @@ describe('env.config', () => {
         'SESSION_COOKIE_SECURE',
         'FRONTEND_URL',
         'CORS_ORIGIN',
+        'MOBILE_REDIRECT_URIS',
+        'MOBILE_AUTH_CODE_TTL_SECONDS',
+        'MOBILE_OAUTH_STATE_TTL_SECONDS',
       ]),
     );
   });
@@ -70,6 +73,36 @@ describe('env.config', () => {
     expect(resolved.KEYCLOAK_DEV_ADMIN_USER).toBe('glowscan-admin');
     expect(resolved.KEYCLOAK_DEV_ADMIN_PASSWORD).toBe('admin');
     expect(resolved.sessionCookieSecure).toBe(false);
+    expect(resolved.MOBILE_REDIRECT_URIS).toEqual(['glowscan://auth/callback']);
+    expect(resolved.MOBILE_AUTH_CODE_TTL_SECONDS).toBe(120);
+    expect(resolved.MOBILE_OAUTH_STATE_TTL_SECONDS).toBe(600);
+  });
+
+  it('should parse MOBILE_REDIRECT_URIS as a comma-separated list', () => {
+    const resolved = resolveAppEnv({
+      DATABASE_URL: 'postgresql://admin:admin@localhost:5432/be-capstone',
+      KEYCLOAK_PUBLIC_URL: 'http://localhost:8080',
+      SESSION_SECRET: 'test-secret',
+      FRONTEND_URL: 'http://localhost:5173',
+      MOBILE_REDIRECT_URIS:
+        'glowscan://auth/callback, glowscan://auth/alt-callback',
+    });
+    expect(resolved.MOBILE_REDIRECT_URIS).toEqual([
+      'glowscan://auth/callback',
+      'glowscan://auth/alt-callback',
+    ]);
+  });
+
+  it('should throw when MOBILE_AUTH_CODE_TTL_SECONDS is invalid', () => {
+    expect(() =>
+      resolveAppEnv({
+        DATABASE_URL: 'postgresql://admin:admin@localhost:5432/be-capstone',
+        KEYCLOAK_PUBLIC_URL: 'http://localhost:8080',
+        SESSION_SECRET: 'test-secret',
+        FRONTEND_URL: 'http://localhost:5173',
+        MOBILE_AUTH_CODE_TTL_SECONDS: '0',
+      }),
+    ).toThrow('MOBILE_AUTH_CODE_TTL_SECONDS');
   });
 
   it('should default sessionCookieSecure to true in production when unset', () => {

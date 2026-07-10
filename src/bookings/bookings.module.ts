@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
-import { SessionGuard } from '../auth/guards/session.guard';
 import { ConsultationRequest } from '../consultations/consultation-request.entity';
 import { Expert } from '../users/expert.entity';
 import { BookingsController } from './bookings.controller';
@@ -14,7 +13,7 @@ import { ExpertAvailability } from './expert-availability.entity';
     AuthModule,
   ],
   controllers: [BookingsController],
-  providers: [BookingsService, SessionGuard],
+  providers: [BookingsService],
   exports: [BookingsService],
 })
 export class BookingsModule {}

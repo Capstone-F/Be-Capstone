@@ -30,7 +30,11 @@ src/
 keycloak/
   realm-import/    Keycloak realm JSON auto-imported on startup
 docs/
-  auth.md          Frontend auth integration guide
+  auth-web.md      Web SPA auth integration guide (BFF / session cookie)
+  auth-web.vi.md   Vietnamese web auth guide
+  auth-mobile.md   Expo / mobile deep-link auth guide
+  auth-mobile.vi.md Vietnamese mobile auth guide
+  users.md         User management & RBAC
 .github/
   workflows/
     ci.yaml        PR/push: lint, build, test (with Postgres service)
@@ -285,17 +289,25 @@ The API is now running at http://localhost:3000 with hot-reload.
 
 All env vars are centrally managed in `src/config/env.config.ts`. The app validates them at startup and logs any missing required keys.
 
-| Variable                 | Required | Default                               | Description                                                 |
-| ------------------------ | -------- | ------------------------------------- | ----------------------------------------------------------- |
-| `NODE_ENV`               | No       | `development`                         | Runtime mode                                                |
-| `PORT`                   | No       | `3000`                                | API listen port                                             |
-| `DATABASE_URL`           | **Yes**  | —                                     | Postgres connection URL                                     |
-| `KEYCLOAK_URL`           | **Yes**  | —                                     | Keycloak base URL (used for both API and browser redirects) |
-| `KEYCLOAK_HEALTH_URL`    | No       | `http://localhost:9000/health/ready`  | Keycloak management health endpoint                         |
-| `KEYCLOAK_REALM`         | No       | `be-capstone`                         | Keycloak realm name                                         |
-| `KEYCLOAK_CLIENT_ID`     | No       | `be-capstone-api`                     | OIDC client ID                                              |
-| `KEYCLOAK_CLIENT_SECRET` | No       | `be-capstone-secret`                  | OIDC client secret                                          |
-| `KEYCLOAK_REDIRECT_URI`  | No       | `http://localhost:3000/auth/callback` | Default OAuth redirect URI                                  |
+| Variable                         | Required | Default                               | Description                                                 |
+| -------------------------------- | -------- | ------------------------------------- | ----------------------------------------------------------- |
+| `NODE_ENV`                       | No       | `development`                         | Runtime mode                                                |
+| `PORT`                           | No       | `3000`                                | API listen port                                             |
+| `DATABASE_URL`                   | **Yes**  | —                                     | Postgres connection URL                                     |
+| `KEYCLOAK_PUBLIC_URL`            | **Yes**  | —                                     | Keycloak URL reachable by the browser                       |
+| `KEYCLOAK_INTERNAL_URL`          | No       | `KEYCLOAK_PUBLIC_URL`                 | Keycloak URL for server-to-server calls                     |
+| `KEYCLOAK_HEALTH_URL`            | No       | derived (port 9000)                   | Keycloak management health endpoint                         |
+| `KEYCLOAK_REALM`                 | No       | `be-capstone`                         | Keycloak realm name                                         |
+| `KEYCLOAK_CLIENT_ID`             | No       | `be-capstone-api`                     | OIDC client ID                                              |
+| `KEYCLOAK_CLIENT_SECRET`         | No       | `be-capstone-secret`                  | OIDC client secret                                          |
+| `KEYCLOAK_REDIRECT_URI`          | No       | `http://localhost:3000/auth/callback` | OAuth callback URI registered in Keycloak                   |
+| `REDIS_URL`                      | No       | `redis://localhost:6379`              | Redis for sessions + mobile OAuth state/codes               |
+| `SESSION_SECRET`                 | **Yes**  | —                                     | Secret for signing the session cookie                       |
+| `FRONTEND_URL`                   | **Yes**  | —                                     | Web SPA origin (post-login redirect whitelist)              |
+| `CORS_ORIGIN`                    | No       | `FRONTEND_URL`                        | Allowed CORS origin                                         |
+| `MOBILE_REDIRECT_URIS`           | No       | `glowscan://auth/callback`            | Comma-separated whitelist of mobile deep-link redirect URIs |
+| `MOBILE_AUTH_CODE_TTL_SECONDS`   | No       | `120`                                 | TTL for one-time mobile auth codes in Redis                 |
+| `MOBILE_OAUTH_STATE_TTL_SECONDS` | No       | `600`                                 | TTL for mobile OAuth state entries in Redis                 |
 
 ---
 
@@ -332,17 +344,17 @@ All env vars are centrally managed in `src/config/env.config.ts`. The app valida
 
 ### Auth
 
-| Method | Path              | Description                                                |
-| ------ | ----------------- | ---------------------------------------------------------- |
-| `GET`  | `/auth/endpoints` | OIDC discovery endpoints                                   |
-| `GET`  | `/auth/login`     | Get authorization URL (`?idpHint=google` for Google login) |
-| `GET`  | `/auth/callback`  | Exchange code via query params (Keycloak redirect target)  |
-| `POST` | `/auth/token`     | Exchange code via JSON body (preferred for SPAs)           |
-| `POST` | `/auth/refresh`   | Refresh access token                                       |
-| `POST` | `/auth/logout`    | Revoke session                                             |
-| `GET`  | `/users/me`       | Current user profile (session cookie)                      |
+| Method | Path                    | Description                                                           |
+| ------ | ----------------------- | --------------------------------------------------------------------- |
+| `POST` | `/auth/login`           | Start login (web session or mobile Redis state) → `{ login_uri }`     |
+| `GET`  | `/auth/callback`        | OAuth callback (web: session cookie; mobile: one-time code deep link) |
+| `GET`  | `/auth/status`          | Check if the current session is authenticated                         |
+| `POST` | `/auth/logout`          | Destroy session and revoke tokens (web)                               |
+| `POST` | `/auth/mobile/exchange` | Exchange one-time mobile code → tokens + user                         |
+| `POST` | `/auth/mobile/refresh`  | Refresh Keycloak tokens for mobile                                    |
+| `GET`  | `/users/me`             | Current user profile (session cookie **or** `Authorization: Bearer`)  |
 
-> For full frontend integration details, see [docs/auth.md](docs/auth.md).
+> Web SPA: [docs/auth-web.md](docs/auth-web.md). Mobile / Expo: [docs/auth-mobile.md](docs/auth-mobile.md).
 
 ---
 
@@ -714,6 +726,8 @@ Tests are co-located with source files (`*.spec.ts`). E2e tests are in `test/`.
 ## Documentation
 
 - **[README.vi.md](README.vi.md)** — Vietnamese project guide
-- **[docs/auth.md](docs/auth.md)** — Step-by-step frontend auth integration guide (web + mobile, standard + Google login, PKCE, token refresh, error handling)
-- **[docs/auth.vi.md](docs/auth.vi.md)** — Vietnamese frontend auth integration guide
+- **[docs/auth-web.md](docs/auth-web.md)** — Web SPA BFF auth (session cookie, Google login)
+- **[docs/auth-web.vi.md](docs/auth-web.vi.md)** — Vietnamese web auth guide
+- **[docs/auth-mobile.md](docs/auth-mobile.md)** — Expo / mobile deep-link auth (one-time code, Bearer tokens)
+- **[docs/auth-mobile.vi.md](docs/auth-mobile.vi.md)** — Vietnamese mobile auth guide
 - **Swagger UI** — Available at `/docs` when the API is running

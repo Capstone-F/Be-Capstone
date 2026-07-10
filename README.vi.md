@@ -30,8 +30,11 @@ src/
 keycloak/
   realm-import/    File JSON realm để Keycloak tự import khi khởi động
 docs/
-  auth.md          Hướng dẫn frontend tích hợp auth (EN)
-  auth.vi.md       Hướng dẫn frontend tích hợp auth (VI)
+  auth-web.md      Hướng dẫn auth web SPA (BFF / session cookie)
+  auth-web.vi.md   Hướng dẫn auth web (VI)
+  auth-mobile.md   Hướng dẫn auth Expo / mobile deep-link
+  auth-mobile.vi.md Hướng dẫn auth mobile (VI)
+  users.md         Quản lý user & RBAC
 .github/
   workflows/
     ci.yaml        Build + test khi push / pull request
@@ -286,17 +289,25 @@ API sẽ chạy tại `http://localhost:3000` với hot-reload.
 
 Tất cả env được quản lý tập trung trong `src/config/env.config.ts`.
 
-| Biến                     | Bắt buộc | Mặc định                              | Mô tả                                                      |
-| ------------------------ | -------- | ------------------------------------- | ---------------------------------------------------------- |
-| `NODE_ENV`               | Không    | `development`                         | Môi trường chạy                                            |
-| `PORT`                   | Không    | `3000`                                | Port của API                                               |
-| `DATABASE_URL`           | Có       | —                                     | Chuỗi kết nối Postgres                                     |
-| `KEYCLOAK_URL`           | Có       | —                                     | URL gốc của Keycloak (dùng cho cả API và browser redirect) |
-| `KEYCLOAK_HEALTH_URL`    | Không    | `http://localhost:9000/health/ready`  | Endpoint health của Keycloak                               |
-| `KEYCLOAK_REALM`         | Không    | `be-capstone`                         | Tên realm Keycloak                                         |
-| `KEYCLOAK_CLIENT_ID`     | Không    | `be-capstone-api`                     | OIDC client ID                                             |
-| `KEYCLOAK_CLIENT_SECRET` | Không    | `be-capstone-secret`                  | OIDC client secret                                         |
-| `KEYCLOAK_REDIRECT_URI`  | Không    | `http://localhost:3000/auth/callback` | Redirect URI mặc định                                      |
+| Biến                             | Bắt buộc | Mặc định                              | Mô tả                                                |
+| -------------------------------- | -------- | ------------------------------------- | ---------------------------------------------------- |
+| `NODE_ENV`                       | Không    | `development`                         | Môi trường chạy                                      |
+| `PORT`                           | Không    | `3000`                                | Port của API                                         |
+| `DATABASE_URL`                   | Có       | —                                     | Chuỗi kết nối Postgres                               |
+| `KEYCLOAK_PUBLIC_URL`            | Có       | —                                     | URL Keycloak browser truy cập được                   |
+| `KEYCLOAK_INTERNAL_URL`          | Không    | `KEYCLOAK_PUBLIC_URL`                 | URL Keycloak cho server-to-server                    |
+| `KEYCLOAK_HEALTH_URL`            | Không    | derived (port 9000)                   | Endpoint health của Keycloak                         |
+| `KEYCLOAK_REALM`                 | Không    | `be-capstone`                         | Tên realm Keycloak                                   |
+| `KEYCLOAK_CLIENT_ID`             | Không    | `be-capstone-api`                     | OIDC client ID                                       |
+| `KEYCLOAK_CLIENT_SECRET`         | Không    | `be-capstone-secret`                  | OIDC client secret                                   |
+| `KEYCLOAK_REDIRECT_URI`          | Không    | `http://localhost:3000/auth/callback` | Redirect URI OAuth đăng ký trên Keycloak             |
+| `REDIS_URL`                      | Không    | `redis://localhost:6379`              | Redis cho session + mobile OAuth state/code          |
+| `SESSION_SECRET`                 | Có       | —                                     | Secret ký session cookie                             |
+| `FRONTEND_URL`                   | Có       | —                                     | Origin web SPA (whitelist redirect)                  |
+| `CORS_ORIGIN`                    | Không    | `FRONTEND_URL`                        | Origin CORS được phép                                |
+| `MOBILE_REDIRECT_URIS`           | Không    | `glowscan://auth/callback`            | Whitelist deep-link mobile (phân tách bằng dấu phẩy) |
+| `MOBILE_AUTH_CODE_TTL_SECONDS`   | Không    | `120`                                 | TTL one-time mobile auth code trong Redis            |
+| `MOBILE_OAUTH_STATE_TTL_SECONDS` | Không    | `600`                                 | TTL OAuth state mobile trong Redis                   |
 
 ---
 
@@ -333,17 +344,17 @@ Tất cả env được quản lý tập trung trong `src/config/env.config.ts`.
 
 ### Auth
 
-| Method | Path              | Mô tả                                                         |
-| ------ | ----------------- | ------------------------------------------------------------- |
-| `GET`  | `/auth/endpoints` | OIDC discovery endpoints                                      |
-| `GET`  | `/auth/login`     | Lấy authorization URL (`?idpHint=google` để đăng nhập Google) |
-| `GET`  | `/auth/callback`  | Exchange code qua query params                                |
-| `POST` | `/auth/token`     | Exchange code qua JSON body                                   |
-| `POST` | `/auth/refresh`   | Refresh access token                                          |
-| `POST` | `/auth/logout`    | Thu hồi session                                               |
-| `GET`  | `/users/me`       | Lấy profile hiện tại (session cookie)                         |
+| Method | Path                    | Mô tả                                                                 |
+| ------ | ----------------------- | --------------------------------------------------------------------- |
+| `POST` | `/auth/login`           | Bắt đầu login (web session hoặc mobile Redis state) → `{ login_uri }` |
+| `GET`  | `/auth/callback`        | OAuth callback (web: cookie; mobile: one-time code deep link)         |
+| `GET`  | `/auth/status`          | Kiểm tra session đã authenticated chưa                                |
+| `POST` | `/auth/logout`          | Hủy session và thu hồi token (web)                                    |
+| `POST` | `/auth/mobile/exchange` | Đổi one-time mobile code → tokens + user                              |
+| `POST` | `/auth/mobile/refresh`  | Refresh token Keycloak cho mobile                                     |
+| `GET`  | `/users/me`             | Profile hiện tại (session cookie **hoặc** `Authorization: Bearer`)    |
 
-> Xem hướng dẫn frontend chi tiết tại [docs/auth.vi.md](docs/auth.vi.md).
+> Web SPA: [docs/auth-web.vi.md](docs/auth-web.vi.md). Mobile / Expo: [docs/auth-mobile.vi.md](docs/auth-mobile.vi.md).
 
 ---
 
@@ -710,6 +721,8 @@ Các file unit test nằm cạnh source (`*.spec.ts`). E2E test nằm trong thư
 ## Tài liệu
 
 - **[English README](README.md)**
-- **[docs/auth.vi.md](docs/auth.vi.md)** — Hướng dẫn frontend tích hợp auth từng bước
-- **[docs/auth.md](docs/auth.md)** — English auth guide
+- **[docs/auth-web.vi.md](docs/auth-web.vi.md)** — Hướng dẫn auth web SPA (BFF / session cookie)
+- **[docs/auth-web.md](docs/auth-web.md)** — English web auth guide
+- **[docs/auth-mobile.vi.md](docs/auth-mobile.vi.md)** — Hướng dẫn auth Expo / mobile (deep link + Bearer)
+- **[docs/auth-mobile.md](docs/auth-mobile.md)** — English mobile auth guide
 - Swagger UI tại `/docs`

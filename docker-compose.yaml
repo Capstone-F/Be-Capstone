@@ -134,6 +134,9 @@ services:
     #   SESSION_COOKIE_SECURE: 'false'
     #   FRONTEND_URL: http://localhost:3000
     #   CORS_ORIGIN: http://localhost:3000
+    #   MOBILE_REDIRECT_URIS: glowscan://auth/callback
+    #   MOBILE_AUTH_CODE_TTL_SECONDS: '120'
+    #   MOBILE_OAUTH_STATE_TTL_SECONDS: '600'
     ports:
       - '3001:3000'
     depends_on:

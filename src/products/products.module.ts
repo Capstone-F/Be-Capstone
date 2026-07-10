@@ -1,8 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
-import { RolesGuard } from '../auth/guards/roles.guard';
-import { SessionGuard } from '../auth/guards/session.guard';
 import { IngredientsModule } from '../ingredients/ingredients.module';
 import { IngredientConflict } from '../ingredients/ingredient-conflict.entity';
 import { IngredientProtocol } from '../ingredients/ingredient-protocol.entity';
@@ -36,12 +34,7 @@ import { ProductsService } from './products.service';
     AuthModule,
   ],
   controllers: [ProductsController],
-  providers: [
-    ProductsService,
-    ProductOnboardingService,
-    SessionGuard,
-    RolesGuard,
-  ],
+  providers: [ProductsService, ProductOnboardingService],
   exports: [ProductsService, ProductOnboardingService, TypeOrmModule],
 })
 export class ProductsModule {}

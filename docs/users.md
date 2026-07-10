@@ -2,7 +2,7 @@
 
 This document describes the five application roles, session-based RBAC, and user-management API endpoints for GlowScan.
 
-See also: [Authentication Guide](auth.md)
+See also: [Web Authentication Guide](auth-web.md) · [Mobile Authentication Guide](auth-mobile.md)
 
 ---
 

@@ -47,6 +47,7 @@
     "dotenv": "^17.4.2",
     "express-session": "^1.19.0",
     "ioredis": "^5.10.1",
+    "jose": "^6.2.3",
     "nestjs-pino": "^4.6.1",
     "nestjs-vnpay": "^1.1.0",
     "pg": "^8.20.0",
@@ -101,6 +102,9 @@
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "moduleNameMapper": {
+      "^jose$": "<rootDir>/../test/mocks/jose.ts"
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"

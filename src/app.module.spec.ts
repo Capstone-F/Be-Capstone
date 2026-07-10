@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module';
 import { ConfigModule } from './config/config.module';
 import { HealthController } from './health/health.controller';
 import { HealthService } from './health/health.service';
+import { RedisModule } from './redis/redis.module';
 
 describe('AppModule', () => {
   it('should configure imports, controllers and providers', () => {
@@ -18,7 +19,12 @@ describe('AppModule', () => {
     const providers = Reflect.getMetadata(MODULE_METADATA.PROVIDERS, AppModule);
 
     expect(imports).toEqual(
-      expect.arrayContaining([ConfigModule, AuthModule, expect.any(Object)]),
+      expect.arrayContaining([
+        ConfigModule,
+        AuthModule,
+        RedisModule,
+        expect.any(Object),
+      ]),
     );
     expect(controllers).toEqual(
       expect.arrayContaining([AppController, HealthController]),

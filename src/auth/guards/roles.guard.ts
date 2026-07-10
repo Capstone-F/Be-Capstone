@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
+import { getAuthContext } from '../auth-context';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { hasAnyRole, Role } from '../roles.enum';
 
@@ -24,9 +25,10 @@ export class RolesGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest<Request>();
-    const sessionRoles = request.session?.roles;
+    const auth = getAuthContext(request);
+    const roles = auth?.roles;
 
-    if (!hasAnyRole(sessionRoles, requiredRoles)) {
+    if (!hasAnyRole(roles, requiredRoles)) {
       throw new ForbiddenException('Insufficient permissions');
     }
 

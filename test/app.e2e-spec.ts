@@ -69,6 +69,8 @@ import { OrderStatus } from '../src/commerce/enums';
 import { Role } from '../src/auth/roles.enum';
 import { KeycloakAdminService } from '../src/keycloak/keycloak-admin.service';
 import { KeycloakAdminModule } from '../src/keycloak/keycloak-admin.module';
+import { REDIS_CLIENT } from '../src/redis/redis.constants';
+import { createInMemoryRedis } from './in-memory-redis';
 
 const TEST_CONFIG: Record<string, unknown> = {
   nodeEnv: 'test',
@@ -89,6 +91,9 @@ const TEST_CONFIG: Record<string, unknown> = {
   corsOrigin: 'http://localhost:5173',
   keycloakDevAdminUser: 'glowscan-admin',
   keycloakDevAdminPassword: 'admin',
+  mobileRedirectUris: ['glowscan://auth/callback'],
+  mobileAuthCodeTtlSeconds: 120,
+  mobileOauthStateTtlSeconds: 600,
   getMissingRequiredKeys: () => [],
 };
 
@@ -128,6 +133,8 @@ describe('BE Capstone API (e2e)', () => {
     })
       .overrideProvider(AppConfigService)
       .useValue(TEST_CONFIG)
+      .overrideProvider(REDIS_CLIENT)
+      .useValue(createInMemoryRedis())
       .overrideProvider(HealthService)
       .useValue({
         getHealthStatus: () => ({
@@ -985,8 +992,19 @@ describe('BE Capstone API (e2e)', () => {
     });
 
     describe('GET /products', () => {
-      it('should return 401 without session cookie', async () => {
-        await request(app.getHttpServer()).get('/products').expect(401);
+      it('should return paginated products without authentication', async () => {
+        await onboardProductViaHttp(adminSid);
+
+        const { body } = await request(app.getHttpServer())
+          .get('/products?page=1&limit=10')
+          .expect(200);
+
+        expect(body.total).toBeGreaterThanOrEqual(1);
+        expect(body.page).toBe(1);
+        expect(body.limit).toBe(10);
+        expect(Array.isArray(body.items)).toBe(true);
+        expect(body.items[0]).toHaveProperty('product');
+        expect(body.items[0]).toHaveProperty('ingredients');
       });
 
       it('should return paginated products for authenticated user', async () => {
@@ -1032,10 +1050,16 @@ describe('BE Capstone API (e2e)', () => {
     });
 
     describe('GET /products/:id', () => {
-      it('should return 401 without session cookie', async () => {
-        await request(app.getHttpServer())
-          .get('/products/00000000-0000-0000-0000-000000000001')
-          .expect(401);
+      it('should return product detail without authentication', async () => {
+        const onboarded = await onboardProductViaHttp(adminSid);
+
+        const { body } = await request(app.getHttpServer())
+          .get(`/products/${onboarded.product.id}`)
+          .expect(200);
+
+        expect(body.product.id).toBe(onboarded.product.id);
+        expect(body.product.name).toBe(onboarded.product.name);
+        expect(body.ingredients).toHaveLength(2);
       });
 
       it('should return 404 when product does not exist', async () => {
@@ -1059,6 +1083,65 @@ describe('BE Capstone API (e2e)', () => {
         expect(body.ingredients[0]).toHaveProperty('name');
         expect(body.ingredients[0]).toHaveProperty('concentrationPct');
         expect(body.ingredients[0]).toHaveProperty('isKeyIngredient');
+      });
+    });
+
+    describe('GET /products/categories', () => {
+      it('should return categories without authentication', async () => {
+        await onboardProductViaHttp(adminSid, {
+          categoryCode: 'SERUM',
+          categoryName: 'Serum',
+        });
+        await onboardProductViaHttp(adminSid, {
+          name: 'Moisturizer Product',
+          categoryCode: 'MOISTURIZER',
+          categoryName: 'Moisturizer',
+          sku: 'MOIST-CAT-E2E',
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .get('/products/categories')
+          .expect(200);
+
+        expect(Array.isArray(body)).toBe(true);
+        expect(body.length).toBeGreaterThanOrEqual(2);
+
+        const codes = body.map((c: { code: string }) => c.code);
+        expect(codes).toEqual(expect.arrayContaining(['SERUM', 'MOISTURIZER']));
+
+        for (const category of body) {
+          expect(category).toHaveProperty('id');
+          expect(category).toHaveProperty('code');
+          expect(category).toHaveProperty('name');
+          expect(category).toHaveProperty('description');
+          expect(category).toHaveProperty('isActive');
+          expect(category.isActive).toBe(true);
+        }
+      });
+
+      it('should filter categories by search query', async () => {
+        await onboardProductViaHttp(adminSid, {
+          categoryCode: 'SERUM',
+          categoryName: 'Serum',
+        });
+        await onboardProductViaHttp(adminSid, {
+          name: 'Moisturizer Product',
+          categoryCode: 'MOISTURIZER',
+          categoryName: 'Moisturizer',
+          sku: 'MOIST-SEARCH-E2E',
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .get('/products/categories?search=serum')
+          .expect(200);
+
+        expect(body.length).toBeGreaterThanOrEqual(1);
+        for (const category of body) {
+          const matchesSearch =
+            category.name.toLowerCase().includes('serum') ||
+            category.code.toLowerCase().includes('serum');
+          expect(matchesSearch).toBe(true);
+        }
       });
     });
   });

@@ -1,7 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { ListProductCategoriesQueryDto } from './dto/list-product-categories.dto';
 import { ListProductsQueryDto } from './dto/list-products.dto';
+import { ProductCategoryResponseDto } from './dto/product-category-response.dto';
 import {
   PaginatedProductsDto,
   ProductDetailResponseDto,
@@ -9,6 +11,7 @@ import {
   ProductResponseDto,
   ProductVariantResponseDto,
 } from './dto/product-response.dto';
+import { ProductCategory } from './product-category.entity';
 import { ProductIngredient } from './product-ingredient.entity';
 import { ProductVariant } from './product-variant.entity';
 import { Product } from './product.entity';
@@ -22,6 +25,8 @@ export class ProductsService {
     private readonly variantRepository: Repository<ProductVariant>,
     @InjectRepository(ProductIngredient)
     private readonly productIngredientRepository: Repository<ProductIngredient>,
+    @InjectRepository(ProductCategory)
+    private readonly categoryRepository: Repository<ProductCategory>,
   ) {}
 
   async findOne(id: string): Promise<ProductDetailResponseDto> {
@@ -94,6 +99,39 @@ export class ProductsService {
     );
 
     return { items, total, page, limit };
+  }
+
+  async findCategories(
+    query: ListProductCategoriesQueryDto,
+  ): Promise<ProductCategoryResponseDto[]> {
+    const qb = this.categoryRepository
+      .createQueryBuilder('category')
+      .where('category.isActive = :isActive', { isActive: true });
+
+    if (query.search?.trim()) {
+      const term = `%${query.search.trim()}%`;
+      qb.andWhere('(category.name ILIKE :term OR category.code ILIKE :term)', {
+        term,
+      });
+    }
+
+    const categories = await qb.orderBy('category.name', 'ASC').getMany();
+
+    return categories.map((category) => this.toCategoryResponse(category));
+  }
+
+  private toCategoryResponse(
+    category: ProductCategory,
+  ): ProductCategoryResponseDto {
+    return {
+      id: category.id,
+      code: category.code,
+      name: category.name,
+      description: category.description,
+      isActive: category.isActive,
+      createdAt: category.createdAt,
+      updatedAt: category.updatedAt,
+    };
   }
 
   private toDetailResponse(
