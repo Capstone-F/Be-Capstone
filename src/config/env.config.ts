@@ -105,6 +105,43 @@ export const ENV_DEFINITIONS = {
     required: false,
     description: 'Allowed CORS origin. Defaults to FRONTEND_URL if not set.',
   },
+  VNP_TMN_CODE: {
+    required: false,
+    description: 'VNPay merchant terminal code (TMN Code).',
+  },
+  VNP_HASH_SECRET: {
+    required: false,
+    description:
+      'VNPay hash secret used to sign and verify payment/IPN checksums.',
+  },
+  VNP_URL: {
+    required: false,
+    defaultValue: 'https://sandbox.vnpayment.vn',
+    description:
+      'VNPay gateway host (vnpayHost). The library appends endpoint paths. Sandbox: https://sandbox.vnpayment.vn.',
+  },
+  VNP_RETURN_URL: {
+    required: false,
+    defaultValue: 'http://localhost:3000/payments/vnpay/return',
+    description:
+      'Backend endpoint VNPay redirects the browser to (sent as vnp_ReturnUrl). It verifies the signature, then 302s the user to the client landing URL. In production include the /api prefix.',
+  },
+  VNP_IPN_URL: {
+    required: false,
+    description:
+      'VNPay IPN callback URL, registered in the VNPay merchant portal (server-to-server). Informational only — not sent in the payment request.',
+  },
+  VNP_CLIENT_RETURN_URL: {
+    required: false,
+    description:
+      'Web client landing URL the return endpoint 302s to after verifying. Defaults to FRONTEND_URL + /vnpay_return.',
+  },
+  VNP_MOBILE_RETURN_URL: {
+    required: false,
+    defaultValue: 'glowscan://vnpay-return',
+    description:
+      'Mobile deep link the return endpoint 302s to when checkout was initiated by the mobile client.',
+  },
 } as const satisfies Record<string, EnvDefinition>;
 
 export type EnvKey = keyof typeof ENV_DEFINITIONS;
@@ -130,6 +167,13 @@ export type AppEnv = {
   sessionCookieSecure: boolean;
   FRONTEND_URL: string;
   CORS_ORIGIN: string;
+  VNP_TMN_CODE: string;
+  VNP_HASH_SECRET: string;
+  VNP_URL: string;
+  VNP_RETURN_URL: string;
+  VNP_IPN_URL: string;
+  VNP_CLIENT_RETURN_URL: string;
+  VNP_MOBILE_RETURN_URL: string;
 };
 
 export function getMissingRequiredEnv(
@@ -237,5 +281,17 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
     FRONTEND_URL: raw.FRONTEND_URL!.trim().replace(/\/+$/, ''),
     CORS_ORIGIN:
       raw.CORS_ORIGIN?.trim() || raw.FRONTEND_URL!.trim().replace(/\/+$/, ''),
+    VNP_TMN_CODE: raw.VNP_TMN_CODE?.trim() || '',
+    VNP_HASH_SECRET: raw.VNP_HASH_SECRET?.trim() || '',
+    VNP_URL: raw.VNP_URL?.trim() || ENV_DEFINITIONS.VNP_URL.defaultValue,
+    VNP_RETURN_URL:
+      raw.VNP_RETURN_URL?.trim() || ENV_DEFINITIONS.VNP_RETURN_URL.defaultValue,
+    VNP_IPN_URL: raw.VNP_IPN_URL?.trim() || '',
+    VNP_CLIENT_RETURN_URL:
+      raw.VNP_CLIENT_RETURN_URL?.trim() ||
+      `${raw.FRONTEND_URL!.trim().replace(/\/+$/, '')}/vnpay_return`,
+    VNP_MOBILE_RETURN_URL:
+      raw.VNP_MOBILE_RETURN_URL?.trim() ||
+      ENV_DEFINITIONS.VNP_MOBILE_RETURN_URL.defaultValue,
   };
 }

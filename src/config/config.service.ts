@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { AppEnv, getMissingRequiredEnv, resolveAppEnv } from './env.config';
+import { PaymentConfig } from './payment.config';
 
 @Injectable()
 export class AppConfigService {
@@ -89,6 +90,19 @@ export class AppConfigService {
 
   get corsOrigin(): string {
     return this.env.CORS_ORIGIN;
+  }
+
+  /** VNPay integration config, grouped for easy sandbox/production switching. */
+  get paymentConfig(): PaymentConfig {
+    return {
+      tmnCode: this.env.VNP_TMN_CODE,
+      hashSecret: this.env.VNP_HASH_SECRET,
+      vnpayHost: this.env.VNP_URL,
+      returnUrl: this.env.VNP_RETURN_URL,
+      ipnUrl: this.env.VNP_IPN_URL,
+      clientReturnUrl: this.env.VNP_CLIENT_RETURN_URL,
+      mobileReturnUrl: this.env.VNP_MOBILE_RETURN_URL,
+    };
   }
 
   getMissingRequiredKeys(): string[] {
