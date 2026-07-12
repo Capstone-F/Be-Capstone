@@ -19,7 +19,15 @@ import { ProductBrand } from '../../products/product-brand.entity';
 import { Product } from '../../products/product.entity';
 import { ProductVariant } from '../../products/product-variant.entity';
 import { ProductIngredient } from '../../products/product-ingredient.entity';
+import { ProductProtocol } from '../../products/product-protocol.entity';
 import { ShelfLifeUnit } from '../../stock/enums';
+import { Question } from '../../survey/question.entity';
+import { CommerceSetting } from '../../commerce/commerce-setting.entity';
+import {
+  CommerceSettingKey,
+  OrderSource,
+  OrderStatus,
+} from '../../commerce/enums';
 import { DeliveryProvider } from '../../delivery/delivery-provider.entity';
 import { SupportHabit } from '../../routines/support-habit.entity';
 import { SupportHabitType } from '../../routines/enums';
@@ -31,7 +39,6 @@ import { ExpertSpecialty } from '../../experts/expert-specialty.enum';
 import { Role } from '../../auth/roles.enum';
 import { Customer } from '../../users/customer.entity';
 import { Order } from '../../commerce/order.entity';
-import { OrderStatus } from '../../commerce/enums';
 
 type LabelCategorySeed = { code: string; name: string; description: string };
 type LabelSeed = {
@@ -962,6 +969,49 @@ const INGREDIENTS: IngredientSeed[] = [
   },
 ];
 
+/** Maps product SKU → protocol codes for recommendation seeding. */
+const PRODUCT_PROTOCOL_MAPPINGS: Array<{
+  sku: string;
+  protocolCode: string;
+}> = [
+  { sku: 'CERAVE-FOAM-CLEANSER-236ML', protocolCode: 'ceramide_barrier' },
+  { sku: 'CERAVE-FOAM-CLEANSER-236ML', protocolCode: 'niacinamide_general' },
+  { sku: 'SOMEBYMI-MIRACLE-TONER-150ML', protocolCode: 'glycolic_exfoliation' },
+  { sku: 'SOMEBYMI-MIRACLE-TONER-150ML', protocolCode: 'salicylic_acne' },
+  { sku: 'TO-NIACINAMIDE-10-ZINC-30ML', protocolCode: 'niacinamide_general' },
+  { sku: 'CERAVE-MOIST-CREAM-454G', protocolCode: 'ceramide_barrier' },
+  { sku: 'CERAVE-MOIST-CREAM-454G', protocolCode: 'ha_hydration' },
+  { sku: 'LRP-ANTHELIOS-UVMUNE-50ML', protocolCode: 'ha_hydration' },
+  { sku: 'LRP-EFFAC-DUO-40ML', protocolCode: 'benzoyl_acne' },
+  { sku: 'LRP-EFFAC-DUO-40ML', protocolCode: 'azelaic_pigmentation' },
+];
+
+const SURVEY_QUESTIONS: Array<{
+  code: string;
+  text: string;
+  questionType: string;
+  displayOrder: number;
+}> = [
+  {
+    code: 'PRIMARY_CONCERN',
+    text: 'What is your primary skin concern?',
+    questionType: 'MULTI_SELECT',
+    displayOrder: 1,
+  },
+  {
+    code: 'SKIN_GOALS',
+    text: 'What are your skincare goals?',
+    questionType: 'MULTI_SELECT',
+    displayOrder: 2,
+  },
+  {
+    code: 'LIFESTYLE',
+    text: 'Which lifestyle factors apply to you?',
+    questionType: 'MULTI_SELECT',
+    displayOrder: 3,
+  },
+];
+
 const PROTOCOL_LABEL_MAPPINGS: Array<{
   protocolCode: string;
   labelCode: string;
@@ -1281,7 +1331,7 @@ async function upsertProductWithVariant(
   brandId: string,
   categoryId: string,
   ingredientsByName: Map<string, Ingredient>,
-): Promise<void> {
+): Promise<Product> {
   const variant = await variantRepo.findOne({
     where: { sku: seed.sku },
     relations: ['product'],
@@ -1352,6 +1402,8 @@ async function upsertProductWithVariant(
       await productIngredientRepo.save(existing);
     }
   }
+
+  return product;
 }
 
 async function seed(): Promise<void> {
@@ -1365,6 +1417,9 @@ async function seed(): Promise<void> {
   const productRepo = AppDataSource.getRepository(Product);
   const productVariantRepo = AppDataSource.getRepository(ProductVariant);
   const productIngredientRepo = AppDataSource.getRepository(ProductIngredient);
+  const productProtocolRepo = AppDataSource.getRepository(ProductProtocol);
+  const questionRepo = AppDataSource.getRepository(Question);
+  const commerceSettingRepo = AppDataSource.getRepository(CommerceSetting);
   const deliveryProviderRepo = AppDataSource.getRepository(DeliveryProvider);
   const supportHabitRepo = AppDataSource.getRepository(SupportHabit);
   const ingredientRepo = AppDataSource.getRepository(Ingredient);
@@ -1425,6 +1480,7 @@ async function seed(): Promise<void> {
     ingredientsByName.set(ingredient.name, ingredient);
   }
 
+  const productsBySku = new Map<string, Product>();
   for (const productSeed of PRODUCTS) {
     const category = productCategoriesByCode.get(productSeed.categoryCode);
     if (!category) continue;
@@ -1433,7 +1489,7 @@ async function seed(): Promise<void> {
       productBrandRepo,
       productSeed.brandName,
     );
-    await upsertProductWithVariant(
+    const product = await upsertProductWithVariant(
       productRepo,
       productVariantRepo,
       productIngredientRepo,
@@ -1442,6 +1498,7 @@ async function seed(): Promise<void> {
       category.id,
       ingredientsByName,
     );
+    productsBySku.set(productSeed.sku, product);
   }
 
   const protocolsByCode = new Map<string, IngredientProtocol>();
@@ -1590,6 +1647,59 @@ async function seed(): Promise<void> {
     }
   }
 
+  for (const mapping of PRODUCT_PROTOCOL_MAPPINGS) {
+    const product = productsBySku.get(mapping.sku);
+    const protocol = protocolsByCode.get(mapping.protocolCode);
+    if (!product || !protocol) continue;
+
+    const existing = await productProtocolRepo.findOneBy({
+      productId: product.id,
+      protocolId: protocol.id,
+    });
+    if (!existing) {
+      await productProtocolRepo.save(
+        productProtocolRepo.create({
+          productId: product.id,
+          protocolId: protocol.id,
+        }),
+      );
+    }
+  }
+
+  for (const q of SURVEY_QUESTIONS) {
+    const existing = await questionRepo.findOneBy({ code: q.code });
+    if (!existing) {
+      await questionRepo.save(
+        questionRepo.create({
+          code: q.code,
+          text: q.text,
+          questionType: q.questionType,
+          displayOrder: q.displayOrder,
+          isActive: true,
+        }),
+      );
+    } else {
+      existing.text = q.text;
+      existing.questionType = q.questionType;
+      existing.displayOrder = q.displayOrder;
+      existing.isActive = true;
+      await questionRepo.save(existing);
+    }
+  }
+
+  const existingComboSetting = await commerceSettingRepo.findOneBy({
+    key: CommerceSettingKey.SURVEY_COMBO_DISCOUNT_PCT,
+  });
+  if (!existingComboSetting) {
+    await commerceSettingRepo.save(
+      commerceSettingRepo.create({
+        key: CommerceSettingKey.SURVEY_COMBO_DISCOUNT_PCT,
+        value: '10',
+        updatedByUserId: null,
+      }),
+    );
+  }
+
   for (const clinicSeed of CLINICS) {
     let clinic = await clinicRepo.findOneBy({ name: clinicSeed.name });
     if (!clinic) {
@@ -1713,6 +1823,10 @@ async function seed(): Promise<void> {
       orderRepo.create({
         customerId: demoCustomer.id,
         status: OrderStatus.PENDING,
+        source: OrderSource.CATALOG,
+        subtotalVnd: 199000,
+        discountVnd: 0,
+        discountType: null,
         totalVnd: 199000,
       }),
     );

@@ -140,9 +140,27 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
               Object.assign(a, values);
               return Promise.resolve({ affected: 1 });
             }
+            if (entity === Order) {
+              if (
+                order.id === criteria.id &&
+                order.status === criteria.status
+              ) {
+                Object.assign(order, values);
+                return Promise.resolve({ affected: 1 });
+              }
+              return Promise.resolve({ affected: 0 });
+            }
             const p = payments.find((x) => x.id === criteria.id);
             if (p) Object.assign(p, values);
             return Promise.resolve({ affected: p ? 1 : 0 });
+          },
+          findOne: (entity: unknown, opts: { where: { id: string } }) => {
+            if (entity === Payment) {
+              return Promise.resolve(
+                payments.find((p) => p.id === opts.where.id) ?? null,
+              );
+            }
+            return Promise.resolve(null);
           },
         } as unknown as EntityManager),
     } as unknown as DataSource;
@@ -162,6 +180,11 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
       loggerFn: ignoreLogger,
     });
 
+    const stockService = {
+      deductByVariantId: () =>
+        Promise.resolve({ totalDeducted: 0, batches: [] }),
+    };
+
     service = new PaymentsService(
       paymentRepo,
       attemptRepo,
@@ -170,6 +193,7 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
       vnpay,
       config,
       dataSource,
+      stockService as never,
     );
   });
 
@@ -196,7 +220,7 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
     expect(attempts[0].status).toBe('PENDING'); // read-only
   });
 
-  it('a successful IPN marks the attempt SUCCESS and payment PAID', async () => {
+  it('a successful IPN marks the attempt SUCCESS, payment PAID, and order PAID', async () => {
     const ref = attempts[0].vnpTxnRef;
     const res = await service.handleIpn(
       successCallback(ref, 19900000) as never,
@@ -205,6 +229,7 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
     expect(attempts[0].status).toBe('SUCCESS');
     expect(payments[0].status).toBe('PAID');
     expect(payments[0].paidAt).toBeInstanceOf(Date);
+    expect(order.status).toBe(OrderStatus.PAID);
   });
 
   it('a duplicate IPN is idempotent (already confirmed, no re-update)', async () => {
@@ -224,7 +249,8 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
   });
 
   it('an IPN whose amount differs from the attempt is rejected', async () => {
-    // Fresh attempt (same order, 199,000) then a validly-signed callback for 50,000.
+    // Fresh PENDING order attempt (same order total) then a validly-signed callback for 50,000.
+    order.status = OrderStatus.PENDING;
     await service.checkout('user-1', { orderId: 'order-1' }, '127.0.0.1');
     const ref = attempts[attempts.length - 1].vnpTxnRef;
     const res = await service.handleIpn(successCallback(ref, 5000000) as never);

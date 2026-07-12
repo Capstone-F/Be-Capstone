@@ -10,6 +10,7 @@ import {
 import { ProductVariant } from '../products/product-variant.entity';
 import { ProductInstance } from '../stock/product-instance.entity';
 import { RoutineStepDetails } from '../routines/routine-step-details.entity';
+import { SurveyRecommendationItem } from '../recommendations/survey-recommendation-item.entity';
 import { Order } from './order.entity';
 
 @Entity('order_items')
@@ -39,6 +40,16 @@ export class OrderItem {
   @ManyToOne(() => RoutineStepDetails, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'routineStepDetailsId' })
   routineStepDetails: RoutineStepDetails | null;
+
+  @Column({ nullable: true, type: 'uuid' })
+  surveyRecommendationItemId: string | null;
+
+  @ManyToOne(() => SurveyRecommendationItem, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'surveyRecommendationItemId' })
+  surveyRecommendationItem: SurveyRecommendationItem | null;
 
   @Column({ type: 'int' })
   quantity: number;

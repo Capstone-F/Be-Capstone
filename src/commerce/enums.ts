@@ -8,6 +8,19 @@ export enum OrderStatus {
   REFUNDED = 'REFUNDED',
 }
 
+export enum OrderSource {
+  SURVEY = 'SURVEY',
+  CATALOG = 'CATALOG',
+}
+
+export enum OrderDiscountType {
+  COMBO = 'COMBO',
+}
+
+export enum CommerceSettingKey {
+  SURVEY_COMBO_DISCOUNT_PCT = 'SURVEY_COMBO_DISCOUNT_PCT',
+}
+
 export enum TransactionStatus {
   PENDING = 'PENDING',
   COMPLETED = 'COMPLETED',

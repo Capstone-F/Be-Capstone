@@ -26,6 +26,9 @@ import { DeliveryModule } from './delivery/delivery.module';
 import { RuleEngineModule } from './rule-engine/rule-engine.module';
 import { PaymentsModule } from './payments/payments.module';
 import { RedisModule } from './redis/redis.module';
+import { RecommendationsModule } from './recommendations/recommendations.module';
+import { CartModule } from './cart/cart.module';
+import { LlmModule } from './llm/llm.module';
 
 @Module({
   imports: [
@@ -57,9 +60,12 @@ import { RedisModule } from './redis/redis.module';
     RoutinesModule,
     TreatmentsModule,
     ConsultationsModule,
+    RecommendationsModule,
+    CartModule,
     CommerceModule,
     DeliveryModule,
     RuleEngineModule,
+    LlmModule,
     PaymentsModule,
     AuthModule,
     RedisModule,

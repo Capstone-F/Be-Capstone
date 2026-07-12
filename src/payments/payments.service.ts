@@ -23,6 +23,7 @@ import type { IpnResponse, ReturnQueryFromVNPay } from 'vnpay';
 import { AppConfigService } from '../config/config.service';
 import { Order } from '../commerce/order.entity';
 import { OrderStatus } from '../commerce/enums';
+import { StockService } from '../stock/stock.service';
 import { Customer } from '../users/customer.entity';
 import { CheckoutDto } from './dto/checkout.dto';
 import { CheckoutResponseDto } from './dto/checkout-response.dto';
@@ -52,6 +53,7 @@ export class PaymentsService {
     private readonly vnpay: VnpayService,
     private readonly config: AppConfigService,
     private readonly dataSource: DataSource,
+    private readonly stockService: StockService,
   ) {}
 
   /** Create (or reuse) a Payment for a PENDING order and return a VNPay payment URL. */
@@ -208,7 +210,7 @@ export class PaymentsService {
       const success = verify.isSuccess;
       const now = new Date();
 
-      return await this.dataSource.transaction(async (manager) => {
+      const result = await this.dataSource.transaction(async (manager) => {
         // Conditional update — only the PENDING → terminal transition wins,
         // so a duplicate/concurrent IPN affects 0 rows and is reported as already-confirmed.
         const updated = await manager.update(
@@ -245,17 +247,71 @@ export class PaymentsService {
           },
         );
 
+        if (success) {
+          const payment = await manager.findOne(Payment, {
+            where: { id: attempt.paymentId },
+          });
+          if (payment) {
+            await manager.update(
+              Order,
+              { id: payment.orderId, status: OrderStatus.PENDING },
+              { status: OrderStatus.PAID },
+            );
+          }
+        }
+
         this.logger.log(
           `IPN processed txnRef=${txnRef} success=${success} responseCode=${String(verify.vnp_ResponseCode)}`,
         );
         return IpnSuccess;
       });
+
+      if (success && result.RspCode === IpnSuccess.RspCode) {
+        await this.deductStockForPaidPayment(attempt.paymentId);
+      }
+
+      return result;
     } catch (error) {
       this.logger.error(
         `IPN processing error: ${error instanceof Error ? error.message : String(error)}`,
         error instanceof Error ? error.stack : undefined,
       );
       return IpnUnknownError;
+    }
+  }
+
+  private async deductStockForPaidPayment(paymentId: string): Promise<void> {
+    const payment = await this.paymentRepo.findOne({
+      where: { id: paymentId },
+    });
+    if (!payment) {
+      return;
+    }
+
+    const order = await this.orderRepo.findOne({
+      where: { id: payment.orderId },
+      relations: ['items'],
+    });
+    if (!order?.items?.length) {
+      return;
+    }
+
+    for (const item of order.items) {
+      try {
+        await this.stockService.deductByVariantId(
+          item.productVariantId,
+          item.quantity,
+          `Order ${order.id} payment ${payment.id}`,
+          item.id,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Stock deduction failed for orderItem=${item.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          error instanceof Error ? error.stack : undefined,
+        );
+      }
     }
   }
 

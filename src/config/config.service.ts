@@ -120,6 +120,11 @@ export class AppConfigService {
     return this.env.MOBILE_OAUTH_STATE_TTL_SECONDS;
   }
 
+  /** LLM provider key for routine generation (mock by default). */
+  get llmProvider(): string {
+    return this.env.LLM_PROVIDER;
+  }
+
   getMissingRequiredKeys(): string[] {
     return getMissingRequiredEnv();
   }

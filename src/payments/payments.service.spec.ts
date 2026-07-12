@@ -52,6 +52,7 @@ describe('PaymentsService', () => {
     Pick<VnpayService, 'buildPaymentUrl' | 'verifyReturnUrl' | 'verifyIpnCall'>
   >;
   let dataSource: { transaction: jest.Mock };
+  let stockService: { deductByVariantId: jest.Mock };
   let service: PaymentsService;
 
   beforeEach(() => {
@@ -65,6 +66,7 @@ describe('PaymentsService', () => {
       verifyIpnCall: jest.fn(),
     };
     dataSource = { transaction: jest.fn() };
+    stockService = { deductByVariantId: jest.fn().mockResolvedValue({}) };
 
     service = new PaymentsService(
       paymentRepo as unknown as Repository<Payment>,
@@ -74,6 +76,7 @@ describe('PaymentsService', () => {
       vnpay as unknown as VnpayService,
       makeConfig(),
       dataSource as unknown as DataSource,
+      stockService as never,
     );
   });
 
@@ -223,12 +226,23 @@ describe('PaymentsService', () => {
     const runTransaction = () =>
       dataSource.transaction.mockImplementation(
         async (cb: (m: unknown) => Promise<unknown>) =>
-          cb({ update: managerUpdate }),
+          cb({
+            update: managerUpdate,
+            findOne: jest.fn().mockResolvedValue({
+              id: 'pay-1',
+              orderId: 'order-1',
+            }),
+          }),
       );
     let managerUpdate: jest.Mock;
 
     beforeEach(() => {
       managerUpdate = jest.fn();
+      orderRepo.findOne.mockResolvedValue({ id: 'order-1', items: [] });
+      paymentRepo.findOne.mockResolvedValue({
+        id: 'pay-1',
+        orderId: 'order-1',
+      });
     });
 
     it('returns FailChecksum and does not touch the DB on bad signature', async () => {
@@ -288,7 +302,8 @@ describe('PaymentsService', () => {
       runTransaction();
       managerUpdate
         .mockResolvedValueOnce({ affected: 1 }) // attempt PENDING -> SUCCESS
-        .mockResolvedValueOnce({ affected: 1 }); // payment -> PAID
+        .mockResolvedValueOnce({ affected: 1 }) // payment -> PAID
+        .mockResolvedValueOnce({ affected: 1 }); // order -> PAID
 
       const res = await service.handleIpn({} as never);
 
@@ -297,6 +312,8 @@ describe('PaymentsService', () => {
       expect(attemptValues.status).toBe(PaymentAttemptStatus.SUCCESS);
       const paymentValues = managerUpdate.mock.calls[1][2];
       expect(paymentValues.status).toBe(PaymentStatus.PAID);
+      const orderValues = managerUpdate.mock.calls[2][2];
+      expect(orderValues.status).toBe(OrderStatus.PAID);
     });
 
     it('is idempotent: a duplicate IPN affects 0 rows and returns AlreadyConfirmed', async () => {
