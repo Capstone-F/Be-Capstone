@@ -163,6 +163,12 @@ export const ENV_DEFINITIONS = {
       'TTL in seconds for mobile OAuth state entries stored in Redis ' +
       '(POST /auth/login mobile flow).',
   },
+  LLM_PROVIDER: {
+    required: false,
+    defaultValue: 'mock',
+    description:
+      'LLM provider for routine generation (mock | openai | gemini). Only mock is implemented.',
+  },
 } as const satisfies Record<string, EnvDefinition>;
 
 export type EnvKey = keyof typeof ENV_DEFINITIONS;
@@ -198,6 +204,7 @@ export type AppEnv = {
   MOBILE_REDIRECT_URIS: string[];
   MOBILE_AUTH_CODE_TTL_SECONDS: number;
   MOBILE_OAUTH_STATE_TTL_SECONDS: number;
+  LLM_PROVIDER: string;
 };
 
 export function getMissingRequiredEnv(
@@ -357,5 +364,7 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
       'MOBILE_OAUTH_STATE_TTL_SECONDS',
       ENV_DEFINITIONS.MOBILE_OAUTH_STATE_TTL_SECONDS.defaultValue,
     ),
+    LLM_PROVIDER:
+      raw.LLM_PROVIDER?.trim() || ENV_DEFINITIONS.LLM_PROVIDER.defaultValue,
   };
 }

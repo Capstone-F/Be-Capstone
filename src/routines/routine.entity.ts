@@ -5,12 +5,16 @@ import {
   JoinColumn,
   ManyToOne,
   OneToMany,
+  OneToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { Customer } from '../users/customer.entity';
 import { Expert } from '../users/expert.entity';
 import { TreatmentPhase } from '../treatments/treatment-phase.entity';
+import { CustomerSurvey } from '../survey/customer-survey.entity';
+import { SurveyRecommendation } from '../recommendations/survey-recommendation.entity';
+import { Order } from '../commerce/order.entity';
 import { RoutineType, RoutineStatus } from './enums';
 import { RoutineCheckIn } from './routine-check-in.entity';
 import { RoutineStep } from './routine-step.entity';
@@ -44,6 +48,30 @@ export class Routine {
   @ManyToOne(() => Expert, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'createdByExpertId' })
   createdByExpert: Expert | null;
+
+  @Column({ nullable: true, type: 'uuid' })
+  sourceOrderId: string | null;
+
+  @OneToOne(() => Order, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'sourceOrderId' })
+  sourceOrder: Order | null;
+
+  @Column({ nullable: true, type: 'uuid' })
+  customerSurveyId: string | null;
+
+  @ManyToOne(() => CustomerSurvey, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'customerSurveyId' })
+  customerSurvey: CustomerSurvey | null;
+
+  @Column({ nullable: true, type: 'uuid' })
+  surveyRecommendationId: string | null;
+
+  @ManyToOne(() => SurveyRecommendation, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'surveyRecommendationId' })
+  surveyRecommendation: SurveyRecommendation | null;
 
   @Column({
     type: 'varchar',
