@@ -21,7 +21,10 @@ import type { Request } from 'express';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
 import { CustomersService } from './customers.service';
-import { CustomerProfileResponseDto } from './dto/customer-profile-response.dto';
+import {
+  AllergyLabelDto,
+  CustomerProfileResponseDto,
+} from './dto/customer-profile-response.dto';
 import { UpdateCustomerProfileDto } from './dto/update-customer-profile.dto';
 
 @ApiTags('Customers')
@@ -31,6 +34,17 @@ import { UpdateCustomerProfileDto } from './dto/update-customer-profile.dto';
 @ApiUnauthorizedResponse({ description: 'Not authenticated' })
 export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
+
+  @Get('allergies')
+  @ApiOperation({
+    summary: 'Get available allergy options',
+    description:
+      'Returns active ALLERGY labels that can be submitted as allergyLabelCodes to PATCH /customers/me.',
+  })
+  @ApiOkResponse({ type: [AllergyLabelDto] })
+  async getAllergies(): Promise<AllergyLabelDto[]> {
+    return this.customersService.getAllergyOptions();
+  }
 
   @Get('me')
   @ApiOperation({

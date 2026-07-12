@@ -62,6 +62,22 @@ export class CustomersService {
     };
   }
 
+  async getAllergyOptions(): Promise<AllergyLabelDto[]> {
+    const labels = await this.labelRepository.find({
+      where: {
+        category: { code: ALLERGY_CATEGORY_CODE },
+        isActive: true,
+      },
+      order: { name: 'ASC' },
+    });
+
+    return labels.map((label) => ({
+      id: label.id,
+      code: label.code,
+      name: label.name,
+    }));
+  }
+
   async updateOwnCustomerProfile(
     userId: string,
     dto: UpdateCustomerProfileDto,
