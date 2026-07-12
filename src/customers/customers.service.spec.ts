@@ -61,6 +61,37 @@ describe('CustomersService', () => {
 
   afterEach(() => jest.clearAllMocks());
 
+  describe('getAllergyOptions', () => {
+    it('should return active ALLERGY labels ordered for selection', async () => {
+      jest.spyOn(labelRepository, 'find').mockResolvedValue([
+        {
+          id: 'label-1',
+          code: 'FRAGRANCE',
+          name: 'Fragrance',
+        },
+        {
+          id: 'label-2',
+          code: 'RETINOIDS',
+          name: 'Retinoids',
+        },
+      ] as Label[]);
+
+      const result = await service.getAllergyOptions();
+
+      expect(labelRepository.find).toHaveBeenCalledWith({
+        where: {
+          category: { code: 'ALLERGY' },
+          isActive: true,
+        },
+        order: { name: 'ASC' },
+      });
+      expect(result).toEqual([
+        { id: 'label-1', code: 'FRAGRANCE', name: 'Fragrance' },
+        { id: 'label-2', code: 'RETINOIDS', name: 'Retinoids' },
+      ]);
+    });
+  });
+
   describe('getOwnCustomerProfile', () => {
     it('should return empty profile when customer row does not exist', async () => {
       jest.spyOn(customerRepository, 'findOne').mockResolvedValue(null);
