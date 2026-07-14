@@ -1,5 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
-import { Repository } from 'typeorm';
+import { Brackets, Repository } from 'typeorm';
 import { ProductCategory } from './product-category.entity';
 import { ProductIngredient } from './product-ingredient.entity';
 import { ProductVariant } from './product-variant.entity';
@@ -57,6 +57,7 @@ type MockQb = {
   where: jest.Mock;
   andWhere: jest.Mock;
   innerJoin: jest.Mock;
+  leftJoin: jest.Mock;
   leftJoinAndSelect: jest.Mock;
   orderBy: jest.Mock;
   skip: jest.Mock;
@@ -69,6 +70,7 @@ const makeQueryBuilder = (products: Product[] = []): MockQb => ({
   where: jest.fn().mockReturnThis(),
   andWhere: jest.fn().mockReturnThis(),
   innerJoin: jest.fn().mockReturnThis(),
+  leftJoin: jest.fn().mockReturnThis(),
   leftJoinAndSelect: jest.fn().mockReturnThis(),
   orderBy: jest.fn().mockReturnThis(),
   skip: jest.fn().mockReturnThis(),
@@ -97,6 +99,7 @@ const makeCategoryQueryBuilder = (
   where: jest.fn().mockReturnThis(),
   andWhere: jest.fn().mockReturnThis(),
   innerJoin: jest.fn().mockReturnThis(),
+  leftJoin: jest.fn().mockReturnThis(),
   leftJoinAndSelect: jest.fn().mockReturnThis(),
   orderBy: jest.fn().mockReturnThis(),
   skip: jest.fn().mockReturnThis(),
@@ -203,6 +206,129 @@ describe('ProductsService', () => {
     );
     expect(qb.skip).toHaveBeenCalledWith(10);
     expect(qb.take).toHaveBeenCalledWith(10);
+  });
+
+  describe('findMany query search', () => {
+    const makeService = (qb: MockQb) => {
+      const productRepo = {
+        createQueryBuilder: jest.fn().mockReturnValue(qb),
+      } as unknown as Repository<Product>;
+      const piRepo = {
+        find: jest.fn().mockResolvedValue([]),
+      } as unknown as Repository<ProductIngredient>;
+      return new ProductsService(
+        productRepo,
+        {} as Repository<ProductVariant>,
+        piRepo,
+        {} as Repository<ProductCategory>,
+      );
+    };
+
+    it('should apply query search across product, brand, category, description, ingredient, and SKU', async () => {
+      const qb = makeQueryBuilder([makeProduct()]);
+      const service = makeService(qb);
+
+      await service.findMany({ query: 'Effaclar' });
+
+      expect(qb.leftJoin).toHaveBeenCalledWith(
+        'product.productIngredients',
+        'queryPi',
+      );
+      expect(qb.leftJoin).toHaveBeenCalledWith(
+        'queryPi.ingredient',
+        'queryIngredient',
+      );
+      expect(qb.andWhere).toHaveBeenCalledWith(expect.any(Brackets));
+
+      const bracketsCall = qb.andWhere.mock.calls.find(
+        ([arg]) => arg instanceof Brackets,
+      );
+      expect(bracketsCall).toBeDefined();
+
+      const subQb = {
+        where: jest.fn().mockReturnThis(),
+        orWhere: jest.fn().mockReturnThis(),
+      };
+      (bracketsCall![0] as Brackets).whereFactory(subQb as never);
+
+      expect(subQb.where).toHaveBeenCalledWith(
+        "product.name ILIKE :queryTerm ESCAPE '\\'",
+        { queryTerm: '%Effaclar%' },
+      );
+      expect(subQb.orWhere).toHaveBeenCalledWith(
+        "product.description ILIKE :queryTerm ESCAPE '\\'",
+        { queryTerm: '%Effaclar%' },
+      );
+      expect(subQb.orWhere).toHaveBeenCalledWith(
+        "brand.name ILIKE :queryTerm ESCAPE '\\'",
+        { queryTerm: '%Effaclar%' },
+      );
+      expect(subQb.orWhere).toHaveBeenCalledWith(
+        "category.name ILIKE :queryTerm ESCAPE '\\'",
+        { queryTerm: '%Effaclar%' },
+      );
+      expect(subQb.orWhere).toHaveBeenCalledWith(
+        "category.code ILIKE :queryTerm ESCAPE '\\'",
+        { queryTerm: '%Effaclar%' },
+      );
+      expect(subQb.orWhere).toHaveBeenCalledWith(
+        "queryIngredient.name ILIKE :queryTerm ESCAPE '\\'",
+        { queryTerm: '%Effaclar%' },
+      );
+      expect(subQb.orWhere).toHaveBeenCalledWith(
+        "variants.sku ILIKE :queryTerm ESCAPE '\\'",
+        { queryTerm: '%Effaclar%' },
+      );
+    });
+
+    it('should ignore blank query', async () => {
+      const qb = makeQueryBuilder([makeProduct()]);
+      const service = makeService(qb);
+
+      await service.findMany({ query: '   ' });
+
+      expect(qb.leftJoin).not.toHaveBeenCalled();
+      const bracketsCalls = qb.andWhere.mock.calls.filter(
+        ([arg]) => arg instanceof Brackets,
+      );
+      expect(bracketsCalls).toHaveLength(0);
+    });
+
+    it('should combine query with categoryId filter', async () => {
+      const qb = makeQueryBuilder([makeProduct()]);
+      const service = makeService(qb);
+
+      await service.findMany({ categoryId: 'cat-1', query: 'serum' });
+
+      expect(qb.andWhere).toHaveBeenCalledWith(
+        'product.categoryId = :categoryId',
+        { categoryId: 'cat-1' },
+      );
+      expect(qb.andWhere).toHaveBeenCalledWith(expect.any(Brackets));
+    });
+
+    it('should escape ILIKE wildcards in query param', async () => {
+      const qb = makeQueryBuilder([makeProduct()]);
+      const service = makeService(qb);
+
+      await service.findMany({ query: '100%_off' });
+
+      const bracketsCall = qb.andWhere.mock.calls.find(
+        ([arg]) => arg instanceof Brackets,
+      );
+      expect(bracketsCall).toBeDefined();
+
+      const subQb = {
+        where: jest.fn().mockReturnThis(),
+        orWhere: jest.fn().mockReturnThis(),
+      };
+      (bracketsCall![0] as Brackets).whereFactory(subQb as never);
+
+      expect(subQb.where).toHaveBeenCalledWith(
+        "product.name ILIKE :queryTerm ESCAPE '\\'",
+        { queryTerm: '%100\\%\\_off%' },
+      );
+    });
   });
 
   describe('findCategories', () => {

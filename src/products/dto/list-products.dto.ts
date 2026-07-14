@@ -26,6 +26,15 @@ export class ListProductsQueryDto {
   @IsString()
   ingredientName?: string;
 
+  @ApiPropertyOptional({
+    example: 'Effaclar',
+    description:
+      'Search products by name, brand, category, description, ingredient, or SKU (case-insensitive substring)',
+  })
+  @IsOptional()
+  @IsString()
+  query?: string;
+
   @ApiPropertyOptional({ default: 1, minimum: 1 })
   @IsOptional()
   @Type(() => Number)

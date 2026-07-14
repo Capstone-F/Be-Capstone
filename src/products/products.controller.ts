@@ -62,7 +62,8 @@ export class ProductsController {
   @Get()
   @ApiOperation({
     summary: 'List products',
-    description: 'Filter by category, brand, or ingredient name.',
+    description:
+      'Filter by category, brand, or ingredient name. Use query for free-text search across product name, brand, category, description, ingredient, and SKU.',
   })
   @ApiOkResponse({ type: PaginatedProductsDto })
   list(@Query() query: ListProductsQueryDto) {
