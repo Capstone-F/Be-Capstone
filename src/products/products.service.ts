@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Brackets, Repository } from 'typeorm';
 import { ListProductCategoriesQueryDto } from './dto/list-product-categories.dto';
 import { ListProductsQueryDto } from './dto/list-products.dto';
 import { ProductCategoryResponseDto } from './dto/product-category-response.dto';
@@ -15,6 +15,7 @@ import { ProductCategory } from './product-category.entity';
 import { ProductIngredient } from './product-ingredient.entity';
 import { ProductVariant } from './product-variant.entity';
 import { Product } from './product.entity';
+import { buildIlikePattern } from './utils/ilike.util';
 
 @Injectable()
 export class ProductsService {
@@ -81,6 +82,25 @@ export class ProductsService {
         .andWhere('ingredient.name ILIKE :ingredientName', {
           ingredientName: `%${query.ingredientName.trim()}%`,
         });
+    }
+
+    const ILIKE = "ILIKE :queryTerm ESCAPE '\\'";
+    const queryTerm = buildIlikePattern(query.query ?? '');
+    if (queryTerm) {
+      qb.leftJoin('product.productIngredients', 'queryPi')
+        .leftJoin('queryPi.ingredient', 'queryIngredient')
+        .andWhere(
+          new Brackets((sub) => {
+            sub
+              .where(`product.name ${ILIKE}`, { queryTerm })
+              .orWhere(`product.description ${ILIKE}`, { queryTerm })
+              .orWhere(`brand.name ${ILIKE}`, { queryTerm })
+              .orWhere(`category.name ${ILIKE}`, { queryTerm })
+              .orWhere(`category.code ${ILIKE}`, { queryTerm })
+              .orWhere(`queryIngredient.name ${ILIKE}`, { queryTerm })
+              .orWhere(`variants.sku ${ILIKE}`, { queryTerm });
+          }),
+        );
     }
 
     qb.orderBy('product.createdAt', 'DESC').skip(skip).take(limit);
