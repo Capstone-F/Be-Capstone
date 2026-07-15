@@ -59,7 +59,7 @@ services:
     image: quay.io/keycloak/keycloak:26.2
     container_name: capstone-keycloak
     restart: unless-stopped
-    command: start-dev --import-realm
+    command: start-dev --import-realm --health-enabled=true
     env_file:
       - '.env'
     volumes:

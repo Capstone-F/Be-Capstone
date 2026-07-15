@@ -80,9 +80,10 @@ export class HealthService {
 
   private async checkRedis(): Promise<ComponentHealth> {
     try {
-      await this.redis.connect();
+      if (this.redis.status !== 'ready') {
+        await this.redis.connect();
+      }
       const result = await this.redis.ping();
-      this.redis.disconnect();
       return result === 'PONG'
         ? { status: 'up' }
         : {
