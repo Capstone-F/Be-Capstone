@@ -7,8 +7,6 @@
 volumes:
   postgres_data:
   redis_data:
-  loki_data:
-  grafana_data:
 
 services:
   # ── Ingress ─────────────────────────────────────────
@@ -25,8 +23,6 @@ services:
       be-api:
         condition: service_healthy
       keycloak:
-        condition: service_started
-      grafana:
         condition: service_started
     healthcheck:
       test:
@@ -158,53 +154,3 @@ services:
       retries: 10
     labels:
       - 'logging=true'
-
-  # ── Observability ───────────────────────────────────
-
-  loki:
-    image: grafana/loki:3.4.2
-    container_name: capstone-loki
-    restart: unless-stopped
-    user: '0'
-    command: -config.file=/etc/loki/loki-config.yaml
-    volumes:
-      - ./observability/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
-      - loki_data:/loki/data
-    healthcheck:
-      test:
-        [
-          'CMD-SHELL',
-          'wget --quiet --tries=1 --output-document=- http://localhost:3100/ready || exit 1',
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  alloy:
-    image: grafana/alloy:v1.8.3
-    container_name: capstone-alloy
-    restart: unless-stopped
-    command:
-      - 'run'
-      - '/etc/alloy/config.alloy'
-      - '--server.http.listen-addr=0.0.0.0:12345'
-      - '--storage.path=/var/lib/alloy/data'
-    volumes:
-      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    depends_on:
-      loki:
-        condition: service_healthy
-
-  grafana:
-    image: grafana/grafana:11.6.0
-    container_name: capstone-grafana
-    restart: unless-stopped
-    env_file:
-      - '.env'
-    volumes:
-      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
-      - grafana_data:/var/lib/grafana
-    depends_on:
-      loki:
-        condition: service_healthy

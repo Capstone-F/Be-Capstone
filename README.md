@@ -563,25 +563,15 @@ $DEPLOY_PATH/
 │   │   └── be-capstone-realm.json          # realm + client + Google IDP
 │   └── themes/
 │       └── capstone/                       # custom login theme
-└── observability/
-    ├── loki/
-    │   └── loki-config.yaml                # Loki log storage config
-    ├── alloy/
-    │   └── config.alloy                    # Alloy log collector config
-    └── grafana/
-        └── provisioning/                   # Grafana datasources/dashboards
 ```
 
 | Path (relative to `$DEPLOY_PATH`)              | Required by service | Purpose                                                       |
 | ---------------------------------------------- | ------------------- | ------------------------------------------------------------- |
 | `docker-compose.yaml`                          | all                 | Production compose stack (copy of `docker-compose.prod.yaml`) |
 | `.env`                                         | all                 | Env vars + `API_IMAGE=ghcr.io/<owner>/be-capstone:latest`     |
-| `nginx/nginx.conf`                             | `nginx`             | Ingress reverse proxy (`/api`, `/auth`, `/gfn`)               |
+| `nginx/nginx.conf`                             | `nginx`             | Ingress reverse proxy (`/api`, `/auth`)                       |
 | `keycloak/realm-import/be-capstone-realm.json` | `keycloak`          | Auto-imported realm, client, and Google IDP                   |
 | `keycloak/themes/capstone/`                    | `keycloak`          | Custom login theme                                            |
-| `observability/loki/loki-config.yaml`          | `loki`              | Log aggregation storage config                                |
-| `observability/alloy/config.alloy`             | `alloy`             | Log collector (scrapes Docker container logs)                 |
-| `observability/grafana/provisioning/`          | `grafana`           | Pre-provisioned datasources/dashboards                        |
 
 > Rename `docker-compose.prod.yaml` to `docker-compose.yaml` on the droplet (or set `COMPOSE_FILE` in `.env`). The simplest way to provision everything is to clone the repo on the droplet, then copy these paths into `$DEPLOY_PATH` and create `.env` from your secrets.
 
