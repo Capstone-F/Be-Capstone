@@ -19,6 +19,7 @@ import { UsersService } from '../src/users/users.service';
 import { ConfigModule } from '../src/config/config.module';
 import { AppConfigService } from '../src/config/config.service';
 import { KeycloakAdminModule } from '../src/keycloak/keycloak-admin.module';
+import { KeycloakAdminService } from '../src/keycloak/keycloak-admin.service';
 import { REDIS_CLIENT } from '../src/redis/redis.constants';
 import { Role } from '../src/auth/roles.enum';
 import { User } from '../src/users/user.entity';
@@ -52,6 +53,7 @@ describe('Mobile Auth (e2e)', () => {
   let app: INestApplication<App>;
   let authService: AuthService;
   let usersService: UsersService;
+  let keycloakAdmin: KeycloakAdminService;
   let redis: InMemoryRedis;
 
   jest.setTimeout(30_000);
@@ -108,6 +110,7 @@ describe('Mobile Auth (e2e)', () => {
     await app.init();
     authService = moduleFixture.get(AuthService);
     usersService = moduleFixture.get(UsersService);
+    keycloakAdmin = moduleFixture.get(KeycloakAdminService);
   });
 
   afterEach(() => {
@@ -320,6 +323,174 @@ describe('Mobile Auth (e2e)', () => {
       const me = await request(app.getHttpServer())
         .get('/users/me')
         .set('Authorization', `Bearer ${exchange.body.accessToken}`)
+        .expect(200);
+
+      expect(me.body.id).toBe(mockUser.id);
+    });
+  });
+
+  describe('POST /auth/mobile/login', () => {
+    const loginResponse = {
+      accessToken: 'direct-access-token',
+      refreshToken: 'direct-refresh-token',
+      expiresIn: 900,
+      user: mockUser,
+      isNewUser: false,
+    };
+
+    it('should login with valid credentials', async () => {
+      jest
+        .spyOn(authService, 'loginWithPassword')
+        .mockResolvedValue(loginResponse);
+
+      const res = await request(app.getHttpServer())
+        .post('/auth/mobile/login')
+        .send({ username: 'mobile@test.com', password: 'password123' })
+        .expect(200);
+
+      expect(res.body.accessToken).toBe('direct-access-token');
+      expect(res.body.refreshToken).toBe('direct-refresh-token');
+      expect(res.body.expiresIn).toBe(900);
+      expect(res.body.user.id).toBe(mockUser.id);
+      expect(res.body.isNewUser).toBe(false);
+    });
+
+    it('should return 401 for invalid credentials', async () => {
+      jest
+        .spyOn(authService, 'loginWithPassword')
+        .mockRejectedValue(
+          new (await import('@nestjs/common')).UnauthorizedException(
+            'Invalid username or password',
+          ),
+        );
+
+      await request(app.getHttpServer())
+        .post('/auth/mobile/login')
+        .send({ username: 'mobile@test.com', password: 'wrong' })
+        .expect(401);
+    });
+
+    it('should return 400 when username is missing', async () => {
+      await request(app.getHttpServer())
+        .post('/auth/mobile/login')
+        .send({ password: 'password123' })
+        .expect(400);
+    });
+
+    it('should return 400 when password is missing', async () => {
+      await request(app.getHttpServer())
+        .post('/auth/mobile/login')
+        .send({ username: 'mobile@test.com' })
+        .expect(400);
+    });
+  });
+
+  describe('POST /auth/mobile/register', () => {
+    const registerResponse = {
+      accessToken: 'reg-access-token',
+      refreshToken: 'reg-refresh-token',
+      expiresIn: 900,
+      user: { ...mockUser, email: 'newuser@test.com' } as unknown as User,
+      isNewUser: true,
+    };
+
+    it('should register a new user', async () => {
+      jest
+        .spyOn(keycloakAdmin, 'getAdminToken')
+        .mockResolvedValue('admin-token');
+      jest
+        .spyOn(keycloakAdmin, 'createUser')
+        .mockResolvedValue('new-kc-user-id');
+      jest
+        .spyOn(authService, 'loginWithPassword')
+        .mockResolvedValue(registerResponse);
+
+      const res = await request(app.getHttpServer())
+        .post('/auth/mobile/register')
+        .send({
+          email: 'newuser@test.com',
+          password: 'password123',
+          name: 'New User',
+        })
+        .expect(200);
+
+      expect(res.body.accessToken).toBe('reg-access-token');
+      expect(res.body.isNewUser).toBe(true);
+      expect(keycloakAdmin.createUser).toHaveBeenCalledWith(
+        'admin-token',
+        expect.objectContaining({
+          username: 'newuser@test.com',
+          email: 'newuser@test.com',
+          firstName: 'New',
+          lastName: 'User',
+          enabled: true,
+          emailVerified: false,
+          credentials: [
+            { type: 'password', value: 'password123', temporary: false },
+          ],
+        }),
+      );
+    });
+
+    it('should return 409 when email already exists', async () => {
+      jest
+        .spyOn(keycloakAdmin, 'getAdminToken')
+        .mockResolvedValue('admin-token');
+      jest
+        .spyOn(keycloakAdmin, 'createUser')
+        .mockRejectedValue(
+          new (await import('@nestjs/common')).ConflictException(
+            'Email already registered',
+          ),
+        );
+
+      await request(app.getHttpServer())
+        .post('/auth/mobile/register')
+        .send({ email: 'dup@test.com', password: 'password123' })
+        .expect(409);
+    });
+
+    it('should return 400 for invalid email', async () => {
+      await request(app.getHttpServer())
+        .post('/auth/mobile/register')
+        .send({ email: 'not-an-email', password: 'password123' })
+        .expect(400);
+    });
+
+    it('should return 400 when password is too short', async () => {
+      await request(app.getHttpServer())
+        .post('/auth/mobile/register')
+        .send({ email: 'valid@test.com', password: 'short' })
+        .expect(400);
+    });
+  });
+
+  describe('Bearer token via direct login', () => {
+    it('should allow GET /users/me with token from POST /auth/mobile/login', async () => {
+      jest.spyOn(authService, 'loginWithPassword').mockResolvedValue({
+        accessToken: 'direct-bearer-token',
+        refreshToken: 'direct-refresh-token',
+        expiresIn: 900,
+        user: mockUser,
+        isNewUser: false,
+      });
+
+      const loginRes = await request(app.getHttpServer())
+        .post('/auth/mobile/login')
+        .send({ username: 'mobile@test.com', password: 'password123' })
+        .expect(200);
+
+      (jwtVerify as jest.Mock).mockResolvedValue({
+        payload: {
+          sub: mockUser.keycloakSub,
+          realm_access: { roles: ['customer'] },
+        },
+      });
+      jest.spyOn(usersService, 'findByKeycloakSub').mockResolvedValue(mockUser);
+
+      const me = await request(app.getHttpServer())
+        .get('/users/me')
+        .set('Authorization', `Bearer ${loginRes.body.accessToken}`)
         .expect(200);
 
       expect(me.body.id).toBe(mockUser.id);

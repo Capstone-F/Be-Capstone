@@ -579,6 +579,30 @@ $DEPLOY_PATH/
 
 > Đổi tên `docker-compose.prod.yaml` thành `docker-compose.yaml` trên droplet (hoặc đặt `COMPOSE_FILE` trong `.env`). Cách đơn giản nhất là clone repo trên droplet rồi copy các đường dẫn này vào `$DEPLOY_PATH` và tạo `.env` từ secret của bạn.
 
+### Database bên ngoài (bắt buộc trước lần deploy đầu)
+
+Production **không** chạy Postgres trong compose. Tạo database trên provider **trước** khi `docker compose up`. Thường dùng hai database trên cùng một Postgres managed:
+
+| Database      | Dùng cho                        | Biến `.env`          |
+| ------------- | ------------------------------- | -------------------- |
+| `be-capstone` | `be-api`, `db-init` (migration) | `DATABASE_URL`       |
+| `keycloak`    | service `keycloak`              | `KC_DB_URL_DATABASE` |
+
+Trên DigitalOcean Managed Database (hoặc console admin Postgres), kết nối bằng user admin và chạy:
+
+```sql
+CREATE DATABASE "be-capstone";
+CREATE DATABASE keycloak;
+```
+
+> Nếu muốn dùng chung một database, đặt `KC_DB_URL_DATABASE=be-capstone` (trùng tên DB trong `DATABASE_URL`). Nên tách database để migration app và Keycloak không lẫn nhau.
+
+Đồng thời đảm bảo:
+
+- IP droplet nằm trong **trusted sources** / firewall của database
+- `DATABASE_URL` có `?sslmode=require` nếu provider bắt buộc TLS
+- `KC_DB_URL_HOST`, `KC_DB_USERNAME`, `KC_DB_PASSWORD` khớp credential có quyền truy cập database tương ứng
+
 ### Bước 2 — Secret GitHub cần thiết
 
 Cấu hình tại **Settings → Secrets and variables → Actions**:

@@ -78,29 +78,35 @@ export class AuthService {
       );
     }
 
-    const profile = this.keycloakAdmin.decodeJwtPayload(
-      token.id_token ?? token.access_token,
-    );
-    const roles = filterAppRoles(
-      this.keycloakAdmin.extractRolesFromToken(token.access_token),
-    );
-
-    const { user, isNewUser } = await this.usersService.upsertFromKeycloak(
-      profile,
+    const result = await this.buildSessionFromToken(
+      token,
       idpHint ?? 'keycloak',
-      roles,
+    );
+    return { ...result, idpHint: idpHint ?? 'keycloak' };
+  }
+
+  /**
+   * Authenticate an end user via Keycloak ROPC (password grant),
+   * upsert the local DB row, and return tokens + user profile.
+   */
+  async loginWithPassword(username: string, password: string) {
+    const token = await this.keycloakAdmin.requestPasswordGrant(
+      username,
+      password,
     );
 
-    const tokenExpiresAt = Date.now() + (token.expires_in - 30) * 1000;
+    const result = await this.buildSessionFromToken(token, 'keycloak');
+    if (!result.user.isActive) {
+      throw new UnauthorizedException('Account is disabled');
+    }
 
+    const profile = await this.usersService.getOwnProfile(result.user.id);
     return {
-      user,
-      isNewUser,
-      accessToken: token.access_token,
-      refreshToken: token.refresh_token ?? '',
-      tokenExpiresAt,
-      idpHint: idpHint ?? 'keycloak',
-      roles,
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      expiresIn: token.expires_in,
+      user: profile,
+      isNewUser: result.isNewUser,
     };
   }
 
@@ -265,24 +271,34 @@ export class AuthService {
     const adminToken = await this.keycloakAdmin.getAdminToken();
     await this.ensureClientDirectAccessGrantsEnabled(adminToken);
 
-    const params = new URLSearchParams({
-      grant_type: 'password',
-      username: this.config.keycloakDevAdminUser,
-      password: this.config.keycloakDevAdminPassword,
-      scope: 'openid profile email',
-    });
-
-    const token = await this.keycloakAdmin.postForm<TokenResponse>(
-      this.keycloakAdmin.getTokenEndpoint(),
-      params,
+    const token = await this.keycloakAdmin.requestPasswordGrant(
+      this.config.keycloakDevAdminUser,
+      this.config.keycloakDevAdminPassword,
     );
 
-    if (!token.access_token) {
-      throw new BadGatewayException(
-        'Keycloak returned a token response without access_token',
-      );
-    }
+    const result = await this.buildSessionFromToken(token, 'dev');
 
+    const profile = this.keycloakAdmin.decodeJwtPayload(
+      token.id_token ?? token.access_token,
+    );
+    const username =
+      (profile.preferred_username as string | undefined) ??
+      this.config.keycloakDevAdminUser;
+    const email =
+      (profile.email as string | undefined) ??
+      `${this.config.keycloakDevAdminUser}@dev.local`;
+
+    return {
+      ...result,
+      idpHint: 'dev',
+      username,
+      email,
+    };
+  }
+
+  // ─── Private helpers ───────────────────────────────────────────
+
+  private async buildSessionFromToken(token: TokenResponse, provider: string) {
     const profile = this.keycloakAdmin.decodeJwtPayload(
       token.id_token ?? token.access_token,
     );
@@ -292,17 +308,11 @@ export class AuthService {
 
     const { user, isNewUser } = await this.usersService.upsertFromKeycloak(
       profile,
-      'dev',
+      provider,
       roles,
     );
 
     const tokenExpiresAt = Date.now() + (token.expires_in - 30) * 1000;
-    const username =
-      (profile.preferred_username as string | undefined) ??
-      this.config.keycloakDevAdminUser;
-    const email =
-      (profile.email as string | undefined) ??
-      `${this.config.keycloakDevAdminUser}@dev.local`;
 
     return {
       user,
@@ -310,14 +320,9 @@ export class AuthService {
       accessToken: token.access_token,
       refreshToken: token.refresh_token ?? '',
       tokenExpiresAt,
-      idpHint: 'dev',
       roles,
-      username,
-      email,
     };
   }
-
-  // ─── Private helpers ───────────────────────────────────────────
 
   private async ensureClientDirectAccessGrantsEnabled(
     adminToken: string,

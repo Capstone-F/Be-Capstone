@@ -575,6 +575,30 @@ $DEPLOY_PATH/
 
 > Rename `docker-compose.prod.yaml` to `docker-compose.yaml` on the droplet (or set `COMPOSE_FILE` in `.env`). The simplest way to provision everything is to clone the repo on the droplet, then copy these paths into `$DEPLOY_PATH` and create `.env` from your secrets.
 
+### External database (required before first deploy)
+
+Production does **not** bundle Postgres. Create the databases on your provider **before** `docker compose up`. Typical setup uses two databases on the same managed Postgres instance:
+
+| Database      | Used by                          | `.env` variable      |
+| ------------- | -------------------------------- | -------------------- |
+| `be-capstone` | `be-api`, `db-init` (migrations) | `DATABASE_URL`       |
+| `keycloak`    | `keycloak` service               | `KC_DB_URL_DATABASE` |
+
+On DigitalOcean Managed Database (or any Postgres admin console), connect as the admin user and run:
+
+```sql
+CREATE DATABASE "be-capstone";
+CREATE DATABASE keycloak;
+```
+
+> If you prefer a single database, set `KC_DB_URL_DATABASE=be-capstone` (same as `DATABASE_URL` database name). Separate databases are recommended so Keycloak and app migrations stay isolated.
+
+Also ensure:
+
+- The droplet IP is in the database **trusted sources** / firewall allowlist
+- `DATABASE_URL` includes `?sslmode=require` if your provider requires TLS
+- `KC_DB_URL_HOST`, `KC_DB_USERNAME`, and `KC_DB_PASSWORD` match credentials that can access both databases (or use separate users per DB)
+
 ### Step 2 — Required GitHub secrets
 
 ### Required GitHub secrets

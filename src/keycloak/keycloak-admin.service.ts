@@ -1,4 +1,10 @@
-import { BadGatewayException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadGatewayException,
+  ConflictException,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { AppConfigService } from '../config/config.service';
 
 type TokenResponse = {
@@ -76,6 +82,52 @@ export class KeycloakAdminService {
     }
 
     return token.access_token;
+  }
+
+  /**
+   * ROPC grant for end-user login. Returns raw Keycloak token response.
+   * Maps Keycloak 401/400 to UnauthorizedException with a generic message.
+   */
+  async requestPasswordGrant(
+    username: string,
+    password: string,
+  ): Promise<TokenResponse> {
+    const form = new URLSearchParams({
+      grant_type: 'password',
+      username,
+      password,
+      scope: 'openid profile email',
+      client_id: this.config.keycloakClientId,
+    });
+    if (this.config.keycloakClientSecret) {
+      form.set('client_secret', this.config.keycloakClientSecret);
+    }
+
+    const response = await fetch(this.getTokenEndpoint(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: form.toString(),
+    });
+
+    if (response.status === 401 || response.status === 400) {
+      throw new UnauthorizedException('Invalid username or password');
+    }
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new BadGatewayException(
+        `Keycloak password grant failed (${response.status}): ${message}`,
+      );
+    }
+
+    const token = (await response.json()) as TokenResponse;
+    if (!token.access_token) {
+      throw new BadGatewayException(
+        'Keycloak returned a token response without access_token',
+      );
+    }
+
+    return token;
   }
 
   async findUsersByUsername(
@@ -180,6 +232,10 @@ export class KeycloakAdminService {
       throw new BadGatewayException(
         'Keycloak user created but no user id returned',
       );
+    }
+
+    if (response.status === 409) {
+      throw new ConflictException('Email already registered');
     }
 
     const message = await response.text();
