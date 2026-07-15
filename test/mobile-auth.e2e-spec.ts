@@ -1,5 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import {
+  ConflictException,
+  INestApplication,
+  UnauthorizedException,
+  ValidationPipe,
+} from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { LoggerModule } from 'nestjs-pino';
 import request from 'supertest';
@@ -359,9 +364,7 @@ describe('Mobile Auth (e2e)', () => {
       jest
         .spyOn(authService, 'loginWithPassword')
         .mockRejectedValue(
-          new (await import('@nestjs/common')).UnauthorizedException(
-            'Invalid username or password',
-          ),
+          new UnauthorizedException('Invalid username or password'),
         );
 
       await request(app.getHttpServer())
@@ -438,11 +441,7 @@ describe('Mobile Auth (e2e)', () => {
         .mockResolvedValue('admin-token');
       jest
         .spyOn(keycloakAdmin, 'createUser')
-        .mockRejectedValue(
-          new (await import('@nestjs/common')).ConflictException(
-            'Email already registered',
-          ),
-        );
+        .mockRejectedValue(new ConflictException('Email already registered'));
 
       await request(app.getHttpServer())
         .post('/auth/mobile/register')
@@ -487,6 +486,7 @@ describe('Mobile Auth (e2e)', () => {
         },
       });
       jest.spyOn(usersService, 'findByKeycloakSub').mockResolvedValue(mockUser);
+      jest.spyOn(usersService, 'getOwnProfile').mockResolvedValue(mockUser);
 
       const me = await request(app.getHttpServer())
         .get('/users/me')
