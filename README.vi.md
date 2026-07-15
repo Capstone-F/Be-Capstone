@@ -567,25 +567,15 @@ $DEPLOY_PATH/
 │   │   └── be-capstone-realm.json          # realm + client + Google IDP
 │   └── themes/
 │       └── capstone/                       # theme login tùy chỉnh
-└── observability/
-    ├── loki/
-    │   └── loki-config.yaml                # cấu hình lưu log Loki
-    ├── alloy/
-    │   └── config.alloy                    # cấu hình thu thập log Alloy
-    └── grafana/
-        └── provisioning/                   # datasource/dashboard Grafana
 ```
 
 | Đường dẫn (so với `$DEPLOY_PATH`)              | Service cần | Mục đích                                                           |
 | ---------------------------------------------- | ----------- | ------------------------------------------------------------------ |
 | `docker-compose.yaml`                          | tất cả      | Stack compose production (bản copy của `docker-compose.prod.yaml`) |
 | `.env`                                         | tất cả      | Biến môi trường + `API_IMAGE=ghcr.io/<owner>/be-capstone:latest`   |
-| `nginx/nginx.conf`                             | `nginx`     | Reverse proxy ingress (`/api`, `/auth`, `/gfn`)                    |
+| `nginx/nginx.conf`                             | `nginx`     | Reverse proxy ingress (`/api`, `/auth`)                            |
 | `keycloak/realm-import/be-capstone-realm.json` | `keycloak`  | Realm, client và Google IDP tự import                              |
 | `keycloak/themes/capstone/`                    | `keycloak`  | Theme login tùy chỉnh                                              |
-| `observability/loki/loki-config.yaml`          | `loki`      | Cấu hình lưu trữ log                                               |
-| `observability/alloy/config.alloy`             | `alloy`     | Thu thập log container Docker                                      |
-| `observability/grafana/provisioning/`          | `grafana`   | Datasource/dashboard cấu hình sẵn                                  |
 
 > Đổi tên `docker-compose.prod.yaml` thành `docker-compose.yaml` trên droplet (hoặc đặt `COMPOSE_FILE` trong `.env`). Cách đơn giản nhất là clone repo trên droplet rồi copy các đường dẫn này vào `$DEPLOY_PATH` và tạo `.env` từ secret của bạn.
 

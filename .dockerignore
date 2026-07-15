@@ -4,5 +4,4 @@ coverage
 .git
 .env
 *.md
-observability
 keycloak
