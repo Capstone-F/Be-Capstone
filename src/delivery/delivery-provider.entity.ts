@@ -7,6 +7,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { DeliveryFee } from './delivery-fee.entity';
 import { Delivery } from './delivery.entity';
 
 @Entity('delivery_providers')
@@ -29,6 +30,9 @@ export class DeliveryProvider {
 
   @OneToMany(() => Delivery, (delivery) => delivery.provider)
   deliveries: Delivery[];
+
+  @OneToMany(() => DeliveryFee, (fee) => fee.provider)
+  fees: DeliveryFee[];
 
   @CreateDateColumn()
   createdAt: Date;

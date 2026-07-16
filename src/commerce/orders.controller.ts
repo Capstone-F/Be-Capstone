@@ -6,6 +6,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   Req,
   UnauthorizedException,
   UseGuards,
@@ -25,7 +26,8 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
 import { Role } from '../auth/roles.enum';
-import { OrderResponseDto } from './dto/order-response.dto';
+import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
+import { OrderResponseDto, PaginatedOrdersDto } from './dto/order-response.dto';
 import { OrdersService } from './orders.service';
 
 @ApiTags('Orders')
@@ -49,6 +51,22 @@ export class OrdersController {
   @ApiCreatedResponse({ type: OrderResponseDto })
   create(@Req() req: Request): Promise<OrderResponseDto> {
     return this.ordersService.createFromCart(this.requireUserId(req));
+  }
+
+  @Get()
+  @Roles(Role.Customer)
+  @ApiOperation({
+    summary: 'List my orders',
+    description:
+      'Returns orders for the authenticated customer, newest first. ' +
+      'Supports pagination (page, limit) and optional status filter.',
+  })
+  @ApiOkResponse({ type: PaginatedOrdersDto })
+  list(
+    @Req() req: Request,
+    @Query() query: ListOrdersQueryDto,
+  ): Promise<PaginatedOrdersDto> {
+    return this.ordersService.listForUser(this.requireUserId(req), query);
   }
 
   @Get(':id')

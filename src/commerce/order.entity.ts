@@ -74,6 +74,9 @@ export class Order {
   discountType: OrderDiscountType | null;
 
   @Column({ type: 'int', default: 0 })
+  shippingFeeVnd: number;
+
+  @Column({ type: 'int', default: 0 })
   totalVnd: number;
 
   @OneToMany(() => OrderItem, (item) => item.order)
