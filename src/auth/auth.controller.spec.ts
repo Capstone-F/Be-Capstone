@@ -10,6 +10,7 @@ describe('AuthController', () => {
     exchangeCodeAndUpsertUser: jest.fn(),
     revokeToken: jest.fn(),
     refreshTokenIfNeeded: jest.fn(),
+    authenticateBearerToken: jest.fn(),
     resolveClientRedirect: jest.fn((u: string | undefined) => {
       if (!u) throw new Error('client_redirect_uri required');
       if (u.startsWith('glowscan://')) {
@@ -282,14 +283,50 @@ describe('AuthController', () => {
   });
 
   describe('GET /auth/status', () => {
-    it('should return authenticated true when session has userId', () => {
-      const req = { session: { userId: 'u1' } } as any;
-      expect(controller.getStatus(req)).toEqual({ authenticated: true });
+    it('should return authenticated true when session has userId', async () => {
+      const req = { session: { userId: 'u1' }, headers: {} } as any;
+      await expect(controller.getStatus(req)).resolves.toEqual({
+        authenticated: true,
+      });
     });
 
-    it('should return authenticated false when no session', () => {
-      const req = { session: {} } as any;
-      expect(controller.getStatus(req)).toEqual({ authenticated: false });
+    it('should return authenticated false when no session and no bearer', async () => {
+      const req = { session: {}, headers: {} } as any;
+      await expect(controller.getStatus(req)).resolves.toEqual({
+        authenticated: false,
+      });
+    });
+
+    it('should return authenticated true for valid Bearer token', async () => {
+      authService.authenticateBearerToken.mockResolvedValue({
+        userId: 'u1',
+        keycloakSub: 'kc-1',
+        roles: ['customer'],
+        clinicId: null,
+      });
+      const req = {
+        session: {},
+        headers: { authorization: 'Bearer good.token' },
+      } as any;
+      await expect(controller.getStatus(req)).resolves.toEqual({
+        authenticated: true,
+      });
+      expect(authService.authenticateBearerToken).toHaveBeenCalledWith(
+        'good.token',
+      );
+    });
+
+    it('should return authenticated false for invalid Bearer token', async () => {
+      authService.authenticateBearerToken.mockRejectedValue(
+        new Error('bad token'),
+      );
+      const req = {
+        session: {},
+        headers: { authorization: 'Bearer bad.token' },
+      } as any;
+      await expect(controller.getStatus(req)).resolves.toEqual({
+        authenticated: false,
+      });
     });
   });
 

@@ -1,25 +1,14 @@
 import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { SessionGuard } from './session.guard';
 import { AuthService } from '../auth.service';
-import { KeycloakAdminService } from '../../keycloak/keycloak-admin.service';
-import { UsersService } from '../../users/users.service';
-import { jwtVerify } from 'jose';
 
 describe('SessionGuard', () => {
   const authService = {
     refreshTokenIfNeeded: jest.fn(),
+    authenticateBearerToken: jest.fn(),
   } as unknown as jest.Mocked<AuthService>;
 
-  const keycloakAdmin = {
-    getPublicIssuer: jest.fn(() => 'http://localhost:8080/realms/be-capstone'),
-    extractRolesFromToken: jest.fn(() => ['customer']),
-  } as unknown as jest.Mocked<KeycloakAdminService>;
-
-  const usersService = {
-    findByKeycloakSub: jest.fn(),
-  } as unknown as jest.Mocked<UsersService>;
-
-  const guard = new SessionGuard(authService, keycloakAdmin, usersService);
+  const guard = new SessionGuard(authService);
 
   const buildContext = (request: Record<string, unknown>): ExecutionContext =>
     ({
@@ -43,6 +32,7 @@ describe('SessionGuard', () => {
     expect(authService.refreshTokenIfNeeded).toHaveBeenCalledWith(
       request.session,
     );
+    expect(authService.authenticateBearerToken).not.toHaveBeenCalled();
   });
 
   it('should reject when no session and no bearer', async () => {
@@ -53,17 +43,12 @@ describe('SessionGuard', () => {
   });
 
   it('should authenticate valid Bearer token', async () => {
-    (jwtVerify as jest.Mock).mockResolvedValue({
-      payload: {
-        sub: 'kc-sub-1',
-        realm_access: { roles: ['customer'] },
-      },
-    });
-    usersService.findByKeycloakSub.mockResolvedValue({
-      id: 'u1',
+    authService.authenticateBearerToken.mockResolvedValue({
+      userId: 'u1',
       keycloakSub: 'kc-sub-1',
+      roles: ['customer'],
       clinicId: null,
-    } as any);
+    });
 
     const request: any = {
       headers: { authorization: 'Bearer good.jwt.token' },
@@ -71,6 +56,9 @@ describe('SessionGuard', () => {
     };
 
     await expect(guard.canActivate(buildContext(request))).resolves.toBe(true);
+    expect(authService.authenticateBearerToken).toHaveBeenCalledWith(
+      'good.jwt.token',
+    );
     expect(request.authContext).toEqual({
       userId: 'u1',
       keycloakSub: 'kc-sub-1',
@@ -80,7 +68,9 @@ describe('SessionGuard', () => {
   });
 
   it('should reject invalid Bearer token', async () => {
-    (jwtVerify as jest.Mock).mockRejectedValue(new Error('bad sig'));
+    authService.authenticateBearerToken.mockRejectedValue(
+      new UnauthorizedException('Invalid or expired access token'),
+    );
 
     const request = {
       headers: { authorization: 'Bearer bad.token' },

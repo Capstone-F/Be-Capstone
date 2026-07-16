@@ -14,6 +14,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiBody,
   ApiCookieAuth,
   ApiOkResponse,
@@ -22,6 +23,7 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
+import { getAuthContext } from './auth-context';
 import { AuthService } from './auth.service';
 import { SessionGuard } from './guards/session.guard';
 import { AppConfigService } from '../config/config.service';
@@ -255,9 +257,12 @@ export class AuthController {
   }
 
   @Get('status')
+  @ApiCookieAuth()
+  @ApiBearerAuth()
   @ApiOperation({
     summary: 'Check authentication status',
-    description: 'Returns whether the current request has an active session.',
+    description:
+      'Returns whether the current request is authenticated via session cookie or Bearer access token.',
   })
   @ApiOkResponse({
     schema: {
@@ -265,8 +270,26 @@ export class AuthController {
       properties: { authenticated: { type: 'boolean' } },
     },
   })
-  getStatus(@Req() req: Request) {
-    return { authenticated: !!req.session?.userId };
+  async getStatus(@Req() req: Request) {
+    const existing = getAuthContext(req);
+    if (existing?.userId) {
+      return { authenticated: true };
+    }
+
+    const header = req.headers.authorization;
+    if (typeof header === 'string') {
+      const [scheme, token] = header.split(' ');
+      if (scheme?.toLowerCase() === 'bearer' && token) {
+        try {
+          await this.authService.authenticateBearerToken(token);
+          return { authenticated: true };
+        } catch {
+          return { authenticated: false };
+        }
+      }
+    }
+
+    return { authenticated: false };
   }
 
   @Get('dev/session')
@@ -330,6 +353,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(SessionGuard)
   @ApiCookieAuth()
+  @ApiBearerAuth()
   @ApiOperation({
     summary: 'Logout and destroy session',
     description:

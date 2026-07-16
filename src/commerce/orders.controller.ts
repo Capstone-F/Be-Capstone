@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiCookieAuth,
   ApiCreatedResponse,
   ApiOkResponse,
@@ -31,6 +32,7 @@ import { OrdersService } from './orders.service';
 @Controller('orders')
 @UseGuards(SessionGuard, RolesGuard)
 @ApiCookieAuth()
+@ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Not authenticated' })
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}

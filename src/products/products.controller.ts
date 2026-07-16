@@ -10,6 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiCookieAuth,
   ApiCreatedResponse,
   ApiForbiddenResponse,
@@ -37,6 +38,7 @@ import { ProductsService } from './products.service';
 @ApiTags('Products')
 @Controller('products')
 @ApiCookieAuth()
+@ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Not authenticated' })
 export class ProductsController {
   constructor(

@@ -10,6 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiCookieAuth,
   ApiCreatedResponse,
   ApiOkResponse,
@@ -31,6 +32,7 @@ import { RoutineGeneratorService } from './routine-generator.service';
 @Controller('routines')
 @UseGuards(SessionGuard, RolesGuard)
 @ApiCookieAuth()
+@ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Not authenticated' })
 export class RoutinesController {
   constructor(

@@ -6,9 +6,11 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { AppConfigService } from '../config/config.service';
 import { KeycloakAdminService } from '../keycloak/keycloak-admin.service';
 import { UsersService } from '../users/users.service';
+import type { AuthContext } from './auth-context';
 import { APP_ROLES, filterAppRoles } from './roles.enum';
 import type { Request } from 'express';
 
@@ -25,6 +27,7 @@ type TokenResponse = {
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  private jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
 
   constructor(
     private readonly config: AppConfigService,
@@ -129,6 +132,45 @@ export class AuthService {
     } catch (err) {
       this.logger.warn('Session token refresh failed — forcing re-login', err);
       throw new UnauthorizedException('Session expired, please login again');
+    }
+  }
+
+  /**
+   * Verify a Keycloak access token (Bearer) and resolve the local AuthContext.
+   * Accepts both public and internal issuers when they differ (Docker).
+   */
+  async authenticateBearerToken(token: string): Promise<AuthContext> {
+    try {
+      const { payload } = await jwtVerify(token, this.getJwks(), {
+        issuer: this.getAcceptedIssuers(),
+      });
+
+      const sub = typeof payload.sub === 'string' ? payload.sub : null;
+      if (!sub) {
+        throw new UnauthorizedException('Invalid access token');
+      }
+
+      const user = await this.usersService.findByKeycloakSub(sub);
+      if (!user) {
+        throw new UnauthorizedException('User not found');
+      }
+
+      const realmAccess = payload.realm_access as
+        | { roles?: string[] }
+        | undefined;
+      const roles = filterAppRoles(realmAccess?.roles ?? []);
+
+      return {
+        userId: user.id,
+        keycloakSub: user.keycloakSub,
+        roles,
+        clinicId: user.clinicId ?? null,
+      };
+    } catch (err) {
+      if (err instanceof UnauthorizedException) {
+        throw err;
+      }
+      throw new UnauthorizedException('Invalid or expired access token');
     }
   }
 
@@ -297,6 +339,25 @@ export class AuthService {
   }
 
   // ─── Private helpers ───────────────────────────────────────────
+
+  private getAcceptedIssuers(): string[] {
+    const publicIssuer = this.keycloakAdmin.getPublicIssuer();
+    const internalIssuer = this.keycloakAdmin.getInternalIssuer();
+    if (publicIssuer === internalIssuer) {
+      return [publicIssuer];
+    }
+    return [publicIssuer, internalIssuer];
+  }
+
+  private getJwks() {
+    if (!this.jwks) {
+      const jwksUrl = new URL(
+        `${this.keycloakAdmin.getInternalIssuer()}/protocol/openid-connect/certs`,
+      );
+      this.jwks = createRemoteJWKSet(jwksUrl);
+    }
+    return this.jwks;
+  }
 
   private async buildSessionFromToken(token: TokenResponse, provider: string) {
     const profile = this.keycloakAdmin.decodeJwtPayload(
