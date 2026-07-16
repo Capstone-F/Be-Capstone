@@ -13,6 +13,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiCookieAuth,
   ApiOkResponse,
   ApiOperation,
@@ -33,6 +34,7 @@ import { CartResponseDto } from './dto/cart-response.dto';
 @Controller('cart')
 @UseGuards(SessionGuard, RolesGuard)
 @ApiCookieAuth()
+@ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Not authenticated' })
 export class CartController {
   constructor(private readonly cartService: CartService) {}

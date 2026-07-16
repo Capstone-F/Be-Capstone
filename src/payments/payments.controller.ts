@@ -8,9 +8,11 @@ import {
   Query,
   Req,
   Res,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiCookieAuth,
   ApiExcludeEndpoint,
   ApiOkResponse,
@@ -20,6 +22,7 @@ import {
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import type { ReturnQueryFromVNPay } from 'vnpay';
+import { getAuthContext } from '../auth/auth-context';
 import { SessionGuard } from '../auth/guards/session.guard';
 import { CheckoutDto } from './dto/checkout.dto';
 import { CheckoutResponseDto } from './dto/checkout-response.dto';
@@ -34,6 +37,7 @@ export class PaymentsController {
   @Post('checkout')
   @UseGuards(SessionGuard)
   @ApiCookieAuth()
+  @ApiBearerAuth()
   @ApiUnauthorizedResponse({ description: 'Not authenticated' })
   @ApiOperation({
     summary: 'Create a VNPay payment for a pending order',
@@ -46,7 +50,7 @@ export class PaymentsController {
     @Body() dto: CheckoutDto,
   ): Promise<CheckoutResponseDto> {
     return this.paymentsService.checkout(
-      req.session.userId as string,
+      this.requireUserId(req),
       dto,
       req.ip ?? '127.0.0.1',
     );
@@ -72,6 +76,7 @@ export class PaymentsController {
   @Get(':id')
   @UseGuards(SessionGuard)
   @ApiCookieAuth()
+  @ApiBearerAuth()
   @ApiUnauthorizedResponse({ description: 'Not authenticated' })
   @ApiOperation({ summary: 'Get authoritative payment status' })
   @ApiOkResponse({ type: PaymentStatusDto })
@@ -79,6 +84,14 @@ export class PaymentsController {
     @Req() req: Request,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<PaymentStatusDto> {
-    return this.paymentsService.getStatus(req.session.userId as string, id);
+    return this.paymentsService.getStatus(this.requireUserId(req), id);
+  }
+
+  private requireUserId(req: Request): string {
+    const auth = getAuthContext(req);
+    if (!auth?.userId) {
+      throw new UnauthorizedException('Not authenticated');
+    }
+    return auth.userId;
   }
 }

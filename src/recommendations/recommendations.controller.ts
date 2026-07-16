@@ -6,6 +6,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiCookieAuth,
   ApiOkResponse,
   ApiOperation,
@@ -25,6 +26,7 @@ import { RecommendationService } from './recommendation.service';
 @Controller('recommendations')
 @UseGuards(SessionGuard, RolesGuard)
 @ApiCookieAuth()
+@ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Not authenticated' })
 export class RecommendationsController {
   constructor(private readonly recommendationService: RecommendationService) {}

@@ -3,6 +3,7 @@ import {
   BadRequestException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { jwtVerify } from 'jose';
 import { AppConfigService } from '../config/config.service';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/user.entity';
@@ -312,6 +313,60 @@ describe('AuthService', () => {
       expect(service.authErrorUrl('http://localhost:5173/dashboard', 'x')).toBe(
         'http://localhost:5173/auth/error?reason=x',
       );
+    });
+  });
+
+  describe('authenticateBearerToken', () => {
+    it('should resolve AuthContext from a valid access token', async () => {
+      (jwtVerify as jest.Mock).mockResolvedValue({
+        payload: {
+          sub: 'sub-001',
+          realm_access: { roles: ['customer', 'offline_access'] },
+        },
+      });
+      (mockUsersService as any).findByKeycloakSub = jest
+        .fn()
+        .mockResolvedValue({
+          id: 'uuid-1',
+          keycloakSub: 'sub-001',
+          clinicId: null,
+        });
+
+      await expect(
+        service.authenticateBearerToken('access.jwt'),
+      ).resolves.toEqual({
+        userId: 'uuid-1',
+        keycloakSub: 'sub-001',
+        roles: [Role.Customer],
+        clinicId: null,
+      });
+      expect(jwtVerify).toHaveBeenCalledWith('access.jwt', expect.anything(), {
+        issuer: [
+          'http://localhost:8080/realms/be-capstone',
+          'http://keycloak:8080/realms/be-capstone',
+        ],
+      });
+    });
+
+    it('should throw when token is invalid', async () => {
+      (jwtVerify as jest.Mock).mockRejectedValue(new Error('bad sig'));
+
+      await expect(
+        service.authenticateBearerToken('bad.jwt'),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('should throw when user is not found', async () => {
+      (jwtVerify as jest.Mock).mockResolvedValue({
+        payload: { sub: 'missing-sub', realm_access: { roles: ['customer'] } },
+      });
+      (mockUsersService as any).findByKeycloakSub = jest
+        .fn()
+        .mockResolvedValue(null);
+
+      await expect(
+        service.authenticateBearerToken('access.jwt'),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
     });
   });
 });

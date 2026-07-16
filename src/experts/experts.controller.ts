@@ -1,5 +1,6 @@
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiCookieAuth,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -19,6 +20,7 @@ import { ExpertsService } from './experts.service';
 @Controller('experts')
 @UseGuards(SessionGuard)
 @ApiCookieAuth()
+@ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Not authenticated' })
 export class ExpertsController {
   constructor(private readonly expertsService: ExpertsService) {}

@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
+  ApiBearerAuth,
   ApiConflictResponse,
   ApiCookieAuth,
   ApiCreatedResponse,
@@ -24,6 +25,7 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import type { Request } from 'express';
+import { getAuthContext } from '../auth/auth-context';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
@@ -42,6 +44,7 @@ import { AvailableSlotsResponseDto } from './dto/slot-response.dto';
 @Controller('bookings')
 @UseGuards(SessionGuard, RolesGuard)
 @ApiCookieAuth()
+@ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Not authenticated' })
 export class BookingsController {
   constructor(private readonly bookingsService: BookingsService) {}
@@ -77,9 +80,12 @@ export class BookingsController {
   @ApiOkResponse({ type: PaginatedBookingsDto })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   listMyBookings(@Req() req: Request, @Query() query: ListBookingsQueryDto) {
-    const userId = this.requireUserId(req);
-    const roles = (req.session.roles ?? [Role.Customer]) as Role[];
-    return this.bookingsService.listMyBookings(userId, roles, query);
+    const auth = getAuthContext(req);
+    if (!auth?.userId) {
+      throw new UnauthorizedException('Not authenticated');
+    }
+    const roles = (auth.roles?.length ? auth.roles : [Role.Customer]) as Role[];
+    return this.bookingsService.listMyBookings(auth.userId, roles, query);
   }
 
   @Get(':expertId')
@@ -99,10 +105,10 @@ export class BookingsController {
   }
 
   private requireUserId(req: Request): string {
-    const userId = req.session?.userId;
-    if (!userId) {
+    const auth = getAuthContext(req);
+    if (!auth?.userId) {
       throw new UnauthorizedException('Not authenticated');
     }
-    return userId;
+    return auth.userId;
   }
 }

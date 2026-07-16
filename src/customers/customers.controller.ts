@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
+  ApiBearerAuth,
   ApiCookieAuth,
   ApiOkResponse,
   ApiOperation,
@@ -18,6 +19,7 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import type { Request } from 'express';
+import { getAuthContext } from '../auth/auth-context';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
 import { CustomersService } from './customers.service';
@@ -31,6 +33,7 @@ import { UpdateCustomerProfileDto } from './dto/update-customer-profile.dto';
 @Controller('customers')
 @UseGuards(SessionGuard, RolesGuard)
 @ApiCookieAuth()
+@ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Not authenticated' })
 export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
@@ -76,10 +79,10 @@ export class CustomersController {
   }
 
   private requireUserId(req: Request): string {
-    const userId = req.session?.userId;
-    if (!userId) {
+    const auth = getAuthContext(req);
+    if (!auth?.userId) {
       throw new UnauthorizedException('Not authenticated');
     }
-    return userId;
+    return auth.userId;
   }
 }
