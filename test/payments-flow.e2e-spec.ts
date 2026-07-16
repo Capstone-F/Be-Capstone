@@ -76,6 +76,7 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
     customerId: 'cust-1',
     status: OrderStatus.PENDING,
     totalVnd: 199000,
+    delivery: { id: 'del-1' },
   } as Order;
 
   beforeAll(() => {

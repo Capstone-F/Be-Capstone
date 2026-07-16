@@ -46,7 +46,16 @@ export class OrderResponseDto {
   @ApiPropertyOptional({ enum: OrderDiscountType, nullable: true })
   discountType!: OrderDiscountType | null;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'Shipping fee locked when delivery is attached; 0 until then',
+    example: 30000,
+  })
+  shippingFeeVnd!: number;
+
+  @ApiProperty({
+    description:
+      'Payable amount: max(0, subtotalVnd − discountVnd + shippingFeeVnd)',
+  })
   totalVnd!: number;
 
   @ApiProperty({ type: [OrderItemResponseDto] })
@@ -54,4 +63,18 @@ export class OrderResponseDto {
 
   @ApiProperty()
   createdAt!: Date;
+}
+
+export class PaginatedOrdersDto {
+  @ApiProperty({ type: [OrderResponseDto] })
+  items!: OrderResponseDto[];
+
+  @ApiProperty({ example: 5 })
+  total!: number;
+
+  @ApiProperty({ example: 1 })
+  page!: number;
+
+  @ApiProperty({ example: 20 })
+  limit!: number;
 }

@@ -69,6 +69,7 @@ export class PaymentsService {
 
     const order = await this.orderRepo.findOne({
       where: { id: dto.orderId },
+      relations: ['delivery'],
     });
     if (!order) {
       throw new NotFoundException('Order not found');
@@ -80,6 +81,9 @@ export class PaymentsService {
       throw new BadRequestException(
         `Order is not payable (status: ${order.status})`,
       );
+    }
+    if (!order.delivery) {
+      throw new BadRequestException('Order has no shipping selection');
     }
 
     const { paymentConfig } = this.config;

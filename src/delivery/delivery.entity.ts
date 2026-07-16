@@ -43,6 +43,10 @@ export class Delivery {
   @Column({ type: 'text' })
   shippingAddress: string;
 
+  /** Snapshot of the fee charged when shipping was attached to the order. */
+  @Column({ type: 'int', default: 0 })
+  feeVnd: number;
+
   @Column({
     type: 'varchar',
     enum: DeliveryStatus,

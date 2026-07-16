@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, FindOptionsWhere, In, Repository } from 'typeorm';
 import { CartService } from '../cart/cart.service';
 import { ProductVariant } from '../products/product-variant.entity';
 import { RecommendationService } from '../recommendations/recommendation.service';
@@ -15,7 +15,8 @@ import {
   ComboDiscountSettingDto,
   UpdateComboDiscountDto,
 } from './dto/commerce-setting.dto';
-import { OrderResponseDto } from './dto/order-response.dto';
+import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
+import { OrderResponseDto, PaginatedOrdersDto } from './dto/order-response.dto';
 import {
   CommerceSettingKey,
   OrderDiscountType,
@@ -113,7 +114,8 @@ export class OrdersService {
       const variant = variantById.get(item.productVariantId)!;
       return sum + variant.priceVnd * item.quantity;
     }, 0);
-    const totalVnd = Math.max(0, subtotalVnd - discountVnd);
+    const shippingFeeVnd = 0;
+    const totalVnd = Math.max(0, subtotalVnd - discountVnd + shippingFeeVnd);
 
     const order = await this.dataSource.transaction(async (manager) => {
       const created = await manager.save(
@@ -126,6 +128,7 @@ export class OrdersService {
           subtotalVnd,
           discountVnd,
           discountType,
+          shippingFeeVnd,
           totalVnd,
         }),
       );
@@ -166,6 +169,36 @@ export class OrdersService {
       throw new NotFoundException(`Order ${orderId} not found`);
     }
     return this.toDto(order);
+  }
+
+  async listForUser(
+    userId: string,
+    query: ListOrdersQueryDto,
+  ): Promise<PaginatedOrdersDto> {
+    const customer = await this.requireCustomer(userId);
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 20));
+    const skip = (page - 1) * limit;
+
+    const where: FindOptionsWhere<Order> = { customerId: customer.id };
+    if (query.status) {
+      where.status = query.status;
+    }
+
+    const [orders, total] = await this.orderRepository.findAndCount({
+      where,
+      relations: ['items'],
+      order: { createdAt: 'DESC' },
+      skip,
+      take: limit,
+    });
+
+    return {
+      items: orders.map((order) => this.toDto(order)),
+      total,
+      page,
+      limit,
+    };
   }
 
   async getComboDiscountSetting(): Promise<ComboDiscountSettingDto> {
@@ -231,6 +264,7 @@ export class OrdersService {
       subtotalVnd: order.subtotalVnd,
       discountVnd: order.discountVnd,
       discountType: order.discountType,
+      shippingFeeVnd: order.shippingFeeVnd,
       totalVnd: order.totalVnd,
       items: (order.items ?? []).map((item) => ({
         id: item.id,

@@ -14,7 +14,7 @@ The backend integrates the VNPay Sandbox gateway to collect payment for an exist
 
 1. Frontend calls `POST /payments/checkout` with `{ orderId, client? }` (client is `web` or `mobile`, default `web`). Requires an authenticated session (cookie `sid`).
 
-2. Backend loads the PENDING order, verifies it belongs to the caller, creates a `Payment` (plus first `PaymentAttempt` with a unique `vnpTxnRef`), and returns `{ paymentId, paymentUrl }`.
+2. Backend loads the PENDING order, verifies it belongs to the caller, **requires shipping to be attached** (`Delivery` row), creates a `Payment` (plus first `PaymentAttempt` with a unique `vnpTxnRef`) for `order.totalVnd` (products − discount + shipping), and returns `{ paymentId, paymentUrl }`. Checkout returns `400` if the order has no shipping selection.
 
 3. Frontend redirects the browser to `paymentUrl` (VNPay's hosted page).
 
@@ -26,12 +26,12 @@ The backend integrates the VNPay Sandbox gateway to collect payment for an exist
 
 ## Endpoints
 
-| Method | Path                   | Auth           | Purpose                                                            |
-| ------ | ---------------------- | -------------- | ------------------------------------------------------------------ |
-| POST   | /payments/checkout     | Session cookie | Create payment and return VNPay URL                                |
-| GET    | /payments/:id          | Session cookie | Authoritative payment status                                       |
-| GET    | /payments/vnpay/return | Public         | Verify signature and redirect browser to client (no mutation)      |
-| GET    | /payments/vnpay/ipn    | Public         | Verify signature and update status idempotently (server-to-server) |
+| Method | Path                   | Auth           | Purpose                                                              |
+| ------ | ---------------------- | -------------- | -------------------------------------------------------------------- |
+| POST   | /payments/checkout     | Session cookie | Create payment for order total (incl. shipping) and return VNPay URL |
+| GET    | /payments/:id          | Session cookie | Authoritative payment status                                         |
+| GET    | /payments/vnpay/return | Public         | Verify signature and redirect browser to client (no mutation)        |
+| GET    | /payments/vnpay/ipn    | Public         | Verify signature and update status idempotently (server-to-server)   |
 
 ## Idempotency
 

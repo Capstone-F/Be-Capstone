@@ -91,6 +91,7 @@ describe('PaymentsService', () => {
         customerId: 'cust-1',
         status: OrderStatus.PENDING,
         totalVnd: 199000,
+        delivery: { id: 'del-1' },
       });
       paymentRepo.findOne.mockResolvedValue(null);
       paymentRepo.create.mockImplementation((v) => v);
@@ -127,6 +128,7 @@ describe('PaymentsService', () => {
         customerId: 'cust-1',
         status: OrderStatus.PENDING,
         totalVnd: 50000,
+        delivery: { id: 'del-1' },
       });
       paymentRepo.findOne.mockResolvedValue(null);
       paymentRepo.create.mockImplementation((v) => v);
@@ -168,11 +170,57 @@ describe('PaymentsService', () => {
         customerId: 'cust-1',
         status: OrderStatus.PAID,
         totalVnd: 1000,
+        delivery: { id: 'del-1' },
       });
 
       await expect(
         service.checkout('user-1', { orderId: 'order-1' }, '1.1.1.1'),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects an order without shipping selection', async () => {
+      customerRepo.findOne.mockResolvedValue({ id: 'cust-1' });
+      orderRepo.findOne.mockResolvedValue({
+        id: 'order-1',
+        customerId: 'cust-1',
+        status: OrderStatus.PENDING,
+        totalVnd: 199000,
+        delivery: null,
+      });
+
+      await expect(
+        service.checkout('user-1', { orderId: 'order-1' }, '1.1.1.1'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('charges products + shipping via order.totalVnd', async () => {
+      customerRepo.findOne.mockResolvedValue({
+        id: 'cust-1',
+        userId: 'user-1',
+      });
+      orderRepo.findOne.mockResolvedValue({
+        id: 'order-1',
+        customerId: 'cust-1',
+        status: OrderStatus.PENDING,
+        subtotalVnd: 200000,
+        discountVnd: 20000,
+        shippingFeeVnd: 30000,
+        totalVnd: 210000,
+        delivery: { id: 'del-1', feeVnd: 30000 },
+      });
+      paymentRepo.findOne.mockResolvedValue(null);
+      paymentRepo.create.mockImplementation((v) => v);
+      paymentRepo.save.mockImplementation((v) =>
+        Promise.resolve({ ...v, id: 'pay-1' }),
+      );
+      attemptRepo.create.mockImplementation((v) => v);
+      attemptRepo.save.mockImplementation((v) => Promise.resolve(v));
+      vnpay.buildPaymentUrl.mockReturnValue('https://vnpay/pay?x=1');
+
+      await service.checkout('user-1', { orderId: 'order-1' }, '127.0.0.1');
+
+      const built = vnpay.buildPaymentUrl.mock.calls[0][0];
+      expect(built.vnp_Amount).toBe(210000);
     });
 
     it('throws NotFound when the order is missing', async () => {
