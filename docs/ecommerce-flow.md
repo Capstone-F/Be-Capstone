@@ -65,7 +65,7 @@ See also: [VNPay Payment Integration](payments.md) · [User Management & RBAC](u
 
 > **Pricing model:** Fixed fee matrix by `(providerId, DeliveryType)` in `delivery_fees` (seeded: STANDARD 30_000, EXPRESS 50_000, SAME_DAY 80_000 per provider). Fee is snapshotted onto the order at attach time — no live carrier quotes.
 
-There is also a **survey / recommendation** path (`source: SURVEY`) that reuses cart → order → shipping → payment, with extra validation and optional combo discount.
+There is also a **survey / recommendation** path (`source: SURVEY`) that reuses cart → order → shipping → payment, with extra validation and optional combo discount. Full survey → protocols → products integration: [Survey Flow Guide](survey-flow.md).
 
 ---
 
