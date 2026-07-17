@@ -21,7 +21,12 @@ import { ProductVariant } from '../../products/product-variant.entity';
 import { ProductIngredient } from '../../products/product-ingredient.entity';
 import { ProductProtocol } from '../../products/product-protocol.entity';
 import { ShelfLifeUnit } from '../../stock/enums';
-import { Question } from '../../survey/question.entity';
+import {
+  Question,
+  QuestionAskWhen,
+  QuestionPriority,
+} from '../../survey/question.entity';
+import { QuestionOption } from '../../survey/question-option.entity';
 import { CommerceSetting } from '../../commerce/commerce-setting.entity';
 import {
   CommerceSettingKey,
@@ -999,24 +1004,135 @@ const SURVEY_QUESTIONS: Array<{
   text: string;
   questionType: string;
   displayOrder: number;
+  priority: QuestionPriority;
+  category: string;
+  intent: string;
+  askWhen: QuestionAskWhen | null;
+  optionCodes: string[];
 }> = [
   {
     code: 'PRIMARY_CONCERN',
-    text: 'What is your primary skin concern?',
-    questionType: 'MULTI_SELECT',
+    text: 'Vấn đề da nào làm bạn khó chịu nhất hiện tại?',
+    questionType: 'SINGLE_CHOICE',
     displayOrder: 1,
+    priority: QuestionPriority.CORE,
+    category: 'SKIN_CONCERN',
+    intent: 'Identify the customer primary visible skin concern',
+    askWhen: { always: true },
+    optionCodes: [
+      'ACNE',
+      'HYPERPIGMENTATION',
+      'REDNESS',
+      'DEHYDRATED_SKIN',
+      'WRINKLES',
+      'DULL_SKIN',
+      'ENLARGED_PORES',
+      'ROUGH_TEXTURE',
+    ],
   },
   {
     code: 'SKIN_GOALS',
-    text: 'What are your skincare goals?',
+    text: 'Bạn muốn cải thiện điều gì cho làn da?',
     questionType: 'MULTI_SELECT',
     displayOrder: 2,
+    priority: QuestionPriority.CORE,
+    category: 'SKIN_GOAL',
+    intent: 'Capture desired skincare outcomes',
+    askWhen: { always: true },
+    optionCodes: [
+      'ACNE_TREATMENT',
+      'BRIGHTENING',
+      'ANTI_AGING',
+      'HYDRATION',
+      'OIL_CONTROL',
+      'BARRIER_REPAIR',
+      'REDUCE_PIGMENTATION',
+      'REDUCE_WRINKLES',
+      'REDUCE_REDNESS',
+      'IMPROVE_SKIN_TEXTURE',
+      'EVEN_SKIN_TONE',
+      'MINIMIZE_PORES',
+    ],
   },
   {
     code: 'LIFESTYLE',
-    text: 'Which lifestyle factors apply to you?',
+    text: 'Những yếu tố sinh hoạt nào thường xuyên ảnh hưởng đến bạn?',
     questionType: 'MULTI_SELECT',
     displayOrder: 3,
+    priority: QuestionPriority.CORE,
+    category: 'LIFESTYLE',
+    intent: 'Capture environmental and behavioral exposure',
+    askWhen: { always: true },
+    optionCodes: [
+      'OUTDOOR_LIFESTYLE',
+      'INDOOR_LIFESTYLE',
+      'NIGHT_SHIFT',
+      'HIGH_SUN_EXPOSURE',
+      'HEAVY_MAKEUP',
+      'FREQUENT_EXERCISE',
+      'AIR_CONDITIONED_ENVIRONMENT',
+      'SMOKING',
+      'HIGH_STRESS',
+    ],
+  },
+  {
+    code: 'SENSITIVITY_TRIGGERS',
+    text: 'Da bạn có thường đỏ, nóng rát hoặc châm chích không?',
+    questionType: 'MULTI_SELECT',
+    displayOrder: 4,
+    priority: QuestionPriority.CORE,
+    category: 'SENSITIVITY',
+    intent: 'Screen for sensitivity and barrier concerns',
+    askWhen: { always: true },
+    optionCodes: ['REDNESS', 'BARRIER_DAMAGE', 'ROSACEA'],
+  },
+  {
+    code: 'ACNE_DETAILS',
+    text: 'Tình trạng mụn nào giống với da bạn nhất?',
+    questionType: 'MULTI_SELECT',
+    displayOrder: 10,
+    priority: QuestionPriority.CONDITIONAL,
+    category: 'ACNE',
+    intent: 'Refine acne type and post-acne concerns',
+    askWhen: { anyLabelCodes: ['ACNE', 'BLACKHEADS', 'WHITEHEADS'] },
+    optionCodes: [
+      'BLACKHEADS',
+      'WHITEHEADS',
+      'ENLARGED_PORES',
+      'POST_INFLAMMATORY_HYPERPIGMENTATION',
+      'POST_INFLAMMATORY_ERYTHEMA',
+    ],
+  },
+  {
+    code: 'PIGMENTATION_DETAILS',
+    text: 'Dạng thâm sạm nào bạn quan sát thấy rõ nhất?',
+    questionType: 'MULTI_SELECT',
+    displayOrder: 11,
+    priority: QuestionPriority.CONDITIONAL,
+    category: 'PIGMENTATION',
+    intent: 'Differentiate common pigmentation patterns',
+    askWhen: {
+      anyLabelCodes: ['HYPERPIGMENTATION', 'MELASMA', 'UNEVEN_SKIN_TONE'],
+    },
+    optionCodes: [
+      'MELASMA',
+      'FRECKLES',
+      'POST_INFLAMMATORY_HYPERPIGMENTATION',
+      'UNEVEN_SKIN_TONE',
+    ],
+  },
+  {
+    code: 'ACTIVE_TOLERANCE',
+    text: 'Mức độ quen thuộc của bạn với hoạt chất chăm sóc da?',
+    questionType: 'SINGLE_CHOICE',
+    displayOrder: 12,
+    priority: QuestionPriority.CONDITIONAL,
+    category: 'EXPERIENCE_LEVEL',
+    intent: 'Estimate tolerance for active ingredient protocols',
+    askWhen: {
+      anyLabelCodes: ['ACNE', 'WRINKLES', 'HYPERPIGMENTATION'],
+    },
+    optionCodes: ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'],
   },
 ];
 
@@ -1427,6 +1543,7 @@ async function seed(): Promise<void> {
   const productIngredientRepo = AppDataSource.getRepository(ProductIngredient);
   const productProtocolRepo = AppDataSource.getRepository(ProductProtocol);
   const questionRepo = AppDataSource.getRepository(Question);
+  const questionOptionRepo = AppDataSource.getRepository(QuestionOption);
   const commerceSettingRepo = AppDataSource.getRepository(CommerceSetting);
   const deliveryProviderRepo = AppDataSource.getRepository(DeliveryProvider);
   const deliveryFeeRepo = AppDataSource.getRepository(DeliveryFee);
@@ -1697,13 +1814,18 @@ async function seed(): Promise<void> {
 
   for (const q of SURVEY_QUESTIONS) {
     const existing = await questionRepo.findOneBy({ code: q.code });
+    let question: Question;
     if (!existing) {
-      await questionRepo.save(
+      question = await questionRepo.save(
         questionRepo.create({
           code: q.code,
           text: q.text,
           questionType: q.questionType,
           displayOrder: q.displayOrder,
+          priority: q.priority,
+          category: q.category,
+          intent: q.intent,
+          askWhen: q.askWhen,
           isActive: true,
         }),
       );
@@ -1711,8 +1833,39 @@ async function seed(): Promise<void> {
       existing.text = q.text;
       existing.questionType = q.questionType;
       existing.displayOrder = q.displayOrder;
+      existing.priority = q.priority;
+      existing.category = q.category;
+      existing.intent = q.intent;
+      existing.askWhen = q.askWhen;
       existing.isActive = true;
-      await questionRepo.save(existing);
+      question = await questionRepo.save(existing);
+    }
+
+    for (const [displayOrder, labelCode] of q.optionCodes.entries()) {
+      const label = labelsByCode.get(labelCode);
+      if (!label) {
+        throw new Error(
+          `Question ${q.code} references unknown label ${labelCode}`,
+        );
+      }
+      const option = await questionOptionRepo.findOneBy({
+        questionId: question.id,
+        labelId: label.id,
+      });
+      if (!option) {
+        await questionOptionRepo.save(
+          questionOptionRepo.create({
+            questionId: question.id,
+            labelId: label.id,
+            displayOrder,
+            isActive: true,
+          }),
+        );
+      } else {
+        option.displayOrder = displayOrder;
+        option.isActive = true;
+        await questionOptionRepo.save(option);
+      }
     }
   }
 

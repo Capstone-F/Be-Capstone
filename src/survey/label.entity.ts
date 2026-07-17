@@ -12,6 +12,7 @@ import {
 import { AnswerLabel } from './answer-label.entity';
 import { LabelCategory } from './label-category.entity';
 import { ProtocolLabel } from '../ingredients/protocol-label.entity';
+import { QuestionOption } from './question-option.entity';
 
 @Entity('labels')
 @Index('IDX_labels_code', ['code'], { unique: true })
@@ -45,6 +46,9 @@ export class Label {
 
   @OneToMany(() => ProtocolLabel, (pl) => pl.label)
   protocolLabels: ProtocolLabel[];
+
+  @OneToMany(() => QuestionOption, (option) => option.label)
+  questionOptions: QuestionOption[];
 
   @CreateDateColumn()
   createdAt: Date;

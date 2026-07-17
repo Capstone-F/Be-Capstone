@@ -4,6 +4,30 @@ import {
   RuleEngineLabelDto,
   RuleEngineProtocolDto,
 } from '../../rule-engine/dto/rule-engine-context.dto';
+import { IsUUID } from 'class-validator';
+
+export class RankedVariantDto {
+  @ApiProperty()
+  productVariantId!: string;
+
+  @ApiProperty()
+  productId!: string;
+
+  @ApiProperty()
+  productName!: string;
+
+  @ApiProperty()
+  sku!: string;
+
+  @ApiProperty()
+  priceVnd!: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  volume!: string | null;
+
+  @ApiProperty()
+  rank!: number;
+}
 
 export class RecommendedProductDto {
   @ApiProperty()
@@ -38,6 +62,15 @@ export class RecommendedProductDto {
 
   @ApiPropertyOptional({ nullable: true })
   volume!: string | null;
+
+  @ApiProperty({ type: [RankedVariantDto] })
+  variants!: RankedVariantDto[];
+}
+
+export class SelectRecommendationVariantDto {
+  @ApiProperty()
+  @IsUUID()
+  productVariantId!: string;
 }
 
 export class RecommendationResponseDto {

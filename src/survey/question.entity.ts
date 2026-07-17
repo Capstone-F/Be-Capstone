@@ -8,6 +8,18 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Answer } from './answer.entity';
+import { QuestionOption } from './question-option.entity';
+
+export enum QuestionPriority {
+  CORE = 'CORE',
+  CONDITIONAL = 'CONDITIONAL',
+  OPTIONAL = 'OPTIONAL',
+}
+
+export type QuestionAskWhen = {
+  always?: boolean;
+  anyLabelCodes?: string[];
+};
 
 @Entity('questions')
 @Index('IDX_questions_code', ['code'], { unique: true })
@@ -27,11 +39,30 @@ export class Question {
   @Column({ type: 'int', default: 0 })
   displayOrder: number;
 
+  @Column({
+    type: 'varchar',
+    enum: QuestionPriority,
+    default: QuestionPriority.CORE,
+  })
+  priority: QuestionPriority;
+
+  @Column({ type: 'varchar', default: 'GENERAL' })
+  category: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  askWhen: QuestionAskWhen | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  intent: string | null;
+
   @Column({ default: true })
   isActive: boolean;
 
   @OneToMany(() => Answer, (answer) => answer.question)
   answers: Answer[];
+
+  @OneToMany(() => QuestionOption, (option) => option.question)
+  options: QuestionOption[];
 
   @CreateDateColumn()
   createdAt: Date;

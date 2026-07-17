@@ -10,14 +10,17 @@ import { CustomerSurvey } from './customer-survey.entity';
 import { LabelCategory } from './label-category.entity';
 import { Label } from './label.entity';
 import { Question } from './question.entity';
+import { QuestionOption } from './question-option.entity';
 import { SurveyService } from './survey.service';
 import { SurveysController } from './surveys.controller';
+import { AdminSurveyQuestionsController } from './admin-survey-questions.controller';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       CustomerSurvey,
       Question,
+      QuestionOption,
       Answer,
       AnswerLabel,
       LabelCategory,
@@ -26,7 +29,7 @@ import { SurveysController } from './surveys.controller';
     ]),
     AuthModule,
   ],
-  controllers: [SurveysController],
+  controllers: [SurveysController, AdminSurveyQuestionsController],
   providers: [SurveyService, SessionGuard, RolesGuard],
   exports: [TypeOrmModule, SurveyService],
 })
