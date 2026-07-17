@@ -7,6 +7,7 @@ import { ProtocolLabel } from '../ingredients/protocol-label.entity';
 import { ProtocolSkinType } from '../ingredients/protocol-skin-type.entity';
 import { CustomerSurvey } from '../survey/customer-survey.entity';
 import { Label } from '../survey/label.entity';
+import { CustomerAllergy } from '../users/customer-allergy.entity';
 import { Customer } from '../users/customer.entity';
 import {
   RuleEngineContextDto,
@@ -30,6 +31,8 @@ interface ScoredProtocol {
 interface BuildRoutineContextOptions {
   skinTypeId?: string | null;
   customerProfile?: RuleEngineCustomerProfileDto | null;
+  /** When true, protocols that pass exclusion/required/avoid checks get at least score 1. */
+  allowBaselineMatch?: boolean;
 }
 
 const AGE_GROUP_CODES = [
@@ -52,6 +55,8 @@ export class RuleEngineService {
     private readonly customerRepository: Repository<Customer>,
     @InjectRepository(CustomerSurvey)
     private readonly customerSurveyRepository: Repository<CustomerSurvey>,
+    @InjectRepository(CustomerAllergy)
+    private readonly customerAllergyRepository: Repository<CustomerAllergy>,
   ) {}
 
   async buildContextForCustomer(
@@ -82,11 +87,47 @@ export class RuleEngineService {
     });
   }
 
+  async buildContextFromProfile(
+    customerId: string,
+  ): Promise<RuleEngineContextDto> {
+    const customer = await this.customerRepository.findOne({
+      where: { id: customerId },
+      relations: ['skinTypeDetails', 'skinTypeDetails.skinType'],
+    });
+
+    if (!customer) {
+      throw new NotFoundException(`Customer ${customerId} not found`);
+    }
+
+    const profileLabelCodes = this.deriveProfileLabelCodes(customer);
+    const [profileLabelIds, allergies] = await Promise.all([
+      this.resolveLabelIdsByCodes(profileLabelCodes),
+      this.customerAllergyRepository.find({
+        where: { customerId },
+        relations: ['label'],
+      }),
+    ]);
+    const allergyLabelIds = allergies
+      .filter((allergy) => allergy.label?.isActive)
+      .map((allergy) => allergy.labelId);
+    const labelIds = [...new Set([...profileLabelIds, ...allergyLabelIds])];
+
+    return this.buildRoutineContext(labelIds, {
+      skinTypeId: customer.skinTypeDetails?.skinTypeId ?? null,
+      customerProfile: this.toProfileDto(customer),
+      allowBaselineMatch: true,
+    });
+  }
+
   async buildRoutineContext(
     labelIds: string[],
     options: BuildRoutineContextOptions = {},
   ): Promise<RuleEngineContextDto> {
-    const { skinTypeId = null, customerProfile = null } = options;
+    const {
+      skinTypeId = null,
+      customerProfile = null,
+      allowBaselineMatch = false,
+    } = options;
     const uniqueLabelIds = [...new Set(labelIds)];
 
     const labels =
@@ -118,6 +159,7 @@ export class RuleEngineService {
           customerLabelIds,
           labelCodeById,
           skinTypeId,
+          allowBaselineMatch,
         ),
       )
       .filter((result): result is ScoredProtocol => result !== null)
@@ -228,6 +270,7 @@ export class RuleEngineService {
     customerLabelIds: Set<string>,
     labelCodeById: Map<string, string>,
     customerSkinTypeId: string | null,
+    allowBaselineMatch = false,
   ): ScoredProtocol | null {
     const grouped = this.groupProtocolLabels(protocol.protocolLabels ?? []);
 
@@ -260,10 +303,13 @@ export class RuleEngineService {
       customerLabelIds.has(pl.labelId),
     );
 
-    const matchScore =
+    let matchScore =
       matchedRequired.length + matchedOptional.length + skinTypeResult.score;
     if (matchScore < 1) {
-      return null;
+      if (!allowBaselineMatch) {
+        return null;
+      }
+      matchScore = 1;
     }
 
     const matchedLabelCodes = [

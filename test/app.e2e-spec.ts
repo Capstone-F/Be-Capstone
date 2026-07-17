@@ -23,6 +23,7 @@ import { Clinic } from '../src/clinics/clinic.entity';
 import { Product } from '../src/products/product.entity';
 import { ProductBrand } from '../src/products/product-brand.entity';
 import { ProductCategory } from '../src/products/product-category.entity';
+import { ProductProtocol } from '../src/products/product-protocol.entity';
 import { ProductVariant } from '../src/products/product-variant.entity';
 import { ProductIngredient } from '../src/products/product-ingredient.entity';
 import { Ingredient } from '../src/ingredients/ingredient.entity';
@@ -40,6 +41,7 @@ import { Answer } from '../src/survey/answer.entity';
 import { AnswerLabel } from '../src/survey/answer-label.entity';
 import { Question } from '../src/survey/question.entity';
 import { CustomerSurvey } from '../src/survey/customer-survey.entity';
+import { CustomerAllergy } from '../src/users/customer-allergy.entity';
 import { Customer } from '../src/users/customer.entity';
 import { Gender } from '../src/users/gender.enum';
 import { Expert } from '../src/users/expert.entity';
@@ -1458,6 +1460,282 @@ describe('BE Capstone API (e2e)', () => {
             category.code.toLowerCase().includes('serum');
           expect(matchesSearch).toBe(true);
         }
+      });
+    });
+
+    describe('GET /products/suggestion', () => {
+      async function upsertLabelCategory(code: string, name: string) {
+        const repo = dataSource.getRepository(LabelCategory);
+        const existing = await repo.findOneBy({ code });
+        if (existing) {
+          return existing;
+        }
+        return repo.save(repo.create({ code, name }));
+      }
+
+      async function upsertLabel(
+        code: string,
+        name: string,
+        categoryId: string,
+      ) {
+        const repo = dataSource.getRepository(Label);
+        const existing = await repo.findOneBy({ code });
+        if (existing) {
+          return existing;
+        }
+        return repo.save(
+          repo.create({
+            categoryId,
+            code,
+            name,
+            isActive: true,
+          }),
+        );
+      }
+
+      async function seedSuggestionScenario() {
+        const suffix = Math.random().toString(36).slice(2, 8);
+
+        const allergyCategory = await upsertLabelCategory('ALLERGY', 'Allergy');
+        const retinoidsLabel = await upsertLabel(
+          'RETINOIDS',
+          'Retinoids',
+          allergyCategory.id,
+        );
+        await upsertLabelCategory('GENDER', 'Gender');
+        await upsertLabelCategory('AGE_GROUP', 'Age Group');
+        const genderCategory = await dataSource
+          .getRepository(LabelCategory)
+          .findOneByOrFail({ code: 'GENDER' });
+        const ageCategory = await dataSource
+          .getRepository(LabelCategory)
+          .findOneByOrFail({ code: 'AGE_GROUP' });
+        await upsertLabel('FEMALE', 'Female', genderCategory.id);
+        await upsertLabel('AGE_26_35', '26–35', ageCategory.id);
+
+        const user = await seedUser({
+          keycloakSub: `kc-suggest-${suffix}`,
+          email: `suggest-${suffix}@example.com`,
+          roles: [Role.Customer],
+        });
+        const customer = await dataSource.getRepository(Customer).save(
+          dataSource.getRepository(Customer).create({
+            userId: user.id,
+            gender: Gender.FEMALE,
+            dateOfBirth: new Date('1995-06-15'),
+          }),
+        );
+
+        const skinType = await dataSource.getRepository(SkinType).save(
+          dataSource.getRepository(SkinType).create({
+            code: `OSPW_SUG_${suffix}`,
+            name: `Suggest Skin ${suffix}`,
+            oilyDry: OilyDry.OILY,
+            sensitiveResistant: SensitiveResistant.SENSITIVE,
+            pigmentedNonPigmented: PigmentedNonPigmented.PIGMENTED,
+            wrinkledTight: WrinkledTight.WRINKLED,
+          }),
+        );
+        await dataSource.getRepository(CustomerSkinTypeDetails).save(
+          dataSource.getRepository(CustomerSkinTypeDetails).create({
+            customerId: customer.id,
+            skinTypeId: skinType.id,
+          }),
+        );
+        await dataSource.getRepository(CustomerAllergy).save(
+          dataSource.getRepository(CustomerAllergy).create({
+            customerId: customer.id,
+            labelId: retinoidsLabel.id,
+          }),
+        );
+
+        const safeProduct = await onboardProductViaHttp(adminSid, {
+          name: `Suggest Safe Serum ${suffix}`,
+          sku: `SAFE-SUG-${suffix}`,
+          ingredients: [
+            {
+              name: `Niacinamide Suggest ${suffix}`,
+              concentrationPct: 5,
+              isKeyIngredient: true,
+            },
+          ],
+        });
+        const allergicProduct = await onboardProductViaHttp(adminSid, {
+          name: `Suggest Retinol Serum ${suffix}`,
+          sku: `RET-SUG-${suffix}`,
+          ingredients: [
+            {
+              name: `Retinol Suggest ${suffix}`,
+              concentrationPct: 0.3,
+              isKeyIngredient: true,
+            },
+          ],
+        });
+        const lowerProduct = await onboardProductViaHttp(adminSid, {
+          name: `Suggest Barrier Cream ${suffix}`,
+          categoryCode: 'MOISTURIZER',
+          categoryName: 'Moisturizer',
+          sku: `BAR-SUG-${suffix}`,
+          ingredients: [
+            {
+              name: `Ceramide Suggest ${suffix}`,
+              concentrationPct: 1,
+              isKeyIngredient: true,
+            },
+          ],
+        });
+
+        const ingredientRepo = dataSource.getRepository(Ingredient);
+        const protocolRepo = dataSource.getRepository(IngredientProtocol);
+        const protocolSkinTypeRepo = dataSource.getRepository(ProtocolSkinType);
+        const productProtocolRepo = dataSource.getRepository(ProductProtocol);
+
+        const safeIngredient = await ingredientRepo.findOneByOrFail({
+          name: `Niacinamide Suggest ${suffix}`,
+        });
+        const retinolIngredient = await ingredientRepo.findOneByOrFail({
+          name: `Retinol Suggest ${suffix}`,
+        });
+        const barrierIngredient = await ingredientRepo.findOneByOrFail({
+          name: `Ceramide Suggest ${suffix}`,
+        });
+
+        const highProtocol = await protocolRepo.save(
+          protocolRepo.create({
+            ingredientId: safeIngredient.id,
+            code: `SAFE_PROTO_${suffix}`,
+            name: `Safe Protocol ${suffix}`,
+            concentrationPct: 5,
+            timePerWeek: 7,
+            timeOfUse: TimeOfUse.AM,
+            durationWeeks: 8,
+            isActive: true,
+          }),
+        );
+        const allergicProtocol = await protocolRepo.save(
+          protocolRepo.create({
+            ingredientId: retinolIngredient.id,
+            code: `RET_PROTO_${suffix}`,
+            name: `Retinol Protocol ${suffix}`,
+            concentrationPct: 0.3,
+            timePerWeek: 3,
+            timeOfUse: TimeOfUse.PM,
+            durationWeeks: 12,
+            isActive: true,
+          }),
+        );
+        const lowProtocol = await protocolRepo.save(
+          protocolRepo.create({
+            ingredientId: barrierIngredient.id,
+            code: `BAR_PROTO_${suffix}`,
+            name: `Barrier Protocol ${suffix}`,
+            concentrationPct: 1,
+            timePerWeek: 7,
+            timeOfUse: TimeOfUse.AM_PM,
+            durationWeeks: 8,
+            isActive: true,
+          }),
+        );
+
+        await protocolSkinTypeRepo.save([
+          protocolSkinTypeRepo.create({
+            protocolId: highProtocol.id,
+            skinTypeId: skinType.id,
+            recommendation: SkinTypeRecommendation.RECOMMENDED,
+          }),
+          protocolSkinTypeRepo.create({
+            protocolId: allergicProtocol.id,
+            skinTypeId: skinType.id,
+            recommendation: SkinTypeRecommendation.RECOMMENDED,
+          }),
+          protocolSkinTypeRepo.create({
+            protocolId: lowProtocol.id,
+            skinTypeId: skinType.id,
+            recommendation: SkinTypeRecommendation.RECOMMENDED,
+          }),
+        ]);
+
+        // Optional gender match boosts the safe protocol above the others.
+        const femaleLabel = await dataSource
+          .getRepository(Label)
+          .findOneByOrFail({ code: 'FEMALE' });
+        await dataSource.getRepository(ProtocolLabel).save(
+          dataSource.getRepository(ProtocolLabel).create({
+            protocolId: highProtocol.id,
+            labelId: femaleLabel.id,
+            matchType: LabelMatchType.OPTIONAL,
+          }),
+        );
+
+        await productProtocolRepo.save([
+          productProtocolRepo.create({
+            productId: safeProduct.product.id,
+            protocolId: highProtocol.id,
+          }),
+          productProtocolRepo.create({
+            productId: allergicProduct.product.id,
+            protocolId: allergicProtocol.id,
+          }),
+          productProtocolRepo.create({
+            productId: lowerProduct.product.id,
+            protocolId: lowProtocol.id,
+          }),
+        ]);
+
+        const sid = await performMockLogin({
+          userId: user.id,
+          keycloakSub: user.keycloakSub,
+          roles: [Role.Customer],
+        });
+        jest
+          .spyOn(authService, 'refreshTokenIfNeeded')
+          .mockResolvedValue(undefined);
+
+        return {
+          sid,
+          safeProductId: safeProduct.product.id,
+          allergicProductId: allergicProduct.product.id,
+          lowerProductId: lowerProduct.product.id,
+        };
+      }
+
+      it('should return 401 without session cookie', async () => {
+        await request(app.getHttpServer())
+          .get('/products/suggestion')
+          .expect(401);
+      });
+
+      it('should return 403 for non-customer role', async () => {
+        await request(app.getHttpServer())
+          .get('/products/suggestion')
+          .set('Cookie', adminSid)
+          .expect(403);
+      });
+
+      it('should return ranked products from customer profile and exclude allergy matches', async () => {
+        const scenario = await seedSuggestionScenario();
+
+        const { body } = await request(app.getHttpServer())
+          .get('/products/suggestion?limit=1')
+          .set('Cookie', scenario.sid)
+          .expect(200);
+
+        expect(body.limit).toBe(1);
+        expect(body.total).toBe(2);
+        expect(body.items).toHaveLength(1);
+        expect(body.items[0].product.id).toBe(scenario.safeProductId);
+        expect(body.items[0]).toHaveProperty('ingredients');
+
+        const full = await request(app.getHttpServer())
+          .get('/products/suggestion')
+          .set('Cookie', scenario.sid)
+          .expect(200);
+
+        const ids = full.body.items.map(
+          (item: { product: { id: string } }) => item.product.id,
+        );
+        expect(ids).toEqual([scenario.safeProductId, scenario.lowerProductId]);
+        expect(ids).not.toContain(scenario.allergicProductId);
       });
     });
   });

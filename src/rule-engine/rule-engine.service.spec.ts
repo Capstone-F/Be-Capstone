@@ -12,6 +12,7 @@ import { CustomerSurvey } from '../survey/customer-survey.entity';
 import { Answer } from '../survey/answer.entity';
 import { AnswerLabel } from '../survey/answer-label.entity';
 import { Label } from '../survey/label.entity';
+import { CustomerAllergy } from '../users/customer-allergy.entity';
 import { Customer } from '../users/customer.entity';
 import { CustomerSkinTypeDetails } from '../users/customer-skin-type-details.entity';
 import { Gender } from '../users/gender.enum';
@@ -142,6 +143,9 @@ describe('RuleEngineService', () => {
   let customerSurveyRepository: jest.Mocked<
     Pick<Repository<CustomerSurvey>, 'findOne'>
   >;
+  let customerAllergyRepository: jest.Mocked<
+    Pick<Repository<CustomerAllergy>, 'find'>
+  >;
   let service: RuleEngineService;
 
   const protocolRelations = {
@@ -168,11 +172,15 @@ describe('RuleEngineService', () => {
     customerSurveyRepository = {
       findOne: jest.fn(),
     };
+    customerAllergyRepository = {
+      find: jest.fn(),
+    };
     service = new RuleEngineService(
       labelRepository as unknown as Repository<Label>,
       protocolRepository as unknown as Repository<IngredientProtocol>,
       customerRepository as unknown as Repository<Customer>,
       customerSurveyRepository as unknown as Repository<CustomerSurvey>,
+      customerAllergyRepository as unknown as Repository<CustomerAllergy>,
     );
   });
 
@@ -633,6 +641,134 @@ describe('RuleEngineService', () => {
         skinTypeCode: 'OSPW',
         skinTypeName: 'Oily Sensitive Pigmented Wrinkled',
       });
+    });
+  });
+
+  describe('buildContextFromProfile', () => {
+    it('uses age, gender, skin type, and allergies without loading survey labels', async () => {
+      const customer = makeCustomer();
+      const ageLabel = makeLabel({
+        id: 'label-age',
+        code: 'AGE_26_35',
+      });
+      const genderLabel = makeLabel({
+        id: 'label-gender',
+        code: 'FEMALE',
+      });
+      const allergyLabel = makeLabel({
+        id: 'label-allergy',
+        code: 'SALICYLIC_ACID',
+      });
+      const safeProtocol = makeProtocol({
+        id: 'protocol-safe',
+        code: 'SAFE',
+        protocolLabels: [
+          makeProtocolLabel({
+            labelId: 'label-gender',
+            matchType: LabelMatchType.OPTIONAL,
+          }),
+        ],
+      });
+      const allergicProtocol = makeProtocol({
+        id: 'protocol-allergic',
+        code: 'ALLERGIC',
+        protocolLabels: [
+          makeProtocolLabel({
+            labelId: 'label-allergy',
+            matchType: LabelMatchType.EXCLUDED,
+          }),
+          makeProtocolLabel({
+            labelId: 'label-gender',
+            matchType: LabelMatchType.OPTIONAL,
+          }),
+        ],
+      });
+
+      customerRepository.findOne.mockResolvedValue(customer);
+      customerAllergyRepository.find.mockResolvedValue([
+        {
+          id: 'allergy-1',
+          customerId: customer.id,
+          customer,
+          labelId: allergyLabel.id,
+          label: allergyLabel,
+          createdAt: new Date(),
+        },
+      ]);
+      labelRepository.find
+        .mockResolvedValueOnce([ageLabel, genderLabel])
+        .mockResolvedValueOnce([ageLabel, genderLabel, allergyLabel]);
+      protocolRepository.find.mockResolvedValue([
+        allergicProtocol,
+        safeProtocol,
+      ]);
+
+      const result = await service.buildContextFromProfile(customer.id);
+
+      expect(customerSurveyRepository.findOne).not.toHaveBeenCalled();
+      expect(customerAllergyRepository.find).toHaveBeenCalledWith({
+        where: { customerId: customer.id },
+        relations: ['label'],
+      });
+      expect(result.labels.map((label) => label.code)).toEqual(
+        expect.arrayContaining(['AGE_26_35', 'FEMALE', 'SALICYLIC_ACID']),
+      );
+      expect(result.customerProfile).toEqual({
+        age: expect.any(Number),
+        gender: Gender.FEMALE,
+        skinTypeCode: 'OSPW',
+        skinTypeName: 'Oily Sensitive Pigmented Wrinkled',
+      });
+      expect(result.protocols.map((protocol) => protocol.id)).toEqual([
+        'protocol-safe',
+      ]);
+    });
+
+    it('applies baseline match when profile has no overlapping survey labels', async () => {
+      const customer = makeCustomer({
+        skinTypeDetails: {
+          id: 'std-1',
+          customerId: 'customer-1',
+          skinTypeId: null,
+          oilyDryScore: null,
+          sensitiveResistantScore: null,
+          pigmentedNonPigmentedScore: null,
+          wrinkledTightScore: null,
+          assessedAt: null,
+          skinType: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as CustomerSkinTypeDetails,
+      });
+      const ageLabel = makeLabel({ id: 'label-age', code: 'AGE_26_35' });
+      const genderLabel = makeLabel({ id: 'label-gender', code: 'FEMALE' });
+      const unmatchedProtocol = makeProtocol({
+        id: 'protocol-unmatched',
+        code: 'UNMATCHED',
+        protocolLabels: [
+          makeProtocolLabel({
+            labelId: 'label-acne',
+            matchType: LabelMatchType.OPTIONAL,
+          }),
+        ],
+      });
+
+      customerRepository.findOne.mockResolvedValue(customer);
+      customerAllergyRepository.find.mockResolvedValue([]);
+      labelRepository.find
+        .mockResolvedValueOnce([ageLabel, genderLabel])
+        .mockResolvedValueOnce([ageLabel, genderLabel]);
+      protocolRepository.find.mockResolvedValue([unmatchedProtocol]);
+
+      const result = await service.buildContextFromProfile(customer.id);
+
+      expect(result.protocols).toHaveLength(1);
+      expect(result.protocols[0]).toEqual(
+        expect.objectContaining({
+          id: 'protocol-unmatched',
+          matchScore: 1,
+        }),
+      );
     });
   });
 });

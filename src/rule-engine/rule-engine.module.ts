@@ -4,6 +4,7 @@ import { IngredientProtocol } from '../ingredients/ingredient-protocol.entity';
 import { IngredientsModule } from '../ingredients/ingredients.module';
 import { CustomerSurvey } from '../survey/customer-survey.entity';
 import { Label } from '../survey/label.entity';
+import { CustomerAllergy } from '../users/customer-allergy.entity';
 import { Customer } from '../users/customer.entity';
 import { CustomerSkinTypeDetails } from '../users/customer-skin-type-details.entity';
 import { RuleEngineService } from './rule-engine.service';
@@ -17,6 +18,7 @@ import { RuleEngineService } from './rule-engine.service';
       Customer,
       CustomerSkinTypeDetails,
       CustomerSurvey,
+      CustomerAllergy,
     ]),
   ],
   providers: [RuleEngineService],

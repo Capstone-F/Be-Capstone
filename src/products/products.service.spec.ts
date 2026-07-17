@@ -1,7 +1,11 @@
-import { NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Brackets, Repository } from 'typeorm';
+import { RuleEngineService } from '../rule-engine/rule-engine.service';
+import { CustomerAllergy } from '../users/customer-allergy.entity';
+import { Customer } from '../users/customer.entity';
 import { ProductCategory } from './product-category.entity';
 import { ProductIngredient } from './product-ingredient.entity';
+import { ProductProtocol } from './product-protocol.entity';
 import { ProductVariant } from './product-variant.entity';
 import { Product } from './product.entity';
 import { ProductsService } from './products.service';
@@ -108,6 +112,13 @@ const makeCategoryQueryBuilder = (
   getMany: jest.fn().mockResolvedValue(categories),
 });
 
+const emptySuggestionDependencies = [
+  {} as Repository<ProductProtocol>,
+  {} as Repository<Customer>,
+  {} as Repository<CustomerAllergy>,
+  {} as RuleEngineService,
+] as const;
+
 describe('ProductsService', () => {
   afterEach(() => jest.clearAllMocks());
 
@@ -125,6 +136,7 @@ describe('ProductsService', () => {
       variantRepo,
       piRepo,
       categoryRepo,
+      ...emptySuggestionDependencies,
     );
 
     const result = await service.findOne('product-1');
@@ -152,6 +164,7 @@ describe('ProductsService', () => {
       variantRepo,
       piRepo,
       categoryRepo,
+      ...emptySuggestionDependencies,
     );
 
     await expect(service.findOne('missing')).rejects.toThrow(NotFoundException);
@@ -172,6 +185,7 @@ describe('ProductsService', () => {
       variantRepo,
       piRepo,
       categoryRepo,
+      ...emptySuggestionDependencies,
     );
 
     await service.findMany({
@@ -221,6 +235,7 @@ describe('ProductsService', () => {
         {} as Repository<ProductVariant>,
         piRepo,
         {} as Repository<ProductCategory>,
+        ...emptySuggestionDependencies,
       );
     };
 
@@ -346,6 +361,7 @@ describe('ProductsService', () => {
         {} as Repository<ProductVariant>,
         {} as Repository<ProductIngredient>,
         categoryRepo,
+        ...emptySuggestionDependencies,
       );
 
       const result = await service.findCategories({});
@@ -377,6 +393,7 @@ describe('ProductsService', () => {
         {} as Repository<ProductVariant>,
         {} as Repository<ProductIngredient>,
         categoryRepo,
+        ...emptySuggestionDependencies,
       );
 
       await service.findCategories({ search: 'Serum' });
@@ -397,11 +414,144 @@ describe('ProductsService', () => {
         {} as Repository<ProductVariant>,
         {} as Repository<ProductIngredient>,
         categoryRepo,
+        ...emptySuggestionDependencies,
       );
 
       const result = await service.findCategories({ search: 'nonexistent' });
 
       expect(result).toEqual([]);
+    });
+  });
+
+  describe('suggestForUser', () => {
+    const makeSuggestionService = (options: {
+      customer: Customer | null;
+      allergies?: CustomerAllergy[];
+      protocols?: Array<{ id: string; matchScore: number }>;
+      productProtocols?: ProductProtocol[];
+    }) => {
+      const customerRepository = {
+        findOne: jest.fn().mockResolvedValue(options.customer),
+      } as unknown as Repository<Customer>;
+      const allergyRepository = {
+        find: jest.fn().mockResolvedValue(options.allergies ?? []),
+      } as unknown as Repository<CustomerAllergy>;
+      const productProtocolRepository = {
+        find: jest.fn().mockResolvedValue(options.productProtocols ?? []),
+      } as unknown as Repository<ProductProtocol>;
+      const ruleEngine = {
+        buildContextFromProfile: jest.fn().mockResolvedValue({
+          customerProfile: null,
+          labels: [],
+          protocols: options.protocols ?? [],
+        }),
+      } as unknown as RuleEngineService;
+
+      return new ProductsService(
+        {} as Repository<Product>,
+        {} as Repository<ProductVariant>,
+        {} as Repository<ProductIngredient>,
+        {} as Repository<ProductCategory>,
+        productProtocolRepository,
+        customerRepository,
+        allergyRepository,
+        ruleEngine,
+      );
+    };
+
+    it('rejects authenticated users without a customer profile', async () => {
+      const service = makeSuggestionService({ customer: null });
+
+      await expect(service.suggestForUser('user-1', {})).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('filters allergy aliases, ranks by best protocol score, and applies limit', async () => {
+      const customer = {
+        id: 'customer-1',
+        userId: 'user-1',
+      } as Customer;
+      const retinoidLabel = {
+        id: 'label-retinoids',
+        code: 'RETINOIDS',
+        isActive: true,
+      } as CustomerAllergy['label'];
+      const allergy = {
+        id: 'allergy-1',
+        customerId: customer.id,
+        customer,
+        labelId: retinoidLabel.id,
+        label: retinoidLabel,
+        createdAt: new Date(),
+      } as CustomerAllergy;
+      const retinolMapping = {
+        ...makeMapping(),
+        productId: 'product-retinol',
+        ingredient: {
+          ...makeMapping().ingredient,
+          name: 'Retinol 0.3%',
+        },
+      };
+      const allergicProduct = makeProduct({
+        id: 'product-retinol',
+        name: 'Retinol Serum',
+        productIngredients: [retinolMapping],
+      });
+      const topProduct = makeProduct({
+        id: 'product-top',
+        name: 'Barrier Cream',
+        productIngredients: [],
+      });
+      const lowerProduct = makeProduct({
+        id: 'product-lower',
+        name: 'Hydrating Serum',
+        productIngredients: [],
+      });
+      const productProtocols = [
+        {
+          id: 'pp-allergic',
+          productId: allergicProduct.id,
+          protocolId: 'protocol-high',
+          product: allergicProduct,
+        },
+        {
+          id: 'pp-top',
+          productId: topProduct.id,
+          protocolId: 'protocol-medium',
+          product: topProduct,
+        },
+        {
+          id: 'pp-lower',
+          productId: lowerProduct.id,
+          protocolId: 'protocol-low',
+          product: lowerProduct,
+        },
+      ] as ProductProtocol[];
+      const service = makeSuggestionService({
+        customer,
+        allergies: [allergy],
+        protocols: [
+          { id: 'protocol-high', matchScore: 10 },
+          { id: 'protocol-medium', matchScore: 5 },
+          { id: 'protocol-low', matchScore: 2 },
+        ],
+        productProtocols,
+      });
+
+      const result = await service.suggestForUser(customer.userId, {
+        limit: 1,
+      });
+
+      expect(result).toEqual({
+        items: [
+          expect.objectContaining({
+            product: expect.objectContaining({ id: 'product-top' }),
+          }),
+        ],
+        total: 2,
+        limit: 1,
+      });
     });
   });
 });
