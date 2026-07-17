@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { ProductProtocol } from '../products/product-protocol.entity';
 import { ProductVariant } from '../products/product-variant.entity';
+import { Order } from '../commerce/order.entity';
 import { RuleEngineService } from '../rule-engine/rule-engine.service';
 import { CustomerSurvey } from '../survey/customer-survey.entity';
 import { Customer } from '../users/customer.entity';
@@ -31,6 +32,8 @@ export class RecommendationService {
     private readonly productProtocolRepository: Repository<ProductProtocol>,
     @InjectRepository(ProductVariant)
     private readonly variantRepository: Repository<ProductVariant>,
+    @InjectRepository(Order)
+    private readonly orderRepository: Repository<Order>,
   ) {}
 
   async getLatestForUser(userId: string): Promise<RecommendationResponseDto> {
@@ -82,6 +85,71 @@ export class RecommendationService {
       );
     }
     return recommendation;
+  }
+
+  async selectVariantForUser(
+    userId: string,
+    recommendationId: string,
+    protocolId: string,
+    productVariantId: string,
+  ): Promise<RecommendationResponseDto> {
+    const customer = await this.requireCustomer(userId);
+    const recommendation = await this.recommendationRepository.findOne({
+      where: { id: recommendationId, customerId: customer.id },
+      relations: [
+        'items',
+        'items.protocol',
+        'items.productVariant',
+        'items.productVariant.product',
+      ],
+    });
+    if (!recommendation) {
+      throw new NotFoundException(
+        `Recommendation ${recommendationId} not found`,
+      );
+    }
+    if (
+      await this.orderRepository.findOneBy({
+        surveyRecommendationId: recommendationId,
+      })
+    ) {
+      throw new BadRequestException(
+        'Recommendation selections cannot change after an order is created',
+      );
+    }
+    const item = recommendation.items.find(
+      (candidate) => candidate.protocolId === protocolId,
+    );
+    if (!item) {
+      throw new NotFoundException(
+        `Protocol ${protocolId} is not in this recommendation`,
+      );
+    }
+    if (
+      !(item.rankedVariants ?? []).some(
+        (variant) => variant.productVariantId === productVariantId,
+      )
+    ) {
+      throw new BadRequestException(
+        'Product variant is not a ranked option for this protocol',
+      );
+    }
+    // Avoid TypeORM save() with a loaded productVariant relation overwriting the FK.
+    await this.itemRepository.update(item.id, {
+      productVariantId,
+    });
+
+    const reloaded = await this.recommendationRepository.findOneOrFail({
+      where: { id: recommendationId },
+      relations: [
+        'items',
+        'items.protocol',
+        'items.productVariant',
+        'items.productVariant.product',
+      ],
+    });
+    const context = await this.ruleEngine.buildContextForCustomer(customer.id);
+    return this.toDto(reloaded, context);
   }
 
   private async createSnapshot(
@@ -136,29 +204,35 @@ export class RecommendationService {
       protocolId: string;
       productVariantId: string;
       matchScore: number;
+      rankedVariants: SurveyRecommendationItem['rankedVariants'];
     }> = [];
 
     for (const protocol of context.protocols) {
       const linkedProductIds = productsByProtocol.get(protocol.id) ?? [];
-      let bestVariant: ProductVariant | null = null;
-      for (const productId of linkedProductIds) {
-        const productVariants = variantsByProductId.get(productId) ?? [];
-        const cheapest = productVariants[0];
-        if (!cheapest) continue;
-        if (
-          !bestVariant ||
-          cheapest.priceVnd < bestVariant.priceVnd ||
-          (cheapest.priceVnd === bestVariant.priceVnd &&
-            cheapest.sku < bestVariant.sku)
-        ) {
-          bestVariant = cheapest;
-        }
-      }
+      const ranked = [
+        ...new Map(
+          linkedProductIds
+            .flatMap((productId) => variantsByProductId.get(productId) ?? [])
+            .map((variant) => [variant.id, variant]),
+        ).values(),
+      ]
+        .sort((a, b) => a.priceVnd - b.priceVnd || a.sku.localeCompare(b.sku))
+        .slice(0, 10);
+      const bestVariant = ranked[0] ?? null;
       if (!bestVariant) continue;
       items.push({
         protocolId: protocol.id,
         productVariantId: bestVariant.id,
         matchScore: protocol.matchScore,
+        rankedVariants: ranked.map((variant, index) => ({
+          productVariantId: variant.id,
+          productId: variant.productId,
+          productName: variant.product?.name ?? '',
+          sku: variant.sku,
+          priceVnd: variant.priceVnd,
+          volume: variant.volume,
+          rank: index + 1,
+        })),
       });
     }
 
@@ -191,6 +265,7 @@ export class RecommendationService {
           protocolId: item.protocolId,
           productVariantId: item.productVariantId,
           matchScore: item.matchScore,
+          rankedVariants: item.rankedVariants,
         }),
       ),
     );
@@ -233,6 +308,20 @@ export class RecommendationService {
           sku: variant.sku,
           priceVnd: variant.priceVnd,
           volume: variant.volume,
+          variants:
+            (item.rankedVariants ?? []).length > 0
+              ? item.rankedVariants
+              : [
+                  {
+                    productVariantId: variant.id,
+                    productId: variant.productId,
+                    productName: variant.product?.name ?? '',
+                    sku: variant.sku,
+                    priceVnd: variant.priceVnd,
+                    volume: variant.volume,
+                    rank: 1,
+                  },
+                ],
         };
       }),
       createdAt: recommendation.createdAt,

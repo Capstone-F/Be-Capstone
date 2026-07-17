@@ -266,6 +266,14 @@ describe('Survey purchase → routine generation (e2e)', () => {
         isActive: true,
       }),
     );
+    const alternateVariant = await variantRepo.save(
+      variantRepo.create({
+        productId: product.id,
+        sku: `SKU-ALT-${suffix}`,
+        priceVnd: 250000,
+        isActive: true,
+      }),
+    );
     await productProtocolRepo.save(
       productProtocolRepo.create({
         productId: product.id,
@@ -313,15 +321,20 @@ describe('Survey purchase → routine generation (e2e)', () => {
       }),
     );
 
-    return { user, customer, survey, variant, variant2 };
+    return {
+      user,
+      customer,
+      survey,
+      variant,
+      alternateVariant,
+      variant2,
+    };
   }
 
   it('recommends products, applies combo discount, and generates a routine after payment', async () => {
-    const { user, variant, variant2 } = await seedScenario();
+    const { user, variant, alternateVariant, variant2 } = await seedScenario();
 
-    const recommendation = await recommendationService.getLatestForUser(
-      user.id,
-    );
+    let recommendation = await recommendationService.getLatestForUser(user.id);
     expect(recommendation.products.length).toBeGreaterThanOrEqual(2);
     expect(recommendation.customerSurveyId).toBeTruthy();
 
@@ -331,8 +344,28 @@ describe('Survey purchase → routine generation (e2e)', () => {
     expect(recommendedVariantIds).toEqual(
       expect.arrayContaining([variant.id, variant2.id]),
     );
+    const rankedProduct = recommendation.products.find(
+      (product) => product.productVariantId === variant.id,
+    )!;
+    expect(
+      rankedProduct.variants.map((candidate) => candidate.productVariantId),
+    ).toEqual(expect.arrayContaining([variant.id, alternateVariant.id]));
 
-    for (const productVariantId of recommendedVariantIds) {
+    recommendation = await recommendationService.selectVariantForUser(
+      user.id,
+      recommendation.id,
+      rankedProduct.protocolId,
+      alternateVariant.id,
+    );
+    expect(
+      recommendation.products.find(
+        (product) => product.protocolId === rankedProduct.protocolId,
+      )?.productVariantId,
+    ).toBe(alternateVariant.id);
+
+    for (const productVariantId of recommendation.products.map(
+      (product) => product.productVariantId,
+    )) {
       await cartService.addItem(user.id, {
         productVariantId,
         quantity: 1,

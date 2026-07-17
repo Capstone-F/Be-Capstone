@@ -1,5 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
+export class SurveyQuestionOptionDto {
+  @ApiProperty()
+  labelCode!: string;
+
+  @ApiProperty()
+  name!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  description!: string | null;
+}
+
 export class SurveyQuestionDto {
   @ApiProperty()
   id!: string;
@@ -15,6 +26,15 @@ export class SurveyQuestionDto {
 
   @ApiProperty()
   displayOrder!: number;
+
+  @ApiProperty()
+  priority!: string;
+
+  @ApiProperty()
+  category!: string;
+
+  @ApiProperty({ type: [SurveyQuestionOptionDto] })
+  options!: SurveyQuestionOptionDto[];
 }
 
 export class SurveyAnswerLabelDto {

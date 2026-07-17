@@ -7,6 +7,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   Req,
   UnauthorizedException,
   UseGuards,
@@ -27,6 +28,7 @@ import { SessionGuard } from '../auth/guards/session.guard';
 import { Role } from '../auth/roles.enum';
 import { getAuthContext } from '../auth/auth-context';
 import { SubmitAnswersDto } from './dto/submit-answers.dto';
+import { ListSurveyQuestionsDto } from './dto/list-survey-questions.dto';
 import {
   SurveyQuestionDto,
   SurveyResponseDto,
@@ -46,8 +48,14 @@ export class SurveysController {
   @Roles(Role.Customer)
   @ApiOperation({ summary: 'List active survey questions' })
   @ApiOkResponse({ type: [SurveyQuestionDto] })
-  listQuestions(): Promise<SurveyQuestionDto[]> {
-    return this.surveyService.listQuestions();
+  listQuestions(
+    @Req() req: Request,
+    @Query() query: ListSurveyQuestionsDto,
+  ): Promise<SurveyQuestionDto[]> {
+    return this.surveyService.listQuestions(
+      this.requireUserId(req),
+      query.surveyId,
+    );
   }
 
   @Post()

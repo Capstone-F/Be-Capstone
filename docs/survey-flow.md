@@ -154,34 +154,21 @@ Example (shape abbreviated):
 
 ## 4. Step-by-step integration
 
-### 4.1 List survey questions 🔶 Extend
+### 4.1 List survey questions ✅ Ready
 
-Today: returns all **active** questions (static seed: `PRIMARY_CONCERN`, `SKIN_GOALS`, `LIFESTYLE`).  
-**Does not yet** return answer options / label lists, nor personalize by age / environment / concern.
+Returns active L1 core questions with selectable label options. Pass the current
+`surveyId` after submitting core answers to unlock matching L2 conditional
+questions.
 
-| Method | Path                 | Auth     | Status    |
-| ------ | -------------------- | -------- | --------- |
-| GET    | `/surveys/questions` | Customer | 🔶 Extend |
+| Method | Path                                 | Auth     | Status   |
+| ------ | ------------------------------------ | -------- | -------- |
+| GET    | `/surveys/questions?surveyId=<uuid>` | Customer | ✅ Ready |
 
 ```http
-GET /surveys/questions
+GET /surveys/questions?surveyId=<current-survey-uuid>
 ```
 
-Current response shape:
-
-```json
-[
-  {
-    "id": "...",
-    "code": "PRIMARY_CONCERN",
-    "text": "What is your primary skin concern?",
-    "questionType": "MULTI_SELECT",
-    "displayOrder": 1
-  }
-]
-```
-
-**Target response (implement next)** — each question should include selectable answers:
+Response shape:
 
 ```json
 [
@@ -194,10 +181,10 @@ Current response shape:
     "priority": "CORE",
     "category": "SKIN_CONCERN",
     "options": [
-      { "labelCode": "ACNE", "name": "Mụn", "description": "..." },
+      { "labelCode": "ACNE", "name": "Acne", "description": "..." },
       {
         "labelCode": "HYPERPIGMENTATION",
-        "name": "Thâm / nám",
+        "name": "Hyperpigmentation",
         "description": "..."
       }
     ]
@@ -205,7 +192,10 @@ Current response shape:
 ]
 ```
 
-Until options are returned by the API, the client must hardcode label codes from seed knowledge (fragile). Prefer extending this endpoint first.
+Without `surveyId`, only `CORE` questions are returned. With an owned survey,
+the API evaluates `askWhen.anyLabelCodes` against submitted answers and adds
+matching `CONDITIONAL` questions. Submitted labels are validated against the
+question's active options.
 
 ---
 
@@ -372,7 +362,18 @@ Response (abbreviated):
       "productVariantId": "<variant-uuid>",
       "sku": "...",
       "priceVnd": 289000,
-      "volume": "30ml"
+      "volume": "30ml",
+      "variants": [
+        {
+          "productVariantId": "<variant-uuid>",
+          "productId": "...",
+          "productName": "...",
+          "sku": "...",
+          "priceVnd": 289000,
+          "volume": "30ml",
+          "rank": 1
+        }
+      ]
     }
   ],
   "createdAt": "..."
@@ -382,8 +383,20 @@ Response (abbreviated):
 **Client UX suggestion:**
 
 1. First screen: show `protocols[]` (ingredient protocol list — what the engine prescribed).
-2. User taps Continue → show `products[]` (one primary variant per protocol today: cheapest active variant linked via `product_protocols`).
+2. User taps Continue → show each `products[].variants[]` ranked by price then SKU. The flat product fields identify the selected variant (rank 1 by default).
 3. Keep `id` (`surveyRecommendationId`) for the cart step.
+
+To change the selected variant before ordering:
+
+```http
+PATCH /recommendations/:id/items/:protocolId
+Content-Type: application/json
+
+{ "productVariantId": "<ranked-variant-uuid>" }
+```
+
+The variant must be in that protocol's frozen ranked snapshot. Selection is
+locked after any order is created from the recommendation.
 
 **Errors you should handle:**
 
@@ -393,7 +406,8 @@ Response (abbreviated):
 | No protocols match labels/skin type            | `400 No matching ingredient protocols...`             |
 | Protocols match but no catalog products mapped | `400 No catalog products mapped to matched protocols` |
 
-Re-calling `GET /recommendations/latest` for the same completed survey returns the **existing snapshot** (does not re-pick products).
+Re-calling `GET /recommendations/latest` for the same completed survey returns
+the **existing ranked snapshot** (does not re-rank live catalog products).
 
 ---
 
@@ -669,12 +683,13 @@ Each question bank row should carry more than display text:
 
 Keep session APIs (`POST /surveys`, answers, complete) stable. Extend question delivery:
 
-| Capability                            | Proposed                                                                | Status     |
-| ------------------------------------- | ----------------------------------------------------------------------- | ---------- |
-| Questions + options for current user  | `GET /surveys/questions?surveyId=` or `GET /surveys/:id/next-questions` | ❌ Missing |
-| Server-side branching after answers   | Recompute next set from profile + answers so far                        | ❌ Missing |
-| Question ↔ option label mapping table | e.g. `question_options`                                                 | ❌ Missing |
-| Admin CRUD for question bank          | Later                                                                   | ❌ Missing |
+| Capability                            | Proposed                                             | Status     |
+| ------------------------------------- | ---------------------------------------------------- | ---------- |
+| Questions + options for current user  | `GET /surveys/questions?surveyId=`                   | ✅ Ready   |
+| Lightweight branching after answers   | CORE + `askWhen.anyLabelCodes` conditional questions | ✅ Ready   |
+| Full next-question engine             | Rich profile/age/environment operators               | ❌ Missing |
+| Question ↔ option label mapping table | `question_options`                                   | ✅ Ready   |
+| Admin CRUD for question bank          | `/admin/survey-questions` (AppAdmin)                 | ✅ Ready   |
 
 **Compatibility:** answers still submit `labelCodes[]`. Rule engine and recommendation snapshot stay unchanged when the bank grows.
 
@@ -741,32 +756,31 @@ Empty cart
 
 ### 10.1 Gaps that block ideal client UX
 
-| #   | Gap                                            | Impact                                                 | Suggested fix                                                           |
-| --- | ---------------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------- |
-| 1   | `GET /surveys/questions` has no `options[]`    | Client cannot render choices without hardcoding labels | Add `question_options` (or category-scoped label sets) and return them  |
-| 2   | Static 3-question seed                         | Weak personalization vs GlowScan question-bank vision  | Seed L1 core + a few L2 modules; keep label codes stable                |
-| 3   | No conditional question API                    | Cannot ask acne-only / age-only follow-ups             | `GET /surveys/:id/next-questions` after each answer batch               |
-| 4   | No environment profile on customer             | Hard to branch on hot-humid / AC / pollution           | Add location or environment multi-select on profile or L1 survey        |
-| 5   | Recommendation = 1 cheapest variant / protocol | User cannot choose among products for a protocol       | Later: return ranked variants per protocol; still snapshot selected set |
+| #   | Gap                                | Impact                                       | Suggested fix                                               |
+| --- | ---------------------------------- | -------------------------------------------- | ----------------------------------------------------------- |
+| 1   | No full next-question engine       | Client must re-fetch after an answer batch   | Add `GET /surveys/:id/next-questions` with richer operators |
+| 2   | No environment profile on customer | Limited hot-humid / location-aware branching | Add environment profile or dedicated L1 inputs              |
+| 3   | L2 bank covers only key modules    | Personalization is not yet comprehensive     | Add safety, sunscreen, routine and environment modules      |
 
 ### 10.2 Suggested build order
 
-| Phase                                  | Scope                                                                             | Outcome                                               |
-| -------------------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| **A — Wire client on current APIs**    | Profile → survey → answers → complete → recommendations → SURVEY cart → order/pay | End-to-end purchase works with seeded 3 questions     |
-| **B — Questions with options**         | Extend `GET /surveys/questions` (+ DB mapping)                                    | No hardcoded label codes on FE                        |
-| **C — Expand seed bank (L1 + key L2)** | Acne, sensitivity, actives, sunscreen, environment                                | Better protocol matching without branching engine yet |
-| **D — Conditional next-questions**     | Branching service using `askWhen` metadata                                        | Personalized short flows                              |
-| **E — Personality + preference layer** | Budget, steps, risk tolerance labels                                              | Better routine/product fit                            |
-| **F — Follow-up / progress surveys**   | Post-purchase adherence                                                           | Feed future re-recommendation                         |
+| Phase                                  | Scope                                                                             | Outcome                                             |
+| -------------------------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------- |
+| **A — Wire client on current APIs**    | Profile → survey → answers → complete → recommendations → SURVEY cart → order/pay | End-to-end purchase works with seeded 3 questions   |
+| **B — Questions with options** ✅      | Extend `GET /surveys/questions` (+ DB mapping)                                    | No hardcoded label codes on FE                      |
+| **C — L1 + key L2 seed** ✅            | Concern, sensitivity, acne, pigmentation, active tolerance                        | Better protocol matching with lightweight branching |
+| **D — Conditional next-questions**     | Branching service using `askWhen` metadata                                        | Personalized short flows                            |
+| **E — Personality + preference layer** | Budget, steps, risk tolerance labels                                              | Better routine/product fit                          |
+| **F — Follow-up / progress surveys**   | Post-purchase adherence                                                           | Feed future re-recommendation                       |
 
 ### 10.3 Happy-path sequence (implement against this)
 
 ```
 PATCH /customers/me                    ← ensure base profile + Baumann
-GET   /surveys/questions               ← 🔶 add options ASAP
+GET   /surveys/questions               ← CORE questions + options
 POST  /surveys
 POST  /surveys/:id/answers             ← one or more batches
+GET   /surveys/questions?surveyId=:id  ← unlock matching L2 questions
 POST  /surveys/:id/complete
 GET   /recommendations/latest          ← protocols + products snapshot
 POST  /cart/items                      ← source=SURVEY (repeat per product)
@@ -788,19 +802,19 @@ POST  /routines/generate               ← optional
 
 ## Quick reference — what to build vs reuse
 
-| Layer                                 | Status  | Action                                   |
-| ------------------------------------- | ------- | ---------------------------------------- |
-| Auth                                  | ✅      | Reuse auth docs                          |
-| Base profile + Baumann                | ✅      | Gate survey start                        |
-| Survey session CRUD                   | ✅      | Use as-is                                |
-| Question bank + options + branching   | 🔶 / ❌ | Primary backend work for personalization |
-| Rule engine + recommendation snapshot | ✅      | Use as-is; enrich seeds                  |
-| SURVEY cart + combo order             | ✅      | Use as-is                                |
-| Shipping + VNPay                      | ✅      | [ecommerce-flow.md](ecommerce-flow.md)   |
-| AI routine after paid survey order    | ✅      | Optional post-purchase                   |
+| Layer                                     | Status | Action                                      |
+| ----------------------------------------- | ------ | ------------------------------------------- |
+| Auth                                      | ✅     | Reuse auth docs                             |
+| Base profile + Baumann                    | ✅     | Gate survey start                           |
+| Survey session CRUD                       | ✅     | Use as-is                                   |
+| Question bank + options + light branching | ✅     | Re-fetch with `surveyId` after core answers |
+| Rule engine + recommendation snapshot     | ✅     | Use as-is; enrich seeds                     |
+| SURVEY cart + combo order                 | ✅     | Use as-is                                   |
+| Shipping + VNPay                          | ✅     | [ecommerce-flow.md](ecommerce-flow.md)      |
+| AI routine after paid survey order        | ✅     | Optional post-purchase                      |
 
 ```
-Ready today:     Profile → Survey (static) → Complete → Recommendations → SURVEY cart → Order → Pay → Routine
-Build next:      Question options in API → Expanded / conditional question bank
+Ready today:     Profile → Dynamic L1/L2 Survey → Ranked Recommendations → SURVEY cart → Order → Pay → Routine
+Build next:      Rich next-question operators → Expanded L2/L3 bank
 Keep stable:     Label codes → Rule engine → Snapshot → Combo discount contract
 ```

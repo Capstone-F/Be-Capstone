@@ -10,6 +10,16 @@ import { IngredientProtocol } from '../ingredients/ingredient-protocol.entity';
 import { ProductVariant } from '../products/product-variant.entity';
 import { SurveyRecommendation } from './survey-recommendation.entity';
 
+export type RankedRecommendationVariant = {
+  productVariantId: string;
+  productId: string;
+  productName: string;
+  sku: string;
+  priceVnd: number;
+  volume: string | null;
+  rank: number;
+};
+
 @Entity('survey_recommendation_items')
 @Unique('UQ_survey_recommendation_items_rec_protocol', [
   'recommendationId',
@@ -44,4 +54,7 @@ export class SurveyRecommendationItem {
 
   @Column({ type: 'int', default: 0 })
   matchScore: number;
+
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  rankedVariants: RankedRecommendationVariant[];
 }
