@@ -7,6 +7,8 @@ import {
   Param,
   Post,
   Query,
+  Req,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -20,6 +22,8 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import type { Request } from 'express';
+import { getAuthContext } from '../auth/auth-context';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
@@ -32,6 +36,10 @@ import {
   PaginatedProductsDto,
   ProductDetailResponseDto,
 } from './dto/product-response.dto';
+import {
+  SuggestedProductsResponseDto,
+  SuggestProductsQueryDto,
+} from './dto/suggest-products.dto';
 import { ProductOnboardingService } from './product-onboarding.service';
 import { ProductsService } from './products.service';
 
@@ -72,6 +80,25 @@ export class ProductsController {
     return this.productsService.findMany(query);
   }
 
+  @Get('suggestion')
+  @UseGuards(SessionGuard, RolesGuard)
+  @Roles(Role.Customer)
+  @ApiOperation({
+    summary: 'Get suggested products for the authenticated customer',
+    description:
+      'Ranks active products using gender, age, skin type, and allergies from the customer profile. A completed survey is not required.',
+  })
+  @ApiOkResponse({ type: SuggestedProductsResponseDto })
+  @ApiForbiddenResponse({
+    description: 'Customer role or customer profile required',
+  })
+  suggest(
+    @Req() req: Request,
+    @Query() query: SuggestProductsQueryDto,
+  ): Promise<SuggestedProductsResponseDto> {
+    return this.productsService.suggestForUser(this.requireUserId(req), query);
+  }
+
   @Get('categories')
   @ApiOperation({
     summary: 'List product categories',
@@ -89,5 +116,13 @@ export class ProductsController {
   @ApiNotFoundResponse({ description: 'Product not found' })
   getById(@Param('id') id: string) {
     return this.productsService.findOne(id);
+  }
+
+  private requireUserId(req: Request): string {
+    const auth = getAuthContext(req);
+    if (!auth?.userId) {
+      throw new UnauthorizedException('Not authenticated');
+    }
+    return auth.userId;
   }
 }
