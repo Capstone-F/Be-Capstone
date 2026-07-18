@@ -15,6 +15,12 @@ export class SurveyQuestionDto {
 
   @ApiProperty()
   displayOrder!: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  intent?: string;
+
+  @ApiPropertyOptional({ type: 'array', items: { type: 'object' } })
+  options?: Array<{ labelCode: string; text: string }>;
 }
 
 export class SurveyAnswerLabelDto {

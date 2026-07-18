@@ -12,6 +12,8 @@ import { CustomerSkinTypeDetails } from '../users/customer-skin-type-details.ent
 import { CustomersController } from './customers.controller';
 import { CustomersService } from './customers.service';
 
+import { AdminCustomersController } from './admin-customers.controller';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -24,7 +26,7 @@ import { CustomersService } from './customers.service';
     ]),
     AuthModule,
   ],
-  controllers: [CustomersController],
+  controllers: [CustomersController, AdminCustomersController],
   providers: [CustomersService, SessionGuard, RolesGuard],
   exports: [CustomersService],
 })

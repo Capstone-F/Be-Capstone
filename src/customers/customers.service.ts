@@ -281,4 +281,24 @@ export class CustomersService {
       }
     });
   }
+  async adminUpdateProfile(customerId: string, dto: UpdateCustomerProfileDto) {
+    const user = await this.customerRepository.findOne({
+      where: { id: customerId },
+    });
+    if (!user) throw new BadRequestException('Customer not found');
+    await this.updateOwnCustomerProfile(user.userId, dto);
+    await this.dataSource.query(
+      'DELETE FROM survey_recommendations WHERE "customerId" = $1',
+      [customerId],
+    );
+    return { success: true };
+  }
+
+  async adminUpdateSurvey(customerId: string) {
+    await this.dataSource.query(
+      'DELETE FROM survey_recommendations WHERE "customerId" = $1',
+      [customerId],
+    );
+    return { success: true };
+  }
 }

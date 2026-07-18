@@ -13,6 +13,9 @@ import { RecommendationsController } from './recommendations.controller';
 import { SurveyRecommendationItem } from './survey-recommendation-item.entity';
 import { SurveyRecommendation } from './survey-recommendation.entity';
 
+import { CustomerAllergy } from '../users/customer-allergy.entity';
+import { IngredientConflict } from '../ingredients/ingredient-conflict.entity';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -22,6 +25,8 @@ import { SurveyRecommendation } from './survey-recommendation.entity';
       CustomerSurvey,
       ProductProtocol,
       ProductVariant,
+      CustomerAllergy,
+      IngredientConflict,
     ]),
     RuleEngineModule,
     AuthModule,

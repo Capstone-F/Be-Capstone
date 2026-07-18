@@ -17,6 +17,7 @@ import {
 } from '../auth/roles.enum';
 import { ClinicsService } from '../clinics/clinics.service';
 import { KeycloakAdminService } from '../keycloak/keycloak-admin.service';
+import { Customer } from './customer.entity';
 import { User } from './user.entity';
 
 export type UpsertResult = {
@@ -53,6 +54,8 @@ export class UsersService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(Customer)
+    private readonly customerRepository: Repository<Customer>,
     private readonly keycloakAdmin: KeycloakAdminService,
     private readonly clinicsService: ClinicsService,
   ) {}
@@ -90,6 +93,13 @@ export class UsersService {
         clinicId: null,
       });
       const user = await this.userRepository.save(created);
+
+      if (resolvedRoles.includes(Role.Customer)) {
+        await this.customerRepository.save(
+          this.customerRepository.create({ userId: user.id }),
+        );
+      }
+
       return { user, isNewUser: true };
     }
 

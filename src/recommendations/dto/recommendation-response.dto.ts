@@ -59,6 +59,14 @@ export class RecommendationResponseDto {
   @ApiProperty({ type: [RecommendedProductDto] })
   products!: RecommendedProductDto[];
 
+  @ApiPropertyOptional({ type: 'array', items: { type: 'object' } })
+  conflicts?: Array<{
+    protocolCode: string;
+    conflictingProtocolCode: string;
+    severity: string;
+    reason: string | null;
+  }>;
+
   @ApiProperty()
   createdAt!: Date;
 }

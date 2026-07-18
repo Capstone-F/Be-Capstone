@@ -15,6 +15,7 @@ import {
   SurveyQuestionDto,
   SurveyResponseDto,
 } from './dto/survey-response.dto';
+import { LabelCategory } from './label-category.entity';
 import { Label } from './label.entity';
 import { Question } from './question.entity';
 
@@ -31,6 +32,8 @@ export class SurveyService {
     private readonly questionRepository: Repository<Question>,
     @InjectRepository(Label)
     private readonly labelRepository: Repository<Label>,
+    @InjectRepository(LabelCategory)
+    private readonly labelCategoryRepository: Repository<LabelCategory>,
     @InjectRepository(Customer)
     private readonly customerRepository: Repository<Customer>,
   ) {}
@@ -40,13 +43,37 @@ export class SurveyService {
       where: { isActive: true },
       order: { displayOrder: 'ASC' },
     });
-    return questions.map((q) => ({
-      id: q.id,
-      code: q.code,
-      text: q.text,
-      questionType: q.questionType,
-      displayOrder: q.displayOrder,
-    }));
+
+    const categoryMapping: Record<string, string> = {
+      PRIMARY_CONCERN: 'SKIN_CONCERN',
+      SKIN_GOALS: 'SKIN_GOAL',
+      LIFESTYLE: 'LIFESTYLE',
+    };
+
+    const categories = await this.labelCategoryRepository.find({
+      relations: ['labels'],
+    });
+
+    return questions.map((q) => {
+      const categoryCode = categoryMapping[q.code];
+      const category = categories.find((c) => c.code === categoryCode);
+      const options = (category?.labels ?? [])
+        .filter((l) => l.isActive)
+        .map((l) => ({
+          labelCode: l.code,
+          text: l.name,
+        }));
+
+      return {
+        id: q.id,
+        code: q.code,
+        text: q.text,
+        questionType: q.questionType,
+        displayOrder: q.displayOrder,
+        intent: categoryCode,
+        options,
+      };
+    });
   }
 
   async startSurvey(userId: string): Promise<SurveyResponseDto> {
