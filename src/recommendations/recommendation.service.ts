@@ -8,7 +8,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { ProductProtocol } from '../products/product-protocol.entity';
 import { ProductVariant } from '../products/product-variant.entity';
-import { Order } from '../commerce/order.entity';
 import { RuleEngineService } from '../rule-engine/rule-engine.service';
 import { CustomerSurvey } from '../survey/customer-survey.entity';
 import { Customer } from '../users/customer.entity';
@@ -32,8 +31,6 @@ export class RecommendationService {
     private readonly productProtocolRepository: Repository<ProductProtocol>,
     @InjectRepository(ProductVariant)
     private readonly variantRepository: Repository<ProductVariant>,
-    @InjectRepository(Order)
-    private readonly orderRepository: Repository<Order>,
   ) {}
 
   async getLatestForUser(userId: string): Promise<RecommendationResponseDto> {
@@ -87,69 +84,49 @@ export class RecommendationService {
     return recommendation;
   }
 
-  async selectVariantForUser(
-    userId: string,
-    recommendationId: string,
-    protocolId: string,
-    productVariantId: string,
-  ): Promise<RecommendationResponseDto> {
-    const customer = await this.requireCustomer(userId);
-    const recommendation = await this.recommendationRepository.findOne({
-      where: { id: recommendationId, customerId: customer.id },
-      relations: [
-        'items',
-        'items.protocol',
-        'items.productVariant',
-        'items.productVariant.product',
-      ],
-    });
-    if (!recommendation) {
-      throw new NotFoundException(
-        `Recommendation ${recommendationId} not found`,
-      );
+  /** Union of ranked variant ids (falls back to selected FK if ranked list empty). */
+  getAllowedVariantIds(recommendation: SurveyRecommendation): string[] {
+    const ids = new Set<string>();
+    for (const item of recommendation.items ?? []) {
+      for (const variantId of this.getItemVariantIds(item)) {
+        ids.add(variantId);
+      }
     }
-    if (
-      await this.orderRepository.findOneBy({
-        surveyRecommendationId: recommendationId,
-      })
-    ) {
-      throw new BadRequestException(
-        'Recommendation selections cannot change after an order is created',
-      );
-    }
-    const item = recommendation.items.find(
-      (candidate) => candidate.protocolId === protocolId,
-    );
-    if (!item) {
-      throw new NotFoundException(
-        `Protocol ${protocolId} is not in this recommendation`,
-      );
-    }
-    if (
-      !(item.rankedVariants ?? []).some(
-        (variant) => variant.productVariantId === productVariantId,
-      )
-    ) {
-      throw new BadRequestException(
-        'Product variant is not a ranked option for this protocol',
-      );
-    }
-    // Avoid TypeORM save() with a loaded productVariant relation overwriting the FK.
-    await this.itemRepository.update(item.id, {
-      productVariantId,
-    });
+    return [...ids];
+  }
 
-    const reloaded = await this.recommendationRepository.findOneOrFail({
-      where: { id: recommendationId },
-      relations: [
-        'items',
-        'items.protocol',
-        'items.productVariant',
-        'items.productVariant.product',
-      ],
-    });
-    const context = await this.ruleEngine.buildContextForCustomer(customer.id);
-    return this.toDto(reloaded, context);
+  /**
+   * Combo eligibility: every protocol has at least one of its ranked variants
+   * present in the cart (quantity ignored).
+   */
+  isProtocolCoverageComplete(
+    recommendation: SurveyRecommendation,
+    cartVariantIds: Iterable<string>,
+  ): boolean {
+    const cartSet = new Set(cartVariantIds);
+    const items = recommendation.items ?? [];
+    if (items.length === 0) return false;
+    return items.every((item) =>
+      this.getItemVariantIds(item).some((variantId) => cartSet.has(variantId)),
+    );
+  }
+
+  findItemIdForVariant(
+    recommendation: SurveyRecommendation,
+    productVariantId: string,
+  ): string | null {
+    for (const item of recommendation.items ?? []) {
+      if (this.getItemVariantIds(item).includes(productVariantId)) {
+        return item.id;
+      }
+    }
+    return null;
+  }
+
+  private getItemVariantIds(item: SurveyRecommendationItem): string[] {
+    const ranked = (item.rankedVariants ?? []).map((v) => v.productVariantId);
+    if (ranked.length > 0) return ranked;
+    return item.productVariantId ? [item.productVariantId] : [];
   }
 
   private async createSnapshot(

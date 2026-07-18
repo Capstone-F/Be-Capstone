@@ -4,7 +4,6 @@ import {
   RuleEngineLabelDto,
   RuleEngineProtocolDto,
 } from '../../rule-engine/dto/rule-engine-context.dto';
-import { IsUUID } from 'class-validator';
 
 export class RankedVariantDto {
   @ApiProperty()
@@ -65,12 +64,6 @@ export class RecommendedProductDto {
 
   @ApiProperty({ type: [RankedVariantDto] })
   variants!: RankedVariantDto[];
-}
-
-export class SelectRecommendationVariantDto {
-  @ApiProperty()
-  @IsUUID()
-  productVariantId!: string;
 }
 
 export class RecommendationResponseDto {

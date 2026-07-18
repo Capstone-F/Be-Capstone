@@ -334,7 +334,9 @@ describe('Survey purchase → routine generation (e2e)', () => {
   it('recommends products, applies combo discount, and generates a routine after payment', async () => {
     const { user, variant, alternateVariant, variant2 } = await seedScenario();
 
-    let recommendation = await recommendationService.getLatestForUser(user.id);
+    const recommendation = await recommendationService.getLatestForUser(
+      user.id,
+    );
     expect(recommendation.products.length).toBeGreaterThanOrEqual(2);
     expect(recommendation.customerSurveyId).toBeTruthy();
 
@@ -351,24 +353,15 @@ describe('Survey purchase → routine generation (e2e)', () => {
       rankedProduct.variants.map((candidate) => candidate.productVariantId),
     ).toEqual(expect.arrayContaining([variant.id, alternateVariant.id]));
 
-    recommendation = await recommendationService.selectVariantForUser(
-      user.id,
-      recommendation.id,
-      rankedProduct.protocolId,
+    // Cover every protocol; include both ranked variants for the first protocol.
+    for (const productVariantId of [
+      variant.id,
       alternateVariant.id,
-    );
-    expect(
-      recommendation.products.find(
-        (product) => product.protocolId === rankedProduct.protocolId,
-      )?.productVariantId,
-    ).toBe(alternateVariant.id);
-
-    for (const productVariantId of recommendation.products.map(
-      (product) => product.productVariantId,
-    )) {
+      variant2.id,
+    ]) {
       await cartService.addItem(user.id, {
         productVariantId,
-        quantity: 1,
+        quantity: productVariantId === variant.id ? 2 : 1,
         source: OrderSource.SURVEY,
         surveyRecommendationId: recommendation.id,
       });
@@ -379,6 +372,7 @@ describe('Survey purchase → routine generation (e2e)', () => {
     expect(order.discountType).toBe(OrderDiscountType.COMBO);
     expect(order.discountVnd).toBe(Math.floor((order.subtotalVnd * 10) / 100));
     expect(order.totalVnd).toBe(order.subtotalVnd - order.discountVnd);
+    expect(order.items).toHaveLength(3);
 
     await dataSource
       .getRepository(Order)
@@ -390,6 +384,30 @@ describe('Survey purchase → routine generation (e2e)', () => {
     expect(routine.sourceOrderId).toBe(order.id);
     expect(routine.steps.length).toBeGreaterThan(0);
     expect(routine.customerSurveyId).toBe(recommendation.customerSurveyId);
+  });
+
+  it('applies combo when a non-default ranked variant covers a protocol', async () => {
+    const { user, alternateVariant, variant2 } = await seedScenario();
+    const recommendation = await recommendationService.getLatestForUser(
+      user.id,
+    );
+
+    await cartService.addItem(user.id, {
+      productVariantId: alternateVariant.id,
+      quantity: 1,
+      source: OrderSource.SURVEY,
+      surveyRecommendationId: recommendation.id,
+    });
+    await cartService.addItem(user.id, {
+      productVariantId: variant2.id,
+      quantity: 1,
+      source: OrderSource.SURVEY,
+      surveyRecommendationId: recommendation.id,
+    });
+
+    const order = await ordersService.createFromCart(user.id);
+    expect(order.discountType).toBe(OrderDiscountType.COMBO);
+    expect(order.discountVnd).toBeGreaterThan(0);
   });
 
   it('does not apply combo discount for a partial survey purchase', async () => {

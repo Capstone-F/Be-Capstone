@@ -82,7 +82,7 @@ export class OrdersService {
       surveyRecommendationId = recommendation.id;
 
       const allowed = new Set(
-        recommendation.items.map((i) => i.productVariantId),
+        this.recommendationService.getAllowedVariantIds(recommendation),
       );
       for (const item of cart.items) {
         if (!allowed.has(item.productVariantId)) {
@@ -90,16 +90,26 @@ export class OrdersService {
             'Cart contains products not in the survey recommendation',
           );
         }
-      }
-      for (const recItem of recommendation.items) {
-        recommendationItemByVariant.set(recItem.productVariantId, recItem.id);
+        const recommendationItemId =
+          this.recommendationService.findItemIdForVariant(
+            recommendation,
+            item.productVariantId,
+          );
+        if (recommendationItemId) {
+          recommendationItemByVariant.set(
+            item.productVariantId,
+            recommendationItemId,
+          );
+        }
       }
 
-      const cartVariantSet = new Set(cart.items.map((i) => i.productVariantId));
-      const allRecommendedPurchased = recommendation.items.every((ri) =>
-        cartVariantSet.has(ri.productVariantId),
-      );
-      if (allRecommendedPurchased) {
+      const cartVariantIds = cart.items.map((i) => i.productVariantId);
+      if (
+        this.recommendationService.isProtocolCoverageComplete(
+          recommendation,
+          cartVariantIds,
+        )
+      ) {
         const percent = await this.getComboDiscountPercent();
         const subtotalPreview = cart.items.reduce((sum, item) => {
           const variant = variantById.get(item.productVariantId)!;

@@ -1,10 +1,6 @@
 import {
-  Body,
   Controller,
   Get,
-  Param,
-  ParseUUIDPipe,
-  Patch,
   Req,
   UnauthorizedException,
   UseGuards,
@@ -23,10 +19,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
 import { Role } from '../auth/roles.enum';
-import {
-  RecommendationResponseDto,
-  SelectRecommendationVariantDto,
-} from './dto/recommendation-response.dto';
+import { RecommendationResponseDto } from './dto/recommendation-response.dto';
 import { RecommendationService } from './recommendation.service';
 
 @ApiTags('Recommendations')
@@ -49,26 +42,6 @@ export class RecommendationsController {
   @ApiOkResponse({ type: RecommendationResponseDto })
   getLatest(@Req() req: Request): Promise<RecommendationResponseDto> {
     return this.recommendationService.getLatestForUser(this.requireUserId(req));
-  }
-
-  @Patch(':id/items/:protocolId')
-  @Roles(Role.Customer)
-  @ApiOperation({
-    summary: 'Select a ranked product variant for a recommended protocol',
-  })
-  @ApiOkResponse({ type: RecommendationResponseDto })
-  selectVariant(
-    @Req() req: Request,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Param('protocolId', ParseUUIDPipe) protocolId: string,
-    @Body() dto: SelectRecommendationVariantDto,
-  ): Promise<RecommendationResponseDto> {
-    return this.recommendationService.selectVariantForUser(
-      this.requireUserId(req),
-      id,
-      protocolId,
-      dto.productVariantId,
-    );
   }
 
   private requireUserId(req: Request): string {
