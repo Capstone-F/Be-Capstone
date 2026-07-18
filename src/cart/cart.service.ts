@@ -64,7 +64,7 @@ export class CartService {
           );
         this.assertVariantInRecommendation(
           dto.productVariantId,
-          recommendation.items.map((i) => i.productVariantId),
+          this.recommendationService.getAllowedVariantIds(recommendation),
         );
         cart.surveyRecommendationId = recommendation.id;
       } else {
@@ -92,7 +92,7 @@ export class CartService {
           );
         this.assertVariantInRecommendation(
           dto.productVariantId,
-          recommendation.items.map((i) => i.productVariantId),
+          this.recommendationService.getAllowedVariantIds(recommendation),
         );
       }
     }

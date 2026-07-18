@@ -24,7 +24,13 @@ describe('OrdersService', () => {
     Pick<CartService, 'getCartByCustomerId' | 'clearCartByCustomerId'>
   >;
   let recommendationService: jest.Mocked<
-    Pick<RecommendationService, 'getByIdForCustomer'>
+    Pick<
+      RecommendationService,
+      | 'getByIdForCustomer'
+      | 'getAllowedVariantIds'
+      | 'isProtocolCoverageComplete'
+      | 'findItemIdForVariant'
+    >
   >;
   let settingRepository: { findOneBy: jest.Mock };
   let variantRepository: { find: jest.Mock };
@@ -38,6 +44,17 @@ describe('OrdersService', () => {
     { id: 'v2', priceVnd: 200000, isActive: true },
   ] as ProductVariant[];
 
+  const getItemVariantIds = (item: {
+    productVariantId?: string;
+    rankedVariants?: Array<{ productVariantId: string }>;
+  }): string[] => {
+    const ranked = (item.rankedVariants ?? []).map(
+      (variant) => variant.productVariantId,
+    );
+    if (ranked.length > 0) return ranked;
+    return item.productVariantId ? [item.productVariantId] : [];
+  };
+
   beforeEach(async () => {
     savedOrders = [];
     cartService = {
@@ -46,6 +63,29 @@ describe('OrdersService', () => {
     };
     recommendationService = {
       getByIdForCustomer: jest.fn(),
+      getAllowedVariantIds: jest.fn((recommendation) => {
+        const ids = new Set<string>();
+        for (const item of recommendation.items ?? []) {
+          for (const id of getItemVariantIds(item)) ids.add(id);
+        }
+        return [...ids];
+      }),
+      isProtocolCoverageComplete: jest.fn((recommendation, cartVariantIds) => {
+        const cartSet = new Set(cartVariantIds);
+        const items = recommendation.items ?? [];
+        if (items.length === 0) return false;
+        return items.every((item) =>
+          getItemVariantIds(item).some((id) => cartSet.has(id)),
+        );
+      }),
+      findItemIdForVariant: jest.fn((recommendation, productVariantId) => {
+        for (const item of recommendation.items ?? []) {
+          if (getItemVariantIds(item).includes(productVariantId)) {
+            return item.id;
+          }
+        }
+        return null;
+      }),
     };
     settingRepository = {
       findOneBy: jest.fn().mockResolvedValue({

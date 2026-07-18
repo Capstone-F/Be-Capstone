@@ -11,7 +11,10 @@ import { CartService } from './cart.service';
 describe('CartService', () => {
   let service: CartService;
   let redisStore: Map<string, string>;
-  let recommendationService: { getByIdForCustomer: jest.Mock };
+  let recommendationService: {
+    getByIdForCustomer: jest.Mock;
+    getAllowedVariantIds: jest.Mock;
+  };
 
   beforeEach(async () => {
     redisStore = new Map();
@@ -20,6 +23,27 @@ describe('CartService', () => {
         id: 'rec-1',
         items: [{ productVariantId: 'v1' }, { productVariantId: 'v2' }],
       }),
+      getAllowedVariantIds: jest.fn(
+        (recommendation: {
+          items?: Array<{
+            productVariantId?: string;
+            rankedVariants?: Array<{ productVariantId: string }>;
+          }>;
+        }) => {
+          const ids = new Set<string>();
+          for (const item of recommendation.items ?? []) {
+            const ranked = (item.rankedVariants ?? []).map(
+              (variant) => variant.productVariantId,
+            );
+            if (ranked.length > 0) {
+              for (const id of ranked) ids.add(id);
+            } else if (item.productVariantId) {
+              ids.add(item.productVariantId);
+            }
+          }
+          return [...ids];
+        },
+      ),
     };
 
     const module: TestingModule = await Test.createTestingModule({

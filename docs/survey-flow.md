@@ -383,20 +383,9 @@ Response (abbreviated):
 **Client UX suggestion:**
 
 1. First screen: show `protocols[]` (ingredient protocol list — what the engine prescribed).
-2. User taps Continue → show each `products[].variants[]` ranked by price then SKU. The flat product fields identify the selected variant (rank 1 by default).
+2. User taps Continue → show each `products[].variants[]` ranked by price then SKU. Flat product fields are the default (cheapest) display hint only.
 3. Keep `id` (`surveyRecommendationId`) for the cart step.
-
-To change the selected variant before ordering:
-
-```http
-PATCH /recommendations/:id/items/:protocolId
-Content-Type: application/json
-
-{ "productVariantId": "<ranked-variant-uuid>" }
-```
-
-The variant must be in that protocol's frozen ranked snapshot. Selection is
-locked after any order is created from the recommendation.
+4. Add any ranked `productVariantId` directly to the SURVEY cart (no selection PATCH). Multiple variants of the same protocol are allowed.
 
 **Errors you should handle:**
 
@@ -425,7 +414,7 @@ POST /cart/items
 Content-Type: application/json
 
 {
-  "productVariantId": "<variant-uuid-from-recommendation.products>",
+  "productVariantId": "<variant-uuid-from-products.variants>",
   "quantity": 1,
   "source": "SURVEY",
   "surveyRecommendationId": "<recommendation-uuid>"
@@ -436,11 +425,12 @@ Content-Type: application/json
 
 - First item sets cart `source`. Later items must keep `source: SURVEY`.
 - `surveyRecommendationId` required for SURVEY carts.
-- Every `productVariantId` must belong to that recommendation snapshot.
+- Every `productVariantId` must be in the recommendation’s frozen ranked lists (`products[].variants[]`). Multiple ranked variants of the same protocol may be added.
+- Re-posting the same `productVariantId` updates quantity.
 - Mixing `CATALOG` and `SURVEY` in one cart is rejected.
 - Cart is Redis-backed (TTL ~7 days).
 
-To buy the **full combo** (and unlock discount at order time), add **every** `products[].productVariantId` from the recommendation.
+To unlock the **combo discount** at order time, cover **every protocol** with at least one ranked variant (extras and higher quantities are fine).
 
 ---
 
@@ -458,10 +448,10 @@ GET  /payments/:id          ← poll until PAID
 
 **Survey-specific order behavior:**
 
-| Cart source | Behavior                                                                                                                                    |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SURVEY`    | Validates variants ⊆ recommendation; if cart has **all** recommended variants → applies `SURVEY_COMBO_DISCOUNT_PCT` (`discountType: COMBO`) |
-| `CATALOG`   | Normal e-commerce (no survey discount)                                                                                                      |
+| Cart source | Behavior                                                                                                                                      |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SURVEY`    | Validates variants ⊆ ranked snapshot; if **every protocol** has ≥1 cart variant → applies `SURVEY_COMBO_DISCOUNT_PCT` (`discountType: COMBO`) |
+| `CATALOG`   | Normal e-commerce (no survey discount)                                                                                                        |
 
 Money formula (unchanged):
 
@@ -733,22 +723,23 @@ Survey-specific reminders:
 ```
 Empty cart
   └─ POST /cart/items  source=SURVEY + surveyRecommendationId
-       └─ more SURVEY items (variants ⊆ recommendation)
+       └─ more SURVEY items (any ranked variants ⊆ snapshot)
             └─ POST /orders
-                 ├─ partial selection → no combo discount
-                 └─ all recommended variants → discountType=COMBO
+                 ├─ missing a protocol → no combo discount
+                 └─ every protocol covered (≥1 variant) → discountType=COMBO
                       └─ POST /orders/:id/delivery
                            └─ POST /payments/checkout
                                 └─ IPN → Order PAID
                                      └─ POST /routines/generate (optional)
 ```
 
-| Rule                  | Detail                                                              |
-| --------------------- | ------------------------------------------------------------------- |
-| Variant id            | Always `productVariantId` from `recommendation.products[]`          |
-| Ownership             | Recommendation and order must belong to the same customer           |
-| Snapshot immutability | Cart validates against the stored recommendation, not a live re-run |
-| Combo                 | Discount only when **every** recommended variant is in the cart     |
+| Rule                  | Detail                                                               |
+| --------------------- | -------------------------------------------------------------------- |
+| Variant id            | Any `productVariantId` from `recommendation.products[].variants[]`   |
+| Ownership             | Recommendation and order must belong to the same customer            |
+| Snapshot immutability | Cart validates against the stored ranked snapshot, not a live re-run |
+| Combo                 | Discount when **every protocol** has at least one cart variant       |
+| Quantity              | Same variant may be increased; does not affect combo eligibility     |
 
 ---
 

@@ -8,7 +8,6 @@ import { ProductVariant } from '../products/product-variant.entity';
 import { RuleEngineModule } from '../rule-engine/rule-engine.module';
 import { CustomerSurvey } from '../survey/customer-survey.entity';
 import { Customer } from '../users/customer.entity';
-import { Order } from '../commerce/order.entity';
 import { RecommendationService } from './recommendation.service';
 import { RecommendationsController } from './recommendations.controller';
 import { SurveyRecommendationItem } from './survey-recommendation-item.entity';
@@ -23,7 +22,6 @@ import { SurveyRecommendation } from './survey-recommendation.entity';
       CustomerSurvey,
       ProductProtocol,
       ProductVariant,
-      Order,
     ]),
     RuleEngineModule,
     AuthModule,
