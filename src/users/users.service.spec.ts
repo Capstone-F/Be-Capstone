@@ -30,6 +30,42 @@ const mockClinicsService = {
   requireById: jest.fn(),
 } as unknown as jest.Mocked<ClinicsService>;
 
+const makeCustomerRepo = (overrides = {}) =>
+  ({
+    findOne: jest.fn().mockResolvedValue(null),
+    create: jest.fn().mockImplementation((v) => v),
+    save: jest.fn().mockImplementation((v) => Promise.resolve(v)),
+    ...overrides,
+  }) as unknown as Repository<any>;
+
+const mockCustomerAllergyRepo = {
+  delete: jest.fn(),
+  save: jest.fn(),
+  create: jest.fn(),
+} as unknown as Repository<any>;
+
+const mockSurveyRecommendationRepo = {
+  delete: jest.fn(),
+} as unknown as Repository<any>;
+
+const mockLabelRepo = {
+  find: jest.fn().mockResolvedValue([]),
+} as unknown as Repository<any>;
+
+const makeService = (
+  repo: Repository<User>,
+  customerRepo = makeCustomerRepo(),
+) =>
+  new UsersService(
+    repo,
+    mockKeycloakAdmin,
+    mockClinicsService,
+    customerRepo,
+    mockCustomerAllergyRepo,
+    mockSurveyRecommendationRepo,
+    mockLabelRepo,
+  );
+
 const baseProfile: Record<string, unknown> = {
   sub: 'kc-sub-001',
   email: 'user@example.com',
@@ -55,11 +91,7 @@ describe('UsersService', () => {
         create: jest.fn().mockReturnValue(saved),
         save: jest.fn().mockResolvedValue(saved),
       });
-      const service = new UsersService(
-        repo,
-        mockKeycloakAdmin,
-        mockClinicsService,
-      );
+      const service = makeService(repo);
 
       const result = await service.upsertFromKeycloak(baseProfile, 'google', [
         Role.Customer,
@@ -89,11 +121,7 @@ describe('UsersService', () => {
         findOneBy: jest.fn().mockResolvedValue(existing),
         save: jest.fn().mockImplementation((v) => Promise.resolve(v)),
       });
-      const service = new UsersService(
-        repo,
-        mockKeycloakAdmin,
-        mockClinicsService,
-      );
+      const service = makeService(repo);
 
       const result = await service.upsertFromKeycloak(baseProfile, 'google', [
         Role.Staff,
@@ -107,11 +135,7 @@ describe('UsersService', () => {
   describe('createManagedUser', () => {
     it('should forbid clinic_manager from creating staff', async () => {
       const repo = makeRepo();
-      const service = new UsersService(
-        repo,
-        mockKeycloakAdmin,
-        mockClinicsService,
-      );
+      const service = makeService(repo);
 
       await expect(
         service.createManagedUser(
@@ -155,11 +179,7 @@ describe('UsersService', () => {
         name: 'Clinic',
       } as never);
 
-      const service = new UsersService(
-        repo,
-        mockKeycloakAdmin,
-        mockClinicsService,
-      );
+      const service = makeService(repo);
 
       const result = await service.createManagedUser(
         {
@@ -190,11 +210,7 @@ describe('UsersService', () => {
       const repo = makeRepo({
         findOneBy: jest.fn().mockResolvedValue(target),
       });
-      const service = new UsersService(
-        repo,
-        mockKeycloakAdmin,
-        mockClinicsService,
-      );
+      const service = makeService(repo);
 
       await expect(
         service.getByIdForCaller(
@@ -224,11 +240,7 @@ describe('UsersService', () => {
       mockKeycloakAdmin.getAdminToken.mockResolvedValue('admin-token');
       mockKeycloakAdmin.replaceUserAppRoles.mockResolvedValue(undefined);
 
-      const service = new UsersService(
-        repo,
-        mockKeycloakAdmin,
-        mockClinicsService,
-      );
+      const service = makeService(repo);
 
       const result = await service.assignRoles(
         { userId: 'admin-1', roles: [Role.AppAdmin] },

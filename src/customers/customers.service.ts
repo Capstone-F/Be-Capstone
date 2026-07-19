@@ -220,6 +220,7 @@ export class CustomersService {
         ? {
             code: skinType.code,
             name: skinType.name,
+            description: skinType.description ?? null,
           }
         : null,
       baumannScores,

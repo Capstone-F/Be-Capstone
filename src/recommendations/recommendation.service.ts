@@ -6,10 +6,13 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
+import { IngredientConflict } from '../ingredients/ingredient-conflict.entity';
+import { ProductIngredient } from '../products/product-ingredient.entity';
 import { ProductProtocol } from '../products/product-protocol.entity';
 import { ProductVariant } from '../products/product-variant.entity';
 import { RuleEngineService } from '../rule-engine/rule-engine.service';
 import { CustomerSurvey } from '../survey/customer-survey.entity';
+import { CustomerAllergy } from '../users/customer-allergy.entity';
 import { Customer } from '../users/customer.entity';
 import { RecommendationResponseDto } from './dto/recommendation-response.dto';
 import { SurveyRecommendationItem } from './survey-recommendation-item.entity';
@@ -31,6 +34,10 @@ export class RecommendationService {
     private readonly productProtocolRepository: Repository<ProductProtocol>,
     @InjectRepository(ProductVariant)
     private readonly variantRepository: Repository<ProductVariant>,
+    @InjectRepository(CustomerAllergy)
+    private readonly customerAllergyRepository: Repository<CustomerAllergy>,
+    @InjectRepository(IngredientConflict)
+    private readonly ingredientConflictRepository: Repository<IngredientConflict>,
   ) {}
 
   async getLatestForUser(userId: string): Promise<RecommendationResponseDto> {
@@ -65,7 +72,19 @@ export class RecommendationService {
       );
     }
 
-    return this.toDto(recommendation, context);
+    const protocolIdsList = context.protocols.map((p) => p.id);
+    const conflicts =
+      protocolIdsList.length === 0
+        ? []
+        : await this.ingredientConflictRepository.find({
+            where: {
+              protocolId: In(protocolIdsList),
+              conflictingProtocolId: In(protocolIdsList),
+            },
+            relations: ['protocol', 'conflictingProtocol'],
+          });
+
+    return this.toDto(recommendation, context, conflicts);
   }
 
   async getByIdForCustomer(
@@ -135,10 +154,27 @@ export class RecommendationService {
     context: Awaited<ReturnType<RuleEngineService['buildContextForCustomer']>>,
   ): Promise<SurveyRecommendation> {
     if (context.protocols.length === 0) {
-      throw new BadRequestException(
-        'No matching ingredient protocols for this survey profile',
+      // Xử lý protocol rỗng: trả về snapshot rỗng thay vì ném lỗi
+      const emptyRec = await this.recommendationRepository.save(
+        this.recommendationRepository.create({
+          customerId,
+          customerSurveyId: surveyId,
+        }),
       );
+      return { ...emptyRec, items: [] } as unknown as SurveyRecommendation;
     }
+
+    const [allergies] = await Promise.all([
+      this.customerAllergyRepository.find({
+        where: { customerId },
+        relations: ['label'],
+      }),
+    ]);
+    const allergyCodes = new Set(
+      allergies
+        .filter((allergy) => allergy.label?.isActive)
+        .map((allergy) => allergy.label.code),
+    );
 
     const protocolIds = context.protocols.map((p) => p.id);
     const productProtocols = await this.productProtocolRepository.find({
@@ -158,7 +194,12 @@ export class RecommendationService {
         ? []
         : await this.variantRepository.find({
             where: { productId: In(productIds), isActive: true },
-            relations: ['product'],
+            relations: [
+              'product',
+              'batches',
+              'product.productIngredients',
+              'product.productIngredients.ingredient',
+            ],
             order: { priceVnd: 'ASC' },
           });
 
@@ -193,6 +234,21 @@ export class RecommendationService {
             .map((variant) => [variant.id, variant]),
         ).values(),
       ]
+        .filter((variant) => {
+          // BR-32: Loại sản phẩm hết hàng (chỉ chọn variant có stock > 0)
+          const remainingStock = (variant.batches ?? []).reduce(
+            (sum, batch) => sum + batch.remainingQuantity,
+            0,
+          );
+          if (remainingStock <= 0) return false;
+
+          // BR-07: Loại cứng dị ứng (bắt buộc)
+          const productIngredients = variant.product?.productIngredients ?? [];
+          if (this.hasAllergicIngredient(productIngredients, allergyCodes)) {
+            return false;
+          }
+          return true;
+        })
         .sort((a, b) => a.priceVnd - b.priceVnd || a.sku.localeCompare(b.sku))
         .slice(0, 10);
       const bestVariant = ranked[0] ?? null;
@@ -214,9 +270,14 @@ export class RecommendationService {
     }
 
     if (items.length === 0) {
-      throw new BadRequestException(
-        'No catalog products mapped to matched protocols',
+      // Nếu tất cả protocol bị lọc hết do hết hàng hoặc dị ứng, lưu snapshot rỗng
+      const emptyRec = await this.recommendationRepository.save(
+        this.recommendationRepository.create({
+          customerId,
+          customerSurveyId: surveyId,
+        }),
       );
+      return { ...emptyRec, items: [] } as unknown as SurveyRecommendation;
     }
 
     // One primary variant per protocol
@@ -262,6 +323,7 @@ export class RecommendationService {
   private toDto(
     recommendation: SurveyRecommendation,
     context: Awaited<ReturnType<RuleEngineService['buildContextForCustomer']>>,
+    conflicts: IngredientConflict[] = [],
   ): RecommendationResponseDto {
     const protocolById = new Map(context.protocols.map((p) => [p.id, p]));
     return {
@@ -270,6 +332,12 @@ export class RecommendationService {
       customerProfile: context.customerProfile,
       labels: context.labels,
       protocols: context.protocols,
+      conflicts: conflicts.map((c) => ({
+        protocolCode: c.protocol?.code ?? '',
+        conflictingProtocolCode: c.conflictingProtocol?.code ?? '',
+        severity: c.severity,
+        reason: c.reason,
+      })),
       products: (recommendation.items ?? []).map((item) => {
         const protocol = protocolById.get(item.protocolId) ?? item.protocol;
         const variant = item.productVariant;
@@ -303,6 +371,80 @@ export class RecommendationService {
       }),
       createdAt: recommendation.createdAt,
     };
+  }
+
+  private hasAllergicIngredient(
+    productIngredients: ProductIngredient[],
+    allergyCodes: Set<string>,
+  ): boolean {
+    if (allergyCodes.size === 0) return false;
+
+    for (const pi of productIngredients) {
+      const ingName = this.normalizeIngredientName(pi.ingredient?.name ?? '');
+      if (!ingName) continue;
+
+      if (
+        allergyCodes.has('FRAGRANCE') &&
+        (ingName.includes('FRAGRANCE') || ingName.includes('PARFUM'))
+      ) {
+        return true;
+      }
+      if (
+        allergyCodes.has('ALCOHOL') &&
+        (ingName.includes('ALCOHOL DENAT') ||
+          ingName === 'ALCOHOL' ||
+          ingName.includes('ETHANOL'))
+      ) {
+        return true;
+      }
+      if (
+        allergyCodes.has('ESSENTIAL_OIL') &&
+        (ingName.includes('OIL') || ingName.includes('EXTRACT')) &&
+        (ingName.includes('TEA TREE') ||
+          ingName.includes('LAVENDER') ||
+          ingName.includes('CITRUS') ||
+          ingName.includes('EUCALYPTUS') ||
+          ingName.includes('ROSEMARY') ||
+          ingName.includes('PEPPERMINT'))
+      ) {
+        return true;
+      }
+      if (
+        allergyCodes.has('SALICYLIC_ACID') &&
+        (ingName.includes('SALICYLIC ACID') || ingName.includes('BHA'))
+      ) {
+        return true;
+      }
+      if (
+        allergyCodes.has('BENZOYL_PEROXIDE') &&
+        ingName.includes('BENZOYL PEROXIDE')
+      ) {
+        return true;
+      }
+      if (
+        allergyCodes.has('RETINOIDS') &&
+        (ingName.includes('RETINOL') ||
+          ingName.includes('RETINOID') ||
+          ingName.includes('TRETINOIN') ||
+          ingName.includes('ADAPALENE'))
+      ) {
+        return true;
+      }
+      if (
+        allergyCodes.has('VITAMIN_C') &&
+        (ingName.includes('ASCORBIC ACID') || ingName.includes('VITAMIN C'))
+      ) {
+        return true;
+      }
+      if (allergyCodes.has('NIACINAMIDE') && ingName.includes('NIACINAMIDE')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private normalizeIngredientName(name: string): string {
+    return name.toUpperCase().trim();
   }
 
   private async requireCustomer(userId: string): Promise<Customer> {

@@ -19,7 +19,7 @@ export class CustomerAllergy {
   @Column()
   customerId: string;
 
-  @ManyToOne(() => Customer, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Customer, (c) => c.allergies, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'customerId' })
   customer: Customer;
 

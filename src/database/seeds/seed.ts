@@ -92,48 +92,49 @@ type ProductSeed = {
 const LABEL_CATEGORIES: LabelCategorySeed[] = [
   {
     code: 'SKIN_CONCERN',
-    name: 'Skin Concern',
-    description: 'Observed skin conditions and dermatologic concerns',
+    name: 'Vấn đề về da',
+    description: 'Các tình trạng da đang gặp phải cần được cải thiện',
   },
   {
     code: 'SKIN_GOAL',
-    name: 'Skin Goal',
-    description: 'Desired treatment outcomes for skincare routines',
+    name: 'Mục tiêu chăm sóc da',
+    description: 'Những kết quả mong muốn đạt được khi sử dụng liệu trình',
   },
   {
     code: 'ALLERGY',
-    name: 'Allergy',
-    description: 'Known cosmetic or skincare ingredient allergies',
+    name: 'Dị ứng thành phần',
+    description:
+      'Các thành phần mỹ phẩm từng gây kích ứng hoặc dị ứng cần tránh',
   },
   {
     code: 'CONTRAINDICATION',
-    name: 'Contraindication',
-    description: 'Clinical or procedural factors that restrict treatment',
+    name: 'Chống chỉ định',
+    description: 'Các yếu tố sinh lý hoặc y tế cần chú ý khi chọn hoạt chất',
   },
   {
     code: 'AGE_GROUP',
-    name: 'Age Group',
-    description: 'Customer age range for protocol suitability',
+    name: 'Độ tuổi',
+    description: 'Nhóm tuổi của khách hàng để tư vấn độ mạnh hoạt chất phù hợp',
   },
   {
     code: 'GENDER',
-    name: 'Gender',
-    description: 'Customer gender for protocol suitability',
+    name: 'Giới tính',
+    description: 'Giới tính của khách hàng',
   },
   {
     code: 'LIFESTYLE',
-    name: 'Lifestyle',
-    description: 'Environmental and behavioral lifestyle factors',
+    name: 'Thói quen sinh hoạt',
+    description: 'Môi trường sống và thói quen hàng ngày ảnh hưởng đến làn da',
   },
   {
     code: 'EXPERIENCE_LEVEL',
-    name: 'Experience Level',
-    description: 'Customer familiarity with active skincare ingredients',
+    name: 'Kinh nghiệm dưỡng da',
+    description: 'Mức độ quen thuộc với các hoạt chất chuyên sâu',
   },
   {
     code: 'PRODUCT_PREFERENCE',
-    name: 'Product Preference',
-    description: 'Formulation and product attribute preferences',
+    name: 'Sở thích sản phẩm',
+    description: 'Các tiêu chí ưu tiên khi lựa chọn sản phẩm chăm sóc da',
   },
 ];
 
@@ -141,489 +142,535 @@ const LABELS: LabelSeed[] = [
   // SKIN_CONCERN
   {
     code: 'ACNE',
-    name: 'Acne',
+    name: 'Mụn sưng, mụn viêm hoặc mụn trứng cá',
     categoryCode: 'SKIN_CONCERN',
-    description: 'Inflammatory and non-inflammatory acne lesions',
+    description: 'Da có các nốt mụn sưng đỏ, viêm hoặc mụn bọc gây khó chịu',
   },
   {
     code: 'BLACKHEADS',
-    name: 'Blackheads',
+    name: 'Mụn đầu đen, mụn cám',
     categoryCode: 'SKIN_CONCERN',
-    description: 'Open comedones caused by oxidized sebum in pores',
+    description: 'Mụn đầu đen hoặc mụn cám lấm tấm vùng mũi và cằm',
   },
   {
     code: 'WHITEHEADS',
-    name: 'Whiteheads',
+    name: 'Mụn ẩn, mụn đầu trắng',
     categoryCode: 'SKIN_CONCERN',
-    description: 'Closed comedones with trapped sebum beneath the skin',
+    description: 'Mụn nhỏ li ti ẩn dưới da hoặc có đầu trắng không viêm',
   },
   {
     code: 'ENLARGED_PORES',
-    name: 'Enlarged Pores',
+    name: 'Lỗ chân lông to',
     categoryCode: 'SKIN_CONCERN',
-    description: 'Visibly dilated follicular openings',
+    description:
+      'Lỗ chân lông nhìn thấy rõ, đặc biệt là ở vùng chữ T và hai bên má',
   },
   {
     code: 'HYPERPIGMENTATION',
-    name: 'Hyperpigmentation',
+    name: 'Thâm sạm, đốm nâu',
     categoryCode: 'SKIN_CONCERN',
-    description: 'Excess melanin deposition causing darkened skin patches',
+    description: 'Da có các vùng tối màu, đốm nâu hoặc sạm nám',
   },
   {
     code: 'MELASMA',
-    name: 'Melasma',
+    name: 'Nám da mặt',
     categoryCode: 'SKIN_CONCERN',
-    description: 'Symmetric hormonally influenced facial hyperpigmentation',
+    description: 'Các mảng sạm màu đối xứng ở hai bên gò má hoặc trán',
   },
   {
     code: 'FRECKLES',
-    name: 'Freckles',
+    name: 'Tàn nhang',
     categoryCode: 'SKIN_CONCERN',
-    description: 'Small ephelides from sun-induced melanin clusters',
+    description:
+      'Các nốt nhỏ li ti màu nâu sáng hoặc tối màu do tiếp xúc ánh nắng',
   },
   {
     code: 'POST_INFLAMMATORY_HYPERPIGMENTATION',
-    name: 'Post-inflammatory Hyperpigmentation',
+    name: 'Vết thâm đen, thâm nâu sau mụn',
     categoryCode: 'SKIN_CONCERN',
-    description: 'Dark marks remaining after inflammatory skin injury (PIH)',
+    description:
+      'Vết thâm tối màu để lại sau khi mụn lành hoặc sau khi da bị tổn thương',
   },
   {
     code: 'POST_INFLAMMATORY_ERYTHEMA',
-    name: 'Post-inflammatory Erythema',
+    name: 'Vết thâm đỏ, hồng đỏ sau mụn',
     categoryCode: 'SKIN_CONCERN',
-    description: 'Persistent redness after inflammatory skin injury (PIE)',
+    description:
+      'Các đốm màu đỏ hoặc hồng rát còn lại ngay sau khi vừa hết mụn sưng',
   },
   {
     code: 'WRINKLES',
-    name: 'Wrinkles',
+    name: 'Nếp nhăn rõ rệt',
     categoryCode: 'SKIN_CONCERN',
-    description: 'Visible creases from collagen and elastin loss',
+    description:
+      'Các nếp nhăn nhìn thấy rõ khi cười hoặc ở đuôi mắt, vùng trán',
   },
   {
     code: 'FINE_LINES',
-    name: 'Fine Lines',
+    name: 'Rãnh nhăn nông, nếp nhăn mờ',
     categoryCode: 'SKIN_CONCERN',
-    description: 'Early superficial lines from dehydration or photoaging',
+    description:
+      'Các đường nhăn mờ li ti do da bị khô hoặc mới bắt đầu lão hóa',
   },
   {
     code: 'DULL_SKIN',
-    name: 'Dull Skin',
+    name: 'Da xỉn màu, thiếu sức sống',
     categoryCode: 'SKIN_CONCERN',
-    description: 'Lack of radiance from uneven surface reflection',
+    description:
+      'Làn da trông kém tươi sáng, nhợt nhạt và không có độ căng bóng',
   },
   {
     code: 'ROUGH_TEXTURE',
-    name: 'Rough Texture',
+    name: 'Bề mặt da sần sùi, thô ráp',
     categoryCode: 'SKIN_CONCERN',
-    description: 'Uneven or coarse skin surface from buildup or damage',
+    description:
+      'Khi sờ tay lên mặt thấy kém mịn màng, có cảm giác sần sùi lợn cợn',
   },
   {
     code: 'DEHYDRATED_SKIN',
-    name: 'Dehydrated Skin',
+    name: 'Da khô căng, thiếu nước',
     categoryCode: 'SKIN_CONCERN',
-    description: 'Water loss causing tightness without necessarily low sebum',
+    description:
+      'Da hay có cảm giác khô rát, căng tức dù đôi khi vẫn có đổ bóng dầu',
   },
   {
     code: 'REDNESS',
-    name: 'Redness',
+    name: 'Da hay bị ửng đỏ rát',
     categoryCode: 'SKIN_CONCERN',
-    description: 'Diffuse or localized erythema and flushing',
+    description:
+      'Vùng hai bên má hoặc mũi dễ bị đỏ, mẫn cảm khi ra nắng hoặc đổi mỹ phẩm',
   },
   {
     code: 'ROSACEA',
-    name: 'Rosacea',
+    name: 'Da mẩn đỏ nhạy cảm mạn tính',
     categoryCode: 'SKIN_CONCERN',
-    description: 'Chronic inflammatory condition with redness and flushing',
+    description:
+      'Tình trạng da hay bị đỏ ửng kèm cảm giác nóng rát râm ran thường xuyên',
   },
   {
     code: 'BARRIER_DAMAGE',
-    name: 'Barrier Damage',
+    name: 'Hàng rào bảo vệ da bị tổn thương',
     categoryCode: 'SKIN_CONCERN',
-    description: 'Compromised stratum corneum with increased sensitivity',
+    description:
+      'Da cực kỳ nhạy cảm, dễ châm chích ngứa rát khi dùng hầu hết các sản phẩm',
   },
   {
     code: 'DARK_CIRCLES',
-    name: 'Dark Circles',
+    name: 'Quầng thâm mắt',
     categoryCode: 'SKIN_CONCERN',
-    description: 'Periorbital hyperpigmentation or shadowing',
+    description: 'Vùng da quanh mắt bị tối màu hoặc có quầng thâm rệt',
   },
   {
     code: 'EYE_BAGS',
-    name: 'Eye Bags',
+    name: 'Bọng mắt',
     categoryCode: 'SKIN_CONCERN',
-    description: 'Periorbital puffiness from fluid or fat prominence',
+    description: 'Vùng da dưới mắt bị sưng phồng hoặc có bọng mỡ nhìn thấy rõ',
   },
   {
     code: 'UNEVEN_SKIN_TONE',
-    name: 'Uneven Skin Tone',
+    name: 'Tông màu da không đều',
     categoryCode: 'SKIN_CONCERN',
-    description: 'Irregular coloration across facial skin areas',
+    description: 'Các vùng da trên mặt có chỗ sáng, chỗ tối màu không đều nhau',
   },
 
   // SKIN_GOAL
   {
     code: 'ACNE_TREATMENT',
-    name: 'Acne Treatment',
+    name: 'Giảm mụn và ngăn ngừa mụn quay lại',
     categoryCode: 'SKIN_GOAL',
-    description: 'Reduce active breakouts and prevent new lesions',
+    description:
+      'Làm dịu các nốt mụn hiện tại và giữ cho lỗ chân lông sạch thoáng',
   },
   {
     code: 'BRIGHTENING',
-    name: 'Brightening',
+    name: 'Dưỡng sáng da rạng rỡ',
     categoryCode: 'SKIN_GOAL',
-    description: 'Improve skin luminosity and radiance',
+    description: 'Giúp làn da tươi tắn, sáng mịn và hồng hào hơn',
   },
   {
     code: 'ANTI_AGING',
-    name: 'Anti-aging',
+    name: 'Ngăn ngừa lão hóa và nếp nhăn',
     categoryCode: 'SKIN_GOAL',
-    description: 'Address signs of photoaging and collagen decline',
+    description: 'Giữ cho làn da săn chắc, đàn hồi và làm mờ dấu hiệu tuổi tác',
   },
   {
     code: 'HYDRATION',
-    name: 'Hydration',
+    name: 'Cấp ẩm sâu và duy trì độ ẩm',
     categoryCode: 'SKIN_GOAL',
-    description: 'Increase skin water content and moisture retention',
+    description: 'Bổ sung lượng nước cần thiết giúp da căng mọng mềm mại',
   },
   {
     code: 'OIL_CONTROL',
-    name: 'Oil Control',
+    name: 'Kiểm soát dầu nhờn, giảm bóng dầu',
     categoryCode: 'SKIN_GOAL',
-    description: 'Regulate excess sebum production',
+    description:
+      'Điều tiết lượng dầu thừa giúp bề mặt da thông thoáng suốt cả ngày',
   },
   {
     code: 'BARRIER_REPAIR',
-    name: 'Barrier Repair',
+    name: 'Phục hồi da yếu và làm dịu kích ứng',
     categoryCode: 'SKIN_GOAL',
-    description: 'Restore and strengthen the skin moisture barrier',
+    description:
+      'Củng cố lớp màng bảo vệ da, giúp da khỏe mạnh và bớt nhạy cảm hơn',
   },
   {
     code: 'REDUCE_PIGMENTATION',
-    name: 'Reduce Pigmentation',
+    name: 'Làm mờ thâm nám và đốm nâu',
     categoryCode: 'SKIN_GOAL',
-    description: 'Fade hyperpigmented spots and even discoloration',
+    description: 'Cải thiện tình trạng sạm nám, tàn nhang và vết thâm tối màu',
   },
   {
     code: 'REDUCE_WRINKLES',
-    name: 'Reduce Wrinkles',
+    name: 'Cải thiện rãnh nhăn và nếp nhăn',
     categoryCode: 'SKIN_GOAL',
-    description: 'Minimize depth and appearance of wrinkles',
+    description: 'Làm mờ độ sâu của các nếp nhăn vùng mắt, trán và khóe miệng',
   },
   {
     code: 'REDUCE_REDNESS',
-    name: 'Reduce Redness',
+    name: 'Làm dịu tình trạng ửng đỏ rát',
     categoryCode: 'SKIN_GOAL',
-    description: 'Calm erythema and decrease visible flushing',
+    description: 'Giảm độ đỏ ửng và cảm giác nóng rát khó chịu trên bề mặt da',
   },
   {
     code: 'IMPROVE_SKIN_TEXTURE',
-    name: 'Improve Skin Texture',
+    name: 'Cải thiện bề mặt da sần sùi',
     categoryCode: 'SKIN_GOAL',
-    description: 'Smooth uneven or rough skin surface',
+    description:
+      'Giúp bề mặt da trở nên láng mịn, mượt mà và mềm mại khi chạm vào',
   },
   {
     code: 'EVEN_SKIN_TONE',
-    name: 'Even Skin Tone',
+    name: 'Dưỡng da đều màu',
     categoryCode: 'SKIN_GOAL',
-    description: 'Balance overall facial color uniformity',
+    description:
+      'Cân bằng sắc tố giúp tổng thể khuôn mặt hài hòa và đều màu hơn',
   },
   {
     code: 'MINIMIZE_PORES',
-    name: 'Minimize Pores',
+    name: 'Thu nhỏ vẻ ngoài lỗ chân lông',
     categoryCode: 'SKIN_GOAL',
-    description: 'Reduce the visible appearance of pore size',
+    description: 'Giúp lỗ chân lông trông nhỏ mịn hơn và bề mặt da săn chắc',
   },
 
   // ALLERGY
   {
     code: 'FRAGRANCE',
-    name: 'Fragrance',
+    name: 'Hương liệu (Fragrance/Parfum)',
     categoryCode: 'ALLERGY',
-    description: 'Allergy or sensitivity to added fragrance compounds',
+    description:
+      'Da bị kích ứng, ngứa rát khi dùng sản phẩm có mùi hương bổ sung',
   },
   {
     code: 'ALCOHOL',
-    name: 'Alcohol',
+    name: 'Cồn khô (Alcohol Denat)',
     categoryCode: 'ALLERGY',
-    description: 'Sensitivity to denatured alcohol in formulations',
+    description:
+      'Da bị khô rát, châm chích khi tiếp xúc với cồn khô trong mỹ phẩm',
   },
   {
     code: 'ESSENTIAL_OIL',
-    name: 'Essential Oil',
+    name: 'Tinh dầu thực vật (Essential Oils)',
     categoryCode: 'ALLERGY',
-    description: 'Reaction to botanical essential oil components',
+    description:
+      'Nhạy cảm hoặc dị ứng với các loại tinh dầu chiết xuất từ thiên nhiên',
   },
   {
     code: 'LANOLIN',
-    name: 'Lanolin',
+    name: 'Mỡ cừu (Lanolin)',
     categoryCode: 'ALLERGY',
-    description: 'Allergy to wool-derived lanolin emollients',
+    description: 'Dị ứng hoặc nổi mụn khi sử dụng các chất dưỡng ẩm từ mỡ cừu',
   },
   {
     code: 'SALICYLIC_ACID',
-    name: 'Salicylic Acid',
+    name: 'Salicylic Acid (BHA)',
     categoryCode: 'ALLERGY',
-    description: 'Sensitivity to beta hydroxy acid exfoliants',
+    description: 'Da bị kích ứng, bong tróc hoặc đỏ rát mạnh khi dùng BHA',
   },
   {
     code: 'BENZOYL_PEROXIDE',
     name: 'Benzoyl Peroxide',
     categoryCode: 'ALLERGY',
-    description: 'Irritation or allergy to benzoyl peroxide',
+    description:
+      'Phản ứng mẩn đỏ ngứa hoặc sưng rát khi dùng chất chấm mụn Benzoyl Peroxide',
   },
   {
     code: 'RETINOIDS',
-    name: 'Retinoids',
+    name: 'Retinoids (Retinol/Tretinoin...)',
     categoryCode: 'ALLERGY',
-    description: 'Sensitivity to retinol and retinoid derivatives',
+    description:
+      'Da không dung nạp hoặc dị ứng nặng với các phái sinh vitamin A',
   },
   {
     code: 'VITAMIN_C',
-    name: 'Vitamin C',
+    name: 'Vitamin C nguyên chất (L-AA...)',
     categoryCode: 'ALLERGY',
-    description: 'Sensitivity to ascorbic acid or its derivatives',
+    description:
+      'Da bị châm chích ngứa rát hoặc mẩn đỏ khi dùng các dẫn xuất Vitamin C',
   },
   {
     code: 'NIACINAMIDE',
-    name: 'Niacinamide',
+    name: 'Niacinamide (Vitamin B3)',
     categoryCode: 'ALLERGY',
-    description: 'Sensitivity to vitamin B3 (niacinamide)',
+    description: 'Dễ bị ửng đỏ, rát hoặc châm chích khi dùng Vitamin B3',
   },
 
   // CONTRAINDICATION
   {
     code: 'PREGNANCY',
-    name: 'Pregnancy',
+    name: 'Đang mang thai',
     categoryCode: 'CONTRAINDICATION',
-    description: 'Currently pregnant; restricts certain active ingredients',
+    description:
+      'Phụ nữ đang trong thai kỳ (cần tránh các hoạt chất mạnh như Retinoids, BHA nồng độ cao)',
   },
   {
     code: 'BREASTFEEDING',
-    name: 'Breastfeeding',
+    name: 'Đang cho con bú',
     categoryCode: 'CONTRAINDICATION',
-    description: 'Currently breastfeeding; restricts certain actives',
+    description:
+      'Phụ nữ đang trong giai đoạn cho con bú (cần chọn sản phẩm an toàn cho mẹ và bé)',
   },
   {
     code: 'OPEN_WOUND',
-    name: 'Open Wound',
+    name: 'Da có vết thương hở, vết trầy xước',
     categoryCode: 'CONTRAINDICATION',
-    description: 'Broken or unhealed skin requiring actives to be avoided',
+    description: 'Bề mặt da đang bị tổn thương hở, chảy máu hoặc chưa lành hẳn',
   },
   {
     code: 'ACTIVE_SKIN_INFECTION',
-    name: 'Active Skin Infection',
+    name: 'Da đang bị viêm nhiễm hoặc mụn nước',
     categoryCode: 'CONTRAINDICATION',
-    description: 'Bacterial, viral, or fungal infection on treatment area',
+    description:
+      'Tình trạng nhiễm trùng da do vi khuẩn, nấm hoặc virus đang hoạt động',
   },
   {
     code: 'RECENT_CHEMICAL_PEEL',
-    name: 'Recent Chemical Peel',
+    name: 'Vừa lột da sinh học (Peel da mạnh)',
     categoryCode: 'CONTRAINDICATION',
-    description: 'Chemical peel within the recovery window',
+    description:
+      'Mới thực hiện peel da bằng acid nồng độ cao trong vòng vài ngày qua',
   },
   {
     code: 'RECENT_LASER_TREATMENT',
-    name: 'Recent Laser Treatment',
+    name: 'Vừa điều trị Laser/Lăn kim',
     categoryCode: 'CONTRAINDICATION',
-    description: 'Laser procedure within the required healing period',
+    description:
+      'Mới can thiệp thẩm mỹ công nghệ cao trên da cần thời gian phục hồi',
   },
   {
     code: 'RECENT_MICRONEEDLING',
-    name: 'Recent Microneedling',
+    name: 'Vừa phi kim hoặc lăn kim',
     categoryCode: 'CONTRAINDICATION',
-    description: 'Microneedling within the post-procedure recovery window',
+    description:
+      'Mới thực hiện liệu pháp vi kim đang trong giai đoạn phục hồi màng bảo vệ',
   },
 
   // AGE_GROUP
   {
     code: 'UNDER_18',
-    name: 'Under 18',
+    name: 'Dưới 18 tuổi',
     categoryCode: 'AGE_GROUP',
-    description: 'Customer is younger than 18 years old',
+    description: 'Khách hàng ở độ tuổi học sinh, thanh thiếu niên dưới 18 tuổi',
   },
   {
     code: 'AGE_18_25',
-    name: '18–25',
+    name: 'Từ 18 đến 25 tuổi',
     categoryCode: 'AGE_GROUP',
-    description: 'Customer age range 18 to 25 years',
+    description: 'Độ tuổi thanh niên từ 18 đến 25 tuổi',
   },
   {
     code: 'AGE_26_35',
-    name: '26–35',
+    name: 'Từ 26 đến 35 tuổi',
     categoryCode: 'AGE_GROUP',
-    description: 'Customer age range 26 to 35 years',
+    description: 'Độ tuổi trưởng thành từ 26 đến 35 tuổi',
   },
   {
     code: 'AGE_36_45',
-    name: '36–45',
+    name: 'Từ 36 đến 45 tuổi',
     categoryCode: 'AGE_GROUP',
-    description: 'Customer age range 36 to 45 years',
+    description: 'Độ tuổi từ 36 đến 45 tuổi',
   },
   {
     code: 'AGE_46_60',
-    name: '46–60',
+    name: 'Từ 46 đến 60 tuổi',
     categoryCode: 'AGE_GROUP',
-    description: 'Customer age range 46 to 60 years',
+    description: 'Độ tuổi trung niên từ 46 đến 60 tuổi',
   },
   {
     code: 'ABOVE_60',
-    name: 'Above 60',
+    name: 'Trên 60 tuổi',
     categoryCode: 'AGE_GROUP',
-    description: 'Customer is older than 60 years',
+    description: 'Khách hàng lớn tuổi trên 60 tuổi',
   },
 
   // GENDER
   {
     code: 'MALE',
-    name: 'Male',
+    name: 'Nam',
     categoryCode: 'GENDER',
-    description: 'Male gender',
+    description: 'Giới tính nam',
   },
   {
     code: 'FEMALE',
-    name: 'Female',
+    name: 'Nữ',
     categoryCode: 'GENDER',
-    description: 'Female gender',
+    description: 'Giới tính nữ',
   },
   {
     code: 'NOT_PREFER_TO_SAY',
-    name: 'Prefer not to say',
+    name: 'Không muốn tiết lộ',
     categoryCode: 'GENDER',
-    description: 'Customer prefers not to disclose gender',
+    description: 'Khách hàng ưu tiên không chia sẻ giới tính',
   },
 
   // LIFESTYLE
   {
     code: 'OUTDOOR_LIFESTYLE',
-    name: 'Outdoor Lifestyle',
+    name: 'Thường xuyên hoạt động ngoài trời',
     categoryCode: 'LIFESTYLE',
-    description: 'Frequent outdoor daily activities and sun exposure',
+    description:
+      'Hay phải di chuyển, làm việc ngoài trời hoặc tiếp xúc nhiều với nắng gió',
   },
   {
     code: 'INDOOR_LIFESTYLE',
-    name: 'Indoor Lifestyle',
+    name: 'Chủ yếu làm việc trong nhà/văn phòng',
     categoryCode: 'LIFESTYLE',
-    description: 'Primarily indoor daily routine with limited sun exposure',
+    description:
+      'Sinh hoạt chủ yếu trong không gian trong nhà, ít tiếp xúc trực tiếp với nắng',
   },
   {
     code: 'NIGHT_SHIFT',
-    name: 'Night Shift',
+    name: 'Thức khuya hoặc làm ca đêm',
     categoryCode: 'LIFESTYLE',
-    description: 'Regular overnight work disrupting circadian skin rhythm',
+    description:
+      'Thói quen ngủ trễ hoặc nhịp sinh học thay đổi do tính chất công việc',
   },
   {
     code: 'HIGH_SUN_EXPOSURE',
-    name: 'High Sun Exposure',
+    name: 'Tiếp xúc nhiều với ánh nắng trực tiếp',
     categoryCode: 'LIFESTYLE',
-    description: 'Prolonged unprotected ultraviolet exposure',
+    description: 'Da tiếp xúc với tia UV thường xuyên trong ngày',
   },
   {
     code: 'HEAVY_MAKEUP',
-    name: 'Heavy Makeup',
+    name: 'Trang điểm đậm, dùng kem nền hàng ngày',
     categoryCode: 'LIFESTYLE',
-    description: 'Daily full-coverage or long-wear cosmetic use',
+    description:
+      'Thói quen trang điểm thường xuyên hoặc dùng lớp nền lâu trôi mỗi ngày',
   },
   {
     code: 'FREQUENT_EXERCISE',
-    name: 'Frequent Exercise',
+    name: 'Tập thể thao thường xuyên ra nhiều mồ hôi',
     categoryCode: 'LIFESTYLE',
-    description: 'Regular physical activity with sweat and friction',
+    description:
+      'Hay tập luyện thể dục thể thao, bơi lội hoặc vận động đổ nhiều mồ hôi',
   },
   {
     code: 'AIR_CONDITIONED_ENVIRONMENT',
-    name: 'Air-conditioned Environment',
+    name: 'Ngồi điều hòa/máy lạnh liên tục',
     categoryCode: 'LIFESTYLE',
-    description: 'Prolonged exposure to dry, climate-controlled air',
+    description:
+      'Làm việc hoặc sinh hoạt trong môi trường máy lạnh khô hanh suốt nhiều giờ',
   },
   {
     code: 'SMOKING',
-    name: 'Smoking',
+    name: 'Có hút thuốc lá hoặc tiếp xúc khói thuốc',
     categoryCode: 'LIFESTYLE',
-    description: 'Tobacco use affecting skin oxidative stress',
+    description:
+      'Thói quen hút thuốc hoặc hay ở trong môi trường có khói thuốc lá',
   },
   {
     code: 'HIGH_STRESS',
-    name: 'High Stress',
+    name: 'Thường xuyên căng thẳng, áp lực cao',
     categoryCode: 'LIFESTYLE',
-    description: 'Elevated chronic stress impacting skin inflammation',
+    description:
+      'Đang trong giai đoạn nhiều stress, lo lắng hay mệt mỏi kéo dài',
   },
 
   // EXPERIENCE_LEVEL
   {
     code: 'BEGINNER',
-    name: 'Beginner',
+    name: 'Người mới bắt đầu (Chưa dùng active bao giờ)',
     categoryCode: 'EXPERIENCE_LEVEL',
-    description: 'New to active ingredients and multi-step routines',
+    description:
+      'Mới bắt đầu chăm sóc da cơ bản, chưa quen hoặc chưa từng dùng Retinol, AHA/BHA',
   },
   {
     code: 'INTERMEDIATE',
-    name: 'Intermediate',
+    name: 'Đã có kinh nghiệm cơ bản',
     categoryCode: 'EXPERIENCE_LEVEL',
-    description: 'Comfortable with common actives at moderate strength',
+    description:
+      'Đã quen với việc sử dụng các hoạt chất tẩy da chết hóa học hoặc làm sáng da ở nồng độ vừa phải',
   },
   {
     code: 'ADVANCED',
-    name: 'Advanced',
+    name: 'Đã rất quen thuộc và thành thạo',
     categoryCode: 'EXPERIENCE_LEVEL',
-    description: 'Experienced with potent actives and layered routines',
+    description:
+      'Đã từng sử dụng tốt các hoạt chất mạnh (Retinol nồng độ cao, BHA/AHA chuyên sâu) và biết lắng nghe da',
   },
 
   // PRODUCT_PREFERENCE
   {
     code: 'FRAGRANCE_FREE',
-    name: 'Fragrance Free',
+    name: 'Không chứa hương liệu',
     categoryCode: 'PRODUCT_PREFERENCE',
-    description: 'Prefers products without added fragrance',
+    description: 'Ưu tiên sản phẩm không có hương liệu nhân tạo hoặc mùi thơm',
   },
   {
     code: 'ALCOHOL_FREE',
-    name: 'Alcohol Free',
+    name: 'Không chứa cồn khô',
     categoryCode: 'PRODUCT_PREFERENCE',
-    description: 'Prefers formulations without denatured alcohol',
+    description: 'Ưu tiên sản phẩm không có cồn khô (Alcohol Denat/Ethanol)',
   },
   {
     code: 'ESSENTIAL_OIL_FREE',
-    name: 'Essential Oil Free',
+    name: 'Không chứa tinh dầu',
     categoryCode: 'PRODUCT_PREFERENCE',
-    description: 'Prefers products without essential oils',
+    description: 'Ưu tiên công thức không có tinh dầu thực vật dễ gây kích ứng',
   },
   {
     code: 'NON_COMEDOGENIC',
-    name: 'Non-Comedogenic',
+    name: 'Không gây bít tắc lỗ chân lông',
     categoryCode: 'PRODUCT_PREFERENCE',
-    description: 'Prefers products unlikely to clog pores',
+    description:
+      'Ưu tiên sản phẩm có kết cấu thoáng nhẹ, được chứng minh không làm bít lỗ chân lông',
   },
   {
     code: 'HYPOALLERGENIC',
-    name: 'Hypoallergenic',
+    name: 'Công thức ít gây kích ứng',
     categoryCode: 'PRODUCT_PREFERENCE',
-    description: 'Prefers low-allergen formulated products',
+    description:
+      'Ưu tiên mỹ phẩm dịu nhẹ đã được kiểm tra an toàn cho da nhạy cảm',
   },
   {
     code: 'DERMATOLOGIST_TESTED',
-    name: 'Dermatologist Tested',
+    name: 'Được kiểm nghiệm bởi bác sĩ da liễu',
     categoryCode: 'PRODUCT_PREFERENCE',
-    description: 'Prefers clinically or dermatologist-evaluated products',
+    description:
+      'Ưu tiên sản phẩm đã được các chuyên gia da liễu đánh giá và khuyên dùng',
   },
   {
     code: 'VEGAN',
-    name: 'Vegan',
+    name: 'Thuần chay (Vegan)',
     categoryCode: 'PRODUCT_PREFERENCE',
-    description: 'Prefers products without animal-derived ingredients',
+    description:
+      'Ưu tiên sản phẩm không chứa bất kỳ thành phần nào có nguồn gốc từ động vật',
   },
   {
     code: 'CRUELTY_FREE',
-    name: 'Cruelty Free',
+    name: 'Không thử nghiệm trên động vật (Cruelty-Free)',
     categoryCode: 'PRODUCT_PREFERENCE',
-    description: 'Prefers products not tested on animals',
+    description:
+      'Ưu tiên các thương hiệu cam kết không thử nghiệm trên động vật',
   },
 ];
 
 const SKIN_TYPES = [
   {
     code: 'OSPW',
-    name: 'Oily, Sensitive, Pigmented, Wrinkled',
-    description: 'Baumann type OSPW',
+    name: 'Da dầu, dễ kích ứng, có vết thâm sạm và bắt đầu xuất hiện nếp nhăn',
+    description:
+      'Làn da thường xuyên tiết nhiều dầu, nhạy cảm dễ ửng đỏ khi gặp kích ứng, có vết thâm hoặc sạm nám sau mụn và bắt đầu có dấu hiệu lão hóa.',
     oilyDry: OilyDry.OILY,
     sensitiveResistant: SensitiveResistant.SENSITIVE,
     pigmentedNonPigmented: PigmentedNonPigmented.PIGMENTED,
@@ -631,8 +678,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'OSPT',
-    name: 'Oily, Sensitive, Pigmented, Tight',
-    description: 'Baumann type OSPT',
+    name: 'Da dầu, dễ kích ứng, dễ thâm sau mụn nhưng độ đàn hồi tốt',
+    description:
+      'Làn da thường tiết nhiều dầu, nhạy cảm dễ mẩn đỏ, dễ để lại vết thâm sau mụn nhưng cấu trúc da vẫn săn chắc và ít nếp nhăn.',
     oilyDry: OilyDry.OILY,
     sensitiveResistant: SensitiveResistant.SENSITIVE,
     pigmentedNonPigmented: PigmentedNonPigmented.PIGMENTED,
@@ -640,8 +688,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'OSNW',
-    name: 'Oily, Sensitive, Non-pigmented, Wrinkled',
-    description: 'Baumann type OSNW',
+    name: 'Da dầu, dễ kích ứng, ít thâm sạm nhưng bắt đầu có nếp nhăn',
+    description:
+      'Làn da thường xuyên bóng dầu, nhạy cảm với mỹ phẩm hoặc môi trường, không bị sạm nám nhiều nhưng bắt đầu xuất hiện nếp nhăn.',
     oilyDry: OilyDry.OILY,
     sensitiveResistant: SensitiveResistant.SENSITIVE,
     pigmentedNonPigmented: PigmentedNonPigmented.NON_PIGMENTED,
@@ -649,8 +698,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'OSNT',
-    name: 'Oily, Sensitive, Non-pigmented, Tight',
-    description: 'Baumann type OSNT',
+    name: 'Da dầu, dễ kích ứng, đều màu và độ đàn hồi tốt',
+    description:
+      'Làn da tiết nhiều dầu, nhạy cảm dễ rát nhẹ khi dùng sản phẩm lạ, nhưng tông da đều màu và cấu trúc da vẫn rất căng mịn.',
     oilyDry: OilyDry.OILY,
     sensitiveResistant: SensitiveResistant.SENSITIVE,
     pigmentedNonPigmented: PigmentedNonPigmented.NON_PIGMENTED,
@@ -658,8 +708,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'ORPW',
-    name: 'Oily, Resistant, Pigmented, Wrinkled',
-    description: 'Baumann type ORPW',
+    name: 'Da dầu, khỏe mạnh, có vết thâm sạm và có nếp nhăn',
+    description:
+      'Làn da tiết dầu thường xuyên, sức đề kháng da tốt ít khi bị kích ứng, tuy nhiên có các vết thâm nám và nếp nhăn xuất hiện.',
     oilyDry: OilyDry.OILY,
     sensitiveResistant: SensitiveResistant.RESISTANT,
     pigmentedNonPigmented: PigmentedNonPigmented.PIGMENTED,
@@ -667,8 +718,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'ORPT',
-    name: 'Oily, Resistant, Pigmented, Tight',
-    description: 'Baumann type ORPT',
+    name: 'Da dầu, khỏe mạnh, dễ thâm sau mụn và độ đàn hồi tốt',
+    description:
+      'Làn da hay bóng dầu, khỏe mạnh không dễ kích ứng, dễ có vết thâm sạm sau khi lên mụn nhưng độ đàn hồi và độ căng săn chắc rất tốt.',
     oilyDry: OilyDry.OILY,
     sensitiveResistant: SensitiveResistant.RESISTANT,
     pigmentedNonPigmented: PigmentedNonPigmented.PIGMENTED,
@@ -676,8 +728,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'ORNW',
-    name: 'Oily, Resistant, Non-pigmented, Wrinkled',
-    description: 'Baumann type ORNW',
+    name: 'Da dầu, khỏe mạnh, đều màu nhưng bắt đầu có nếp nhăn',
+    description:
+      'Làn da hay đổ dầu, ít nhạy cảm và đều màu, tuy nhiên đang có các dấu hiệu lão hóa như nếp nhăn ở vùng mắt hoặc trán.',
     oilyDry: OilyDry.OILY,
     sensitiveResistant: SensitiveResistant.RESISTANT,
     pigmentedNonPigmented: PigmentedNonPigmented.NON_PIGMENTED,
@@ -685,8 +738,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'ORNT',
-    name: 'Oily, Resistant, Non-pigmented, Tight',
-    description: 'Baumann type ORNT',
+    name: 'Da dầu, khỏe mạnh, đều màu và độ đàn hồi căng mịn',
+    description:
+      'Làn da bóng dầu nhưng rất khỏe, không bị kích ứng hay sạm nám, cấu trúc da săn chắc đàn hồi tốt và ít nếp nhăn.',
     oilyDry: OilyDry.OILY,
     sensitiveResistant: SensitiveResistant.RESISTANT,
     pigmentedNonPigmented: PigmentedNonPigmented.NON_PIGMENTED,
@@ -694,8 +748,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'DSPW',
-    name: 'Dry, Sensitive, Pigmented, Wrinkled',
-    description: 'Baumann type DSPW',
+    name: 'Da khô, dễ kích ứng, có vết thâm sạm và có nếp nhăn',
+    description:
+      'Làn da thường có cảm giác khô căng, nhạy cảm dễ ửng đỏ rát nhẹ, dễ bị thâm sạm nám và có nhiều nếp nhăn do thiếu ẩm.',
     oilyDry: OilyDry.DRY,
     sensitiveResistant: SensitiveResistant.SENSITIVE,
     pigmentedNonPigmented: PigmentedNonPigmented.PIGMENTED,
@@ -703,8 +758,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'DSPT',
-    name: 'Dry, Sensitive, Pigmented, Tight',
-    description: 'Baumann type DSPT',
+    name: 'Da khô, dễ kích ứng, dễ thâm sạm nhưng độ đàn hồi tốt',
+    description:
+      'Làn da hơi khô ráp, nhạy cảm với các yếu tố kích thích bên ngoài, dễ có thâm sạm nhưng bề mặt da vẫn giữ được độ săn chắc.',
     oilyDry: OilyDry.DRY,
     sensitiveResistant: SensitiveResistant.SENSITIVE,
     pigmentedNonPigmented: PigmentedNonPigmented.PIGMENTED,
@@ -712,8 +768,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'DSNW',
-    name: 'Dry, Sensitive, Non-pigmented, Wrinkled',
-    description: 'Baumann type DSNW',
+    name: 'Da khô, dễ kích ứng, đều màu nhưng bắt đầu xuất hiện nếp nhăn',
+    description:
+      'Làn da khô thiếu độ ẩm, nhạy cảm dễ châm chích, tông da khá đều màu nhưng dễ hình thành nếp nhăn chùng nhão.',
     oilyDry: OilyDry.DRY,
     sensitiveResistant: SensitiveResistant.SENSITIVE,
     pigmentedNonPigmented: PigmentedNonPigmented.NON_PIGMENTED,
@@ -721,8 +778,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'DSNT',
-    name: 'Dry, Sensitive, Non-pigmented, Tight',
-    description: 'Baumann type DSNT',
+    name: 'Da khô, dễ kích ứng, đều màu và độ đàn hồi căng tốt',
+    description:
+      'Làn da thường có xu hướng khô, nhạy cảm nhẹ, không bị vết thâm sạm hay sạm màu và độ đàn hồi của da vẫn còn tốt.',
     oilyDry: OilyDry.DRY,
     sensitiveResistant: SensitiveResistant.SENSITIVE,
     pigmentedNonPigmented: PigmentedNonPigmented.NON_PIGMENTED,
@@ -730,8 +788,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'DRPW',
-    name: 'Dry, Resistant, Pigmented, Wrinkled',
-    description: 'Baumann type DRPW',
+    name: 'Da khô, khỏe mạnh, có vết thâm sạm và có nếp nhăn',
+    description:
+      'Làn da khô ít khi bị mẩn cảm kích ứng, tuy nhiên có xuất hiện các đốm thâm nám sạm và nếp nhăn lão hóa.',
     oilyDry: OilyDry.DRY,
     sensitiveResistant: SensitiveResistant.RESISTANT,
     pigmentedNonPigmented: PigmentedNonPigmented.PIGMENTED,
@@ -739,8 +798,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'DRPT',
-    name: 'Dry, Resistant, Pigmented, Tight',
-    description: 'Baumann type DRPT',
+    name: 'Da khô, khỏe mạnh, dễ thâm sạm nhưng cấu trúc săn chắc',
+    description:
+      'Làn da khô ráo và khỏe mạnh ít nhạy cảm, dễ có một vài vết thâm sạm nhưng độ đàn hồi da vẫn rất tốt, ít nếp nhăn.',
     oilyDry: OilyDry.DRY,
     sensitiveResistant: SensitiveResistant.RESISTANT,
     pigmentedNonPigmented: PigmentedNonPigmented.PIGMENTED,
@@ -748,8 +808,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'DRNW',
-    name: 'Dry, Resistant, Non-pigmented, Wrinkled',
-    description: 'Baumann type DRNW',
+    name: 'Da khô, khỏe mạnh, đều màu nhưng có nếp nhăn lão hóa',
+    description:
+      'Làn da khô ít kích ứng, bề mặt da sáng đều màu nhưng cần bổ sung dưỡng ẩm do bắt đầu có nếp nhăn và rãnh nhăn.',
     oilyDry: OilyDry.DRY,
     sensitiveResistant: SensitiveResistant.RESISTANT,
     pigmentedNonPigmented: PigmentedNonPigmented.NON_PIGMENTED,
@@ -757,8 +818,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'DRNT',
-    name: 'Dry, Resistant, Non-pigmented, Tight',
-    description: 'Baumann type DRNT',
+    name: 'Da khô, khỏe mạnh, sáng đều màu và săn chắc căng mịn',
+    description:
+      'Làn da khô lý tưởng, khỏe mạnh không kích ứng, tông màu da sáng đều mịn màng và độ đàn hồi rất tốt.',
     oilyDry: OilyDry.DRY,
     sensitiveResistant: SensitiveResistant.RESISTANT,
     pigmentedNonPigmented: PigmentedNonPigmented.NON_PIGMENTED,

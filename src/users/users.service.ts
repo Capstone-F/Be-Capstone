@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, Repository } from 'typeorm';
+import { Brackets, In, Repository } from 'typeorm';
 import {
   APP_ROLES,
   filterAppRoles,
@@ -17,6 +17,11 @@ import {
 } from '../auth/roles.enum';
 import { ClinicsService } from '../clinics/clinics.service';
 import { KeycloakAdminService } from '../keycloak/keycloak-admin.service';
+import { SurveyRecommendation } from '../recommendations/survey-recommendation.entity';
+import { Label } from '../survey/label.entity';
+import { CustomerAllergy } from './customer-allergy.entity';
+import { Customer } from './customer.entity';
+import { AdminUpdateCustomerProfileDto } from './dto/admin-update-customer-profile.dto';
 import { User } from './user.entity';
 
 export type UpsertResult = {
@@ -55,6 +60,14 @@ export class UsersService {
     private readonly userRepository: Repository<User>,
     private readonly keycloakAdmin: KeycloakAdminService,
     private readonly clinicsService: ClinicsService,
+    @InjectRepository(Customer)
+    private readonly customerRepository: Repository<Customer>,
+    @InjectRepository(CustomerAllergy)
+    private readonly customerAllergyRepository: Repository<CustomerAllergy>,
+    @InjectRepository(SurveyRecommendation)
+    private readonly surveyRecommendationRepository: Repository<SurveyRecommendation>,
+    @InjectRepository(Label)
+    private readonly labelRepository: Repository<Label>,
   ) {}
 
   /**
@@ -90,6 +103,7 @@ export class UsersService {
         clinicId: null,
       });
       const user = await this.userRepository.save(created);
+      await this.ensureCustomerProfile(user.id, user.roles);
       return { user, isNewUser: true };
     }
 
@@ -97,7 +111,91 @@ export class UsersService {
     existing.name = name ?? existing.name;
     existing.roles = resolvedRoles;
     const user = await this.userRepository.save(existing);
+    await this.ensureCustomerProfile(user.id, user.roles);
     return { user, isNewUser: false };
+  }
+
+  private async ensureCustomerProfile(
+    userId: string,
+    roles: Role[],
+  ): Promise<void> {
+    if (roles.includes(Role.Customer)) {
+      const existing = await this.customerRepository.findOne({
+        where: { userId },
+      });
+      if (!existing) {
+        await this.customerRepository.save(
+          this.customerRepository.create({ userId }),
+        );
+      }
+    }
+  }
+
+  async adminUpdateCustomerProfile(
+    customerId: string,
+    dto: AdminUpdateCustomerProfileDto,
+  ) {
+    const customer = await this.customerRepository.findOne({
+      where: { id: customerId },
+      relations: ['user'],
+    });
+    if (!customer) {
+      throw new NotFoundException(`Customer ${customerId} not found`);
+    }
+
+    if (dto.fullName !== undefined) {
+      if (customer.user && dto.fullName.trim()) {
+        customer.user.name = dto.fullName.trim();
+        await this.userRepository.save(customer.user);
+      }
+    }
+    if (dto.phone !== undefined) {
+      customer.phone = dto.phone.trim() || null;
+    }
+    if (dto.age !== undefined && dto.age !== null) {
+      if (dto.age > 0) {
+        const now = new Date();
+        customer.dateOfBirth = new Date(now.getFullYear() - dto.age, 0, 1);
+      } else {
+        customer.dateOfBirth = null;
+      }
+    }
+
+    await this.customerRepository.save(customer);
+
+    if (dto.allergyCodes !== undefined) {
+      await this.customerAllergyRepository.delete({ customerId: customer.id });
+      if (dto.allergyCodes.length > 0) {
+        const labels = await this.labelRepository.find({
+          where: {
+            code: In(dto.allergyCodes.map((c) => c.trim())),
+            category: { code: 'ALLERGY' },
+          },
+        });
+        for (const label of labels) {
+          await this.customerAllergyRepository.save(
+            this.customerAllergyRepository.create({
+              customerId: customer.id,
+              labelId: label.id,
+            }),
+          );
+        }
+      }
+      await this.surveyRecommendationRepository.delete({
+        customerId: customer.id,
+      });
+    }
+
+    return this.customerRepository.findOneOrFail({
+      where: { id: customer.id },
+      relations: [
+        'user',
+        'allergies',
+        'allergies.label',
+        'skinTypeDetails',
+        'skinTypeDetails.skinType',
+      ],
+    });
   }
 
   async findById(id: string): Promise<User | null> {

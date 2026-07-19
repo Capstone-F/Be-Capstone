@@ -7,6 +7,9 @@ export class SkinTypeSummaryDto {
 
   @ApiProperty()
   name: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  description: string | null;
 }
 
 export class BaumannScoresDto {
