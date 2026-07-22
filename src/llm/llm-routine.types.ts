@@ -7,6 +7,8 @@ export type RoutineGenerationProductInput = {
   productVariantId: string;
   productName: string;
   sku: string;
+  /** Product category code when known (CLEANSER, TONER, SERUM, …). */
+  categoryCode: string | null;
   protocolId: string | null;
   protocolCode: string | null;
   protocolName: string | null;

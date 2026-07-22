@@ -26,6 +26,8 @@ Rules:
 - period must be exactly "MORNING" or "EVENING".
 - stepOrder must start at 1 within each period and increase sequentially.
 - Prefer protocol timeOfUse when choosing MORNING vs EVENING (AM → MORNING, PM → EVENING, AM_PM → both periods).
+- Prefer categoryCode when ordering steps within a period: CLEANSER → TONER → SERUM/TREATMENT → MOISTURIZER → SUNSCREEN.
+- Prefer seeded protocol instructions when present; still personalize wording using customer profile and survey labels.
 - protocolId should match the product's protocolId when available, otherwise null.
 - amountMl: numeric milliliters when measurable (e.g. 2 for serum); null when not applicable.
 - dosageText: short human-readable amount (e.g. "pea-sized", "2 pumps", "2 drops"); null only if unknown.

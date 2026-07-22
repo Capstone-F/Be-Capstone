@@ -11,7 +11,7 @@ The **final deliverable of this flow is a personalized routine** (`POST /routine
 
 **After cart creation:** reuse the shared checkout stack in [E-Commerce Integration Guide](ecommerce-flow.md) (order → shipping → VNPay → tracking), then return here for routine generation.
 
-See also: [VNPay Payment Integration](payments.md) · [User Management & RBAC](users.md) · [Routine Tracking](routine-tracking-flow.md) (Today / check-in / history after generate)
+See also: [VNPay Payment Integration](payments.md) · [User Management & RBAC](users.md) · [Routine Tracking](routine-tracking-flow.md) (Today / check-in / history after generate) · [Mock vs Ollama routines](llm-routine-mock-vs-ollama.md)
 
 ---
 

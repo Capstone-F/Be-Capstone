@@ -21,6 +21,7 @@ describe('OllamaLlmRoutineProvider', () => {
         productVariantId: 'v1',
         productName: 'Niacinamide Serum',
         sku: 'SKU-1',
+        categoryCode: 'SERUM',
         protocolId: 'p1',
         protocolCode: 'niacinamide_general',
         protocolName: 'Niacinamide',

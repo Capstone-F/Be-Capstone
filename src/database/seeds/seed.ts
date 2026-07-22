@@ -1082,19 +1082,35 @@ const INGREDIENTS: IngredientSeed[] = [
   },
 ];
 
-/** Maps product SKU → protocol codes for recommendation seeding. */
+/**
+ * Maps product SKU → protocol codes.
+ * Put the category/step-role protocol first so routine generation gets
+ * cleanser/toner/sunscreen-style instructions instead of only ingredient actives.
+ */
 const PRODUCT_PROTOCOL_MAPPINGS: Array<{
   sku: string;
   protocolCode: string;
 }> = [
+  // Cleanser → step protocol + barrier/niacinamide actives
+  { sku: 'CERAVE-FOAM-CLEANSER-236ML', protocolCode: 'cleanser_gentle_foam' },
   { sku: 'CERAVE-FOAM-CLEANSER-236ML', protocolCode: 'ceramide_barrier' },
   { sku: 'CERAVE-FOAM-CLEANSER-236ML', protocolCode: 'niacinamide_general' },
+  // Toner → exfoliating step + AHA/BHA
+  { sku: 'SOMEBYMI-MIRACLE-TONER-150ML', protocolCode: 'toner_exfoliating' },
   { sku: 'SOMEBYMI-MIRACLE-TONER-150ML', protocolCode: 'glycolic_exfoliation' },
   { sku: 'SOMEBYMI-MIRACLE-TONER-150ML', protocolCode: 'salicylic_acne' },
+  // Serum
+  { sku: 'TO-NIACINAMIDE-10-ZINC-30ML', protocolCode: 'serum_niacinamide' },
   { sku: 'TO-NIACINAMIDE-10-ZINC-30ML', protocolCode: 'niacinamide_general' },
+  // Moisturizer
+  { sku: 'CERAVE-MOIST-CREAM-454G', protocolCode: 'moisturizer_barrier' },
   { sku: 'CERAVE-MOIST-CREAM-454G', protocolCode: 'ceramide_barrier' },
   { sku: 'CERAVE-MOIST-CREAM-454G', protocolCode: 'ha_hydration' },
+  // Sunscreen (was wrongly only ha_hydration)
+  { sku: 'LRP-ANTHELIOS-UVMUNE-50ML', protocolCode: 'sunscreen_daily_spf' },
   { sku: 'LRP-ANTHELIOS-UVMUNE-50ML', protocolCode: 'ha_hydration' },
+  // Acne treatment
+  { sku: 'LRP-EFFAC-DUO-40ML', protocolCode: 'treatment_acne_spot' },
   { sku: 'LRP-EFFAC-DUO-40ML', protocolCode: 'benzoyl_acne' },
   { sku: 'LRP-EFFAC-DUO-40ML', protocolCode: 'azelaic_pigmentation' },
 ];
@@ -1279,6 +1295,62 @@ const PROTOCOL_LABEL_MAPPINGS: Array<{
   {
     protocolCode: 'niacinamide_general',
     labelCode: 'ANTI_AGING',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  // Step-role protocols (drive clearer routine HDSD)
+  {
+    protocolCode: 'cleanser_gentle_foam',
+    labelCode: 'BARRIER_REPAIR',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'cleanser_gentle_foam',
+    labelCode: 'OIL_CONTROL',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'toner_exfoliating',
+    labelCode: 'ACNE_TREATMENT',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'toner_exfoliating',
+    labelCode: 'IMPROVE_SKIN_TEXTURE',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'serum_niacinamide',
+    labelCode: 'ACNE_TREATMENT',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'serum_niacinamide',
+    labelCode: 'EVEN_SKIN_TONE',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'moisturizer_barrier',
+    labelCode: 'BARRIER_REPAIR',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'moisturizer_barrier',
+    labelCode: 'HYDRATION',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'sunscreen_daily_spf',
+    labelCode: 'HIGH_SUN_EXPOSURE',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'sunscreen_daily_spf',
+    labelCode: 'HYDRATION',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'treatment_acne_spot',
+    labelCode: 'ACNE_TREATMENT',
     matchType: LabelMatchType.OPTIONAL,
   },
 ];
@@ -1496,6 +1568,7 @@ async function upsertProtocol(
   timePerWeek?: number,
   timeOfUse?: TimeOfUse,
   durationWeeks?: number | null,
+  instructions?: string | null,
 ): Promise<IngredientProtocol> {
   let protocol = await repo.findOneBy({ code });
   if (!protocol) {
@@ -1507,6 +1580,7 @@ async function upsertProtocol(
       timePerWeek: timePerWeek ?? null,
       timeOfUse: timeOfUse ?? null,
       durationWeeks: durationWeeks ?? null,
+      instructions: instructions ?? null,
       isActive: true,
     });
     return repo.save(protocol);
@@ -1517,6 +1591,7 @@ async function upsertProtocol(
   protocol.timePerWeek = timePerWeek ?? null;
   protocol.timeOfUse = timeOfUse ?? null;
   protocol.durationWeeks = durationWeeks ?? null;
+  protocol.instructions = instructions ?? null;
   return repo.save(protocol);
 }
 
@@ -1759,6 +1834,7 @@ async function seed(): Promise<void> {
     timePerWeek?: number;
     timeOfUse?: TimeOfUse;
     durationWeeks?: number | null;
+    instructions?: string | null;
   }> = [
     {
       code: 'retinol_0.3_anti_aging',
@@ -1768,6 +1844,8 @@ async function seed(): Promise<void> {
       timePerWeek: 3,
       timeOfUse: TimeOfUse.PM,
       durationWeeks: 12,
+      instructions:
+        'Apply a pea-sized amount to dry face at night after cleansing. Start 2–3 nights/week, avoid eye area, and always use sunscreen the next morning.',
     },
     {
       code: 'salicylic_acne',
@@ -1777,6 +1855,8 @@ async function seed(): Promise<void> {
       timePerWeek: 7,
       timeOfUse: TimeOfUse.AM_PM,
       durationWeeks: 8,
+      instructions:
+        'Sweep a thin layer over clean skin focusing on oily/acne-prone zones. Do not layer with strong AHA the same night if skin stings.',
     },
     {
       code: 'azelaic_pigmentation',
@@ -1786,6 +1866,8 @@ async function seed(): Promise<void> {
       timePerWeek: 7,
       timeOfUse: TimeOfUse.AM_PM,
       durationWeeks: 12,
+      instructions:
+        'Apply a thin layer to pigmented or acne-prone areas. Can be used morning and/or night under moisturizer. Patch-test if sensitive.',
     },
     {
       code: 'ceramide_barrier',
@@ -1794,6 +1876,8 @@ async function seed(): Promise<void> {
       timePerWeek: 7,
       timeOfUse: TimeOfUse.AM_PM,
       durationWeeks: null,
+      instructions:
+        'Press a pea-sized amount over face and neck to seal in moisture and support the skin barrier. Use morning and night as the last leave-on step (before sunscreen in the morning).',
     },
     {
       code: 'ha_hydration',
@@ -1802,6 +1886,8 @@ async function seed(): Promise<void> {
       timePerWeek: 7,
       timeOfUse: TimeOfUse.AM_PM,
       durationWeeks: null,
+      instructions:
+        'On damp skin, apply 2–3 drops and press in. Follow with moisturizer so hydration does not evaporate.',
     },
     {
       code: 'niacinamide_general',
@@ -1811,6 +1897,8 @@ async function seed(): Promise<void> {
       timePerWeek: 7,
       timeOfUse: TimeOfUse.AM_PM,
       durationWeeks: null,
+      instructions:
+        'Apply 2–3 drops to clean face. Wait ~1 minute before the next product. Suitable morning and night.',
     },
     {
       code: 'glycolic_exfoliation',
@@ -1820,6 +1908,8 @@ async function seed(): Promise<void> {
       timePerWeek: 2,
       timeOfUse: TimeOfUse.PM,
       durationWeeks: 8,
+      instructions:
+        'At night only, apply a thin layer after cleansing. Limit to 2–3 nights/week. Avoid stacking with retinol or BHA on the same night if irritated.',
     },
     {
       code: 'benzoyl_acne',
@@ -1829,6 +1919,71 @@ async function seed(): Promise<void> {
       timePerWeek: 7,
       timeOfUse: TimeOfUse.AM,
       durationWeeks: 8,
+      instructions:
+        'Apply a thin layer to acne spots or oily T-zone in the morning. May bleach fabrics—let it dry fully. Moisturize after if skin feels dry.',
+    },
+    // Category / step-role protocols for specific mock routines
+    {
+      code: 'cleanser_gentle_foam',
+      name: 'Gentle Foaming Cleanser',
+      ingredientName: 'Ceramide',
+      timePerWeek: 7,
+      timeOfUse: TimeOfUse.AM_PM,
+      durationWeeks: null,
+      instructions:
+        'Wet face, dispense a pea-sized amount, lather, and massage 30–60 seconds. Rinse thoroughly with lukewarm water and pat dry. Use morning and night as step 1.',
+    },
+    {
+      code: 'toner_exfoliating',
+      name: 'Exfoliating Toner',
+      ingredientName: 'Glycolic Acid',
+      timePerWeek: 5,
+      timeOfUse: TimeOfUse.PM,
+      durationWeeks: null,
+      instructions:
+        'After cleansing at night, soak a cotton pad or pour a small amount into palms and sweep/press over face. Avoid eye area. Wait 1–2 minutes before serum. Start every other night if new to acids.',
+    },
+    {
+      code: 'serum_niacinamide',
+      name: 'Niacinamide Treatment Serum',
+      ingredientName: 'Niacinamide',
+      concentrationPct: 10,
+      timePerWeek: 7,
+      timeOfUse: TimeOfUse.AM_PM,
+      durationWeeks: null,
+      instructions:
+        'Apply 2–3 drops to clean, dry face. Gently pat until absorbed. Wait about 1 minute before moisturizer or sunscreen.',
+    },
+    {
+      code: 'moisturizer_barrier',
+      name: 'Barrier Moisturizer',
+      ingredientName: 'Ceramide',
+      timePerWeek: 7,
+      timeOfUse: TimeOfUse.AM_PM,
+      durationWeeks: null,
+      instructions:
+        'Take a pea-sized amount and massage over face and neck until absorbed. Use as the last leave-on step at night; in the morning apply before sunscreen.',
+    },
+    {
+      code: 'sunscreen_daily_spf',
+      name: 'Daily Broad-Spectrum Sunscreen',
+      ingredientName: 'Hyaluronic Acid',
+      timePerWeek: 7,
+      timeOfUse: TimeOfUse.AM,
+      durationWeeks: null,
+      instructions:
+        'As the final morning step, apply two finger-lengths (about 1/4 tsp for face) evenly. Reapply every 2–3 hours if outdoors. Do not skip on cloudy days.',
+    },
+    {
+      code: 'treatment_acne_spot',
+      name: 'Targeted Acne Treatment',
+      ingredientName: 'Benzoyl Peroxide',
+      concentrationPct: 2.5,
+      timePerWeek: 7,
+      timeOfUse: TimeOfUse.AM,
+      durationWeeks: 8,
+      instructions:
+        'After cleansing (and toner if used), apply a thin layer to active breakouts or oily zones. Allow to dry, then moisturize. Use sunscreen during the day.',
     },
   ];
 
@@ -1844,6 +1999,7 @@ async function seed(): Promise<void> {
       def.timePerWeek,
       def.timeOfUse,
       def.durationWeeks,
+      def.instructions,
     );
     protocolsByCode.set(protocol.code, protocol);
   }
