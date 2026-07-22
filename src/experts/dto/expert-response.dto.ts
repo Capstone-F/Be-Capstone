@@ -1,6 +1,17 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ExpertSpecialty } from '../expert-specialty.enum';
 
+export class ExpertClinicSummaryDto {
+  @ApiProperty({ example: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ example: 'GlowScan District 1 Clinic' })
+  name!: string;
+
+  @ApiProperty({ example: '12 Nguyen Hue, District 1, Ho Chi Minh City' })
+  address!: string;
+}
+
 export class ExpertResponseDto {
   @ApiProperty({ example: 'uuid' })
   id!: string;
@@ -11,11 +22,14 @@ export class ExpertResponseDto {
   @ApiPropertyOptional({ example: 'expert@example.com', nullable: true })
   email!: string | null;
 
-  @ApiPropertyOptional({ example: 'uuid', nullable: true })
-  clinicId!: string | null;
+  @ApiProperty({ example: 'uuid' })
+  clinicId!: string;
 
-  @ApiPropertyOptional({ example: 'GlowScan Clinic', nullable: true })
-  clinicName!: string | null;
+  @ApiProperty({ example: 'GlowScan Clinic' })
+  clinicName!: string;
+
+  @ApiProperty({ type: ExpertClinicSummaryDto })
+  clinic!: ExpertClinicSummaryDto;
 
   @ApiProperty({
     enum: ExpertSpecialty,

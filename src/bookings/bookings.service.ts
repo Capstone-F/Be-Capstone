@@ -6,13 +6,19 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, FindOptionsWhere, In, Repository } from 'typeorm';
+import {
+  Between,
+  FindOptionsWhere,
+  In,
+  MoreThanOrEqual,
+  Repository,
+} from 'typeorm';
 import { Role } from '../auth/roles.enum';
 import { ConsultationRequest } from '../consultations/consultation-request.entity';
 import { ConsultationStatus } from '../consultations/enums';
 import { Customer } from '../users/customer.entity';
 import { Expert } from '../users/expert.entity';
-import { BookingPerspective, BookingRange } from './enums';
+import { BookingPerspective, BookingRange, BookingTab } from './enums';
 import {
   BookingResponseDto,
   PaginatedBookingsDto,
@@ -61,11 +67,12 @@ export class BookingsService {
   ): Promise<BookingResponseDto> {
     const expert = await this.expertRepository.findOne({
       where: { id: dto.expertId, isActive: true },
-      relations: ['user'],
+      relations: ['user', 'clinic'],
     });
     if (!expert) {
       throw new NotFoundException(`Expert ${dto.expertId} not found`);
     }
+    this.assertExpertHasClinic(expert);
 
     const scheduledAt = this.parseScheduledAt(dto.scheduledAt);
     this.assertFutureTopOfHour(scheduledAt);
@@ -90,10 +97,24 @@ export class BookingsService {
     roles: Role[],
     query: ListBookingsQueryDto,
   ): Promise<PaginatedBookingsDto> {
+    if (query.tab && query.status) {
+      throw new BadRequestException(
+        'Use either tab or status filter, not both',
+      );
+    }
+
     const perspective = this.resolvePerspective(roles, query.as);
     const page = Math.max(1, query.page ?? 1);
     const limit = Math.min(100, Math.max(1, query.limit ?? 20));
     const skip = (page - 1) * limit;
+    const relations = [
+      'expert',
+      'expert.user',
+      'expert.clinic',
+      'customer',
+      'customer.user',
+      'feedback',
+    ];
 
     if (perspective === BookingPerspective.CUSTOMER) {
       const customer = await this.customerRepository.findOne({
@@ -104,17 +125,12 @@ export class BookingsService {
         return { items: [], total: 0, page, limit };
       }
 
-      const where: FindOptionsWhere<ConsultationRequest> = {
-        customerId: customer.id,
-      };
-      if (query.status) {
-        where.status = query.status;
-      }
+      const where = this.buildBookingWhere({ customerId: customer.id }, query);
 
       const [consultations, total] =
         await this.consultationRepository.findAndCount({
           where,
-          relations: ['expert', 'expert.user', 'customer', 'customer.user'],
+          relations,
           order: { scheduledAt: 'DESC', createdAt: 'DESC' },
           skip,
           take: limit,
@@ -132,23 +148,18 @@ export class BookingsService {
 
     const expert = await this.expertRepository.findOne({
       where: { userId },
-      relations: ['user'],
+      relations: ['user', 'clinic'],
     });
     if (!expert) {
       return { items: [], total: 0, page, limit };
     }
 
-    const where: FindOptionsWhere<ConsultationRequest> = {
-      expertId: expert.id,
-    };
-    if (query.status) {
-      where.status = query.status;
-    }
+    const where = this.buildBookingWhere({ expertId: expert.id }, query);
 
     const [consultations, total] =
       await this.consultationRepository.findAndCount({
         where,
-        relations: ['expert', 'expert.user', 'customer', 'customer.user'],
+        relations,
         order: { scheduledAt: 'DESC', createdAt: 'DESC' },
         skip,
         take: limit,
@@ -174,6 +185,7 @@ export class BookingsService {
     if (!expert) {
       throw new NotFoundException(`Expert ${expertId} not found`);
     }
+    this.assertExpertHasClinic(expert);
 
     const anchorDate = query.date
       ? this.parseDateOnly(query.date)
@@ -358,6 +370,14 @@ export class BookingsService {
     throw new ForbiddenException('Insufficient permissions to list bookings');
   }
 
+  private assertExpertHasClinic(expert: Expert): void {
+    if (!expert.clinicId) {
+      throw new BadRequestException(
+        'Expert is not linked to a clinic and cannot be booked',
+      );
+    }
+  }
+
   private parseScheduledAt(value: string): Date {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) {
@@ -384,22 +404,76 @@ export class BookingsService {
     }
   }
 
+  private buildBookingWhere(
+    base: FindOptionsWhere<ConsultationRequest>,
+    query: ListBookingsQueryDto,
+  ): FindOptionsWhere<ConsultationRequest> {
+    const where: FindOptionsWhere<ConsultationRequest> = { ...base };
+
+    if (query.tab === BookingTab.UPCOMING) {
+      where.status = In([
+        ConsultationStatus.PENDING,
+        ConsultationStatus.CONFIRMED,
+        ConsultationStatus.IN_PROGRESS,
+      ]);
+      where.scheduledAt = MoreThanOrEqual(new Date());
+      return where;
+    }
+
+    if (query.tab === BookingTab.PAST) {
+      where.status = ConsultationStatus.COMPLETED;
+      return where;
+    }
+
+    if (query.tab === BookingTab.CANCELLED) {
+      where.status = ConsultationStatus.CANCELLED;
+      return where;
+    }
+
+    if (query.status) {
+      where.status = query.status;
+    }
+
+    return where;
+  }
+
   private toBookingResponse(
     consultation: ConsultationRequest,
     customer?: Customer | null,
     expert?: Expert | null,
   ): BookingResponseDto {
+    const clinic = expert?.clinic;
     return {
       id: consultation.id,
       customerId: consultation.customerId,
       expertId: consultation.expertId,
       expertName: expert?.user?.name ?? null,
+      expertSpecialization: expert?.specialization ?? null,
+      clinic: clinic
+        ? {
+            id: clinic.id,
+            name: clinic.name,
+            address: clinic.address ?? '',
+          }
+        : expert?.clinicId
+          ? {
+              id: expert.clinicId,
+              name: '',
+              address: '',
+            }
+          : null,
       customerName: customer?.user?.name ?? null,
       reason: consultation.reason,
       status: consultation.status,
       scheduledAt: consultation.scheduledAt,
       startedAt: consultation.startedAt,
       completedAt: consultation.completedAt,
+      feedback: consultation.feedback
+        ? {
+            rating: consultation.feedback.rating,
+            comment: consultation.feedback.comment,
+          }
+        : null,
       createdAt: consultation.createdAt,
       updatedAt: consultation.updatedAt,
     };

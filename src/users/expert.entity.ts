@@ -24,12 +24,12 @@ export class Expert {
   @JoinColumn({ name: 'userId' })
   user: User;
 
-  @Column({ nullable: true, type: 'uuid' })
-  clinicId: string | null;
+  @Column({ type: 'uuid' })
+  clinicId: string;
 
-  @ManyToOne(() => Clinic, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => Clinic, { nullable: false, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'clinicId' })
-  clinic: Clinic | null;
+  clinic: Clinic;
 
   @Column({ type: 'varchar', enum: ExpertSpecialty })
   specialization: ExpertSpecialty;

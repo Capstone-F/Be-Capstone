@@ -1958,6 +1958,196 @@ describe('BE Capstone API (e2e)', () => {
         expect(body.consultationFee).toBe(250000);
         expect(body.rating).toBe(4.5);
         expect(body.clinicName).toBeTruthy();
+        expect(body.clinic).toEqual(
+          expect.objectContaining({
+            id: expect.any(String),
+            name: expect.any(String),
+            address: 'E2E Address',
+          }),
+        );
+        expect(body.clinicId).toBe(body.clinic.id);
+      });
+
+      it('should filter experts by clinicId', async () => {
+        const a = await seedExpert({
+          name: 'Clinic A Expert',
+          clinicName: 'Clinic A Filter',
+        });
+        await seedExpert({
+          name: 'Clinic B Expert',
+          clinicName: 'Clinic B Filter',
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .get(`/experts?clinicId=${a.clinicId}`)
+          .set('Cookie', customerSid)
+          .expect(200);
+
+        expect(body.total).toBeGreaterThanOrEqual(1);
+        expect(
+          body.items.every(
+            (item: { clinicId: string }) => item.clinicId === a.clinicId,
+          ),
+        ).toBe(true);
+      });
+    });
+
+    describe('GET /clinics', () => {
+      it('should return 401 without session cookie', async () => {
+        await request(app.getHttpServer()).get('/clinics').expect(401);
+      });
+
+      it('should list active clinics', async () => {
+        await dataSource.getRepository(Clinic).save(
+          dataSource.getRepository(Clinic).create({
+            name: `Active Clinic ${Math.random().toString(36).slice(2, 6)}`,
+            address: 'Active Address',
+            isActive: true,
+          }),
+        );
+        await dataSource.getRepository(Clinic).save(
+          dataSource.getRepository(Clinic).create({
+            name: `Inactive Clinic ${Math.random().toString(36).slice(2, 6)}`,
+            address: 'Inactive Address',
+            isActive: false,
+          }),
+        );
+
+        const { body } = await request(app.getHttpServer())
+          .get('/clinics?page=1&limit=50')
+          .set('Cookie', customerSid)
+          .expect(200);
+
+        expect(body.total).toBeGreaterThanOrEqual(1);
+        expect(
+          body.items.every(
+            (item: { isActive: boolean }) => item.isActive === true,
+          ),
+        ).toBe(true);
+      });
+
+      it('should return clinic detail and experts under clinic', async () => {
+        const expert = await seedExpert({
+          name: 'Under Clinic Expert',
+          clinicName: 'Detail Clinic Experts',
+        });
+
+        const detail = await request(app.getHttpServer())
+          .get(`/clinics/${expert.clinicId}`)
+          .set('Cookie', customerSid)
+          .expect(200);
+
+        expect(detail.body.id).toBe(expert.clinicId);
+        expect(detail.body.name).toBeTruthy();
+        expect(detail.body.address).toBe('E2E Address');
+
+        const experts = await request(app.getHttpServer())
+          .get(`/clinics/${expert.clinicId}/experts`)
+          .set('Cookie', customerSid)
+          .expect(200);
+
+        expect(experts.body.total).toBeGreaterThanOrEqual(1);
+        expect(
+          experts.body.items.every(
+            (item: { clinicId: string }) => item.clinicId === expert.clinicId,
+          ),
+        ).toBe(true);
+      });
+    });
+
+    describe('POST /experts and PATCH /experts/:id', () => {
+      let adminSid: string;
+
+      beforeEach(async () => {
+        adminSid = await performMockLogin({
+          userId: 'admin-experts-e2e',
+          keycloakSub: 'kc-admin-experts-e2e',
+          roles: [Role.AppAdmin],
+        });
+        jest
+          .spyOn(authService, 'refreshTokenIfNeeded')
+          .mockResolvedValue(undefined);
+      });
+
+      it('should create expert profile with required clinicId', async () => {
+        const clinic = await dataSource.getRepository(Clinic).save(
+          dataSource.getRepository(Clinic).create({
+            name: `Create Clinic ${Math.random().toString(36).slice(2, 6)}`,
+            address: 'Create Address',
+            latitude: 10.77,
+            longitude: 106.7,
+          }),
+        );
+        const user = await seedUser({
+          keycloakSub: `kc-expert-create-${Math.random().toString(36).slice(2)}`,
+          email: 'create.expert@example.com',
+          name: 'Create Expert',
+          roles: [Role.Expert],
+          clinicId: clinic.id,
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .post('/experts')
+          .set('Cookie', adminSid)
+          .send({
+            userId: user.id,
+            clinicId: clinic.id,
+            specialization: ExpertSpecialty.DERMATOLOGY,
+            licenseNumber: 'LIC-CREATE',
+            consultationFee: 320000,
+          })
+          .expect(201);
+
+        expect(body.clinicId).toBe(clinic.id);
+        expect(body.clinic).toEqual({
+          id: clinic.id,
+          name: clinic.name,
+          address: 'Create Address',
+        });
+        expect(body.specialization).toBe(ExpertSpecialty.DERMATOLOGY);
+
+        const updatedUser = await dataSource
+          .getRepository(User)
+          .findOneByOrFail({ id: user.id });
+        expect(updatedUser.clinicId).toBe(clinic.id);
+      });
+
+      it('should reject create without clinicId', async () => {
+        const user = await seedUser({
+          keycloakSub: `kc-expert-noclinic-${Math.random().toString(36).slice(2)}`,
+          email: 'noclinic.expert@example.com',
+          name: 'No Clinic Expert',
+          roles: [Role.Expert],
+        });
+
+        await request(app.getHttpServer())
+          .post('/experts')
+          .set('Cookie', adminSid)
+          .send({
+            userId: user.id,
+            specialization: ExpertSpecialty.DERMATOLOGY,
+          })
+          .expect(400);
+      });
+
+      it('should update expert clinic via PATCH', async () => {
+        const expert = await seedExpert({ name: 'Patch Expert' });
+        const newClinic = await dataSource.getRepository(Clinic).save(
+          dataSource.getRepository(Clinic).create({
+            name: `Patch Clinic ${Math.random().toString(36).slice(2, 6)}`,
+            address: 'Patch Address',
+          }),
+        );
+
+        const { body } = await request(app.getHttpServer())
+          .patch(`/experts/${expert.id}`)
+          .set('Cookie', adminSid)
+          .send({ clinicId: newClinic.id, bio: 'Updated bio' })
+          .expect(200);
+
+        expect(body.clinicId).toBe(newClinic.id);
+        expect(body.clinic.address).toBe('Patch Address');
+        expect(body.bio).toBe('Updated bio');
       });
     });
   });
@@ -2324,6 +2514,93 @@ describe('BE Capstone API (e2e)', () => {
         expect(body.items[0].id).toBe(consultation.id);
         expect(body.items[0].customerId).toBe(customer.id);
         expect(body.items[0].status).toBe(ConsultationStatus.PENDING);
+        expect(body.items[0].clinic).toEqual(
+          expect.objectContaining({
+            id: expect.any(String),
+            name: expect.any(String),
+          }),
+        );
+        expect(body.items[0].expertSpecialization).toBeTruthy();
+      });
+
+      it('should filter upcoming tab by active statuses and future scheduledAt', async () => {
+        const user = await seedUser({
+          keycloakSub: 'kc-booking-tab-upcoming',
+          email: 'tab-upcoming@example.com',
+          name: 'Tab Upcoming',
+          roles: [Role.Customer],
+        });
+        const customer = await dataSource
+          .getRepository(Customer)
+          .save(dataSource.getRepository(Customer).create({ userId: user.id }));
+        const expert = await seedExpertForBookings();
+        await dataSource.getRepository(ConsultationRequest).save([
+          dataSource.getRepository(ConsultationRequest).create({
+            customerId: customer.id,
+            expertId: expert.id,
+            reason: 'Future pending',
+            status: ConsultationStatus.PENDING,
+            scheduledAt: new Date('2030-06-01T09:00:00.000Z'),
+          }),
+          dataSource.getRepository(ConsultationRequest).create({
+            customerId: customer.id,
+            expertId: expert.id,
+            reason: 'Completed past',
+            status: ConsultationStatus.COMPLETED,
+            scheduledAt: new Date('2020-01-01T09:00:00.000Z'),
+          }),
+        ]);
+
+        const sid = await performMockLogin({
+          userId: user.id,
+          keycloakSub: user.keycloakSub,
+          roles: [Role.Customer],
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .get('/bookings/me?tab=upcoming')
+          .set('Cookie', sid)
+          .expect(200);
+
+        expect(body.total).toBe(1);
+        expect(body.items[0].status).toBe(ConsultationStatus.PENDING);
+        expect(body.items[0].reason).toBe('Future pending');
+      });
+
+      it('should filter cancelled tab', async () => {
+        const user = await seedUser({
+          keycloakSub: 'kc-booking-tab-cancelled',
+          email: 'tab-cancelled@example.com',
+          name: 'Tab Cancelled',
+          roles: [Role.Customer],
+        });
+        const customer = await dataSource
+          .getRepository(Customer)
+          .save(dataSource.getRepository(Customer).create({ userId: user.id }));
+        const expert = await seedExpertForBookings();
+        await dataSource.getRepository(ConsultationRequest).save(
+          dataSource.getRepository(ConsultationRequest).create({
+            customerId: customer.id,
+            expertId: expert.id,
+            reason: 'Cancelled booking',
+            status: ConsultationStatus.CANCELLED,
+            scheduledAt: new Date('2030-06-01T09:00:00.000Z'),
+          }),
+        );
+
+        const sid = await performMockLogin({
+          userId: user.id,
+          keycloakSub: user.keycloakSub,
+          roles: [Role.Customer],
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .get('/bookings/me?tab=cancelled')
+          .set('Cookie', sid)
+          .expect(200);
+
+        expect(body.total).toBe(1);
+        expect(body.items[0].status).toBe(ConsultationStatus.CANCELLED);
       });
 
       it('should return expert bookings when as=expert', async () => {

@@ -11,7 +11,7 @@ import { ConsultationStatus } from '../consultations/enums';
 import { Customer } from '../users/customer.entity';
 import { Expert } from '../users/expert.entity';
 import { BookingsService } from './bookings.service';
-import { BookingPerspective, BookingRange } from './enums';
+import { BookingPerspective, BookingRange, BookingTab } from './enums';
 import { ExpertAvailability } from './expert-availability.entity';
 
 const FUTURE_SLOT = '2030-01-09T09:00:00.000Z'; // Wednesday
@@ -28,7 +28,11 @@ const makeExpert = (overrides: Partial<Expert> = {}): Expert => ({
   sessionLengthHours: 2,
   isActive: true,
   user: { name: 'Dr. Expert' } as Expert['user'],
-  clinic: null,
+  clinic: {
+    id: 'clinic-1',
+    name: 'GlowScan Clinic',
+    address: '12 Nguyen Hue',
+  } as Expert['clinic'],
   createdAt: new Date(),
   updatedAt: new Date(),
   ...overrides,
@@ -385,6 +389,20 @@ describe('BookingsService', () => {
         }),
       ).rejects.toThrow(ConflictException);
     });
+
+    it('should reject booking when expert has no clinicId', async () => {
+      const { service } = makeService({
+        expert: makeExpert({ clinicId: '' as unknown as string }),
+        availability: wednesdayAvailability,
+      });
+
+      await expect(
+        service.createBooking('user-customer-1', {
+          expertId: 'expert-1',
+          scheduledAt: FUTURE_SLOT,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
   });
 
   describe('listMyBookings', () => {
@@ -424,11 +442,92 @@ describe('BookingsService', () => {
 
       expect(expertRepo.findOne).toHaveBeenCalledWith({
         where: { userId: 'user-expert-1' },
-        relations: ['user'],
+        relations: ['user', 'clinic'],
       });
       expect(result.items).toHaveLength(1);
       expect(result.items[0].expertId).toBe('expert-1');
       expect(result.items[0].expertName).toBe('Dr. Expert');
+      expect(result.items[0].expertSpecialization).toBe('DERMATOLOGY');
+      expect(result.items[0].clinic).toEqual({
+        id: 'clinic-1',
+        name: 'GlowScan Clinic',
+        address: '12 Nguyen Hue',
+      });
+    });
+
+    it('should reject combining tab and status filters', async () => {
+      const { service } = makeService({ customer: makeCustomer() });
+
+      await expect(
+        service.listMyBookings('user-customer-1', [Role.Customer], {
+          tab: BookingTab.UPCOMING,
+          status: ConsultationStatus.PENDING,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should apply upcoming tab filters (active statuses + scheduledAt >= now)', async () => {
+      const customer = makeCustomer();
+      const { service, consultationRepo } = makeService({
+        customer,
+        findAndCountResult: [[], 0],
+      });
+
+      await service.listMyBookings('user-customer-1', [Role.Customer], {
+        tab: BookingTab.UPCOMING,
+      });
+
+      expect(consultationRepo.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            customerId: 'cust-1',
+            status: expect.anything(),
+            scheduledAt: expect.anything(),
+          }),
+        }),
+      );
+    });
+
+    it('should apply past tab as COMPLETED status', async () => {
+      const customer = makeCustomer();
+      const { service, consultationRepo } = makeService({
+        customer,
+        findAndCountResult: [[], 0],
+      });
+
+      await service.listMyBookings('user-customer-1', [Role.Customer], {
+        tab: BookingTab.PAST,
+      });
+
+      expect(consultationRepo.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            customerId: 'cust-1',
+            status: ConsultationStatus.COMPLETED,
+          }),
+        }),
+      );
+    });
+
+    it('should apply cancelled tab as CANCELLED status', async () => {
+      const customer = makeCustomer();
+      const { service, consultationRepo } = makeService({
+        customer,
+        findAndCountResult: [[], 0],
+      });
+
+      await service.listMyBookings('user-customer-1', [Role.Customer], {
+        tab: BookingTab.CANCELLED,
+      });
+
+      expect(consultationRepo.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            customerId: 'cust-1',
+            status: ConsultationStatus.CANCELLED,
+          }),
+        }),
+      );
     });
 
     it('should throw ForbiddenException when as=expert but caller lacks expert role', async () => {

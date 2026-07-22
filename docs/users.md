@@ -52,6 +52,48 @@ In production, assign roles through the Keycloak Admin Console or the user-manag
 | `clinic_manager`      | Own clinic only | expert only                   | Own `clinicId`    |
 | `customer` / `expert` | —               | —                             | Self profile only |
 
+### Expert profiles (clinic-bound)
+
+Every bookable expert profile (`experts` row) **must** have a non-null `clinicId`. Creating or updating a profile without a clinic is rejected. Booking an expert without a clinic is blocked. List endpoints only return active experts linked to an **active** clinic.
+
+| Method  | Path                   | Roles                     | Description                                       |
+| ------- | ---------------------- | ------------------------- | ------------------------------------------------- |
+| `GET`   | `/clinics`             | Any authenticated         | List active clinics                               |
+| `GET`   | `/clinics/:id`         | Any authenticated         | Clinic profile (name, address, geo)               |
+| `GET`   | `/clinics/:id/experts` | Any authenticated         | Bookable experts in that clinic                   |
+| `GET`   | `/experts`             | Any authenticated         | List active experts (`?clinicId=` supported)      |
+| `GET`   | `/experts/:id`         | Any authenticated         | Expert detail (includes clinic summary)           |
+| `POST`  | `/experts`             | app_admin, clinic_manager | Create expert profile for an existing expert user |
+| `PATCH` | `/experts/:id`         | app_admin, clinic_manager | Update profile (`clinicId` cannot be cleared)     |
+
+`POST /users` with `role: expert` still creates the **account** only; call `POST /experts` to attach the clinic-bound consultation profile.
+
+List/detail responses include:
+
+```json
+{
+  "clinicId": "uuid",
+  "clinicName": "GlowScan District 1 Clinic",
+  "clinic": {
+    "id": "uuid",
+    "name": "GlowScan District 1 Clinic",
+    "address": "12 Nguyen Hue, District 1, Ho Chi Minh City"
+  }
+}
+```
+
+`clinic_manager` callers are scoped to their own `clinicId`.
+
+### Bookings (`GET /bookings/me`)
+
+| Param    | Description                                                                                                                                           |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tab`    | `upcoming` (PENDING\|CONFIRMED\|IN_PROGRESS and `scheduledAt >= now`), `past` (COMPLETED), `cancelled` (CANCELLED). Mutually exclusive with `status`. |
+| `status` | Exact consultation status filter                                                                                                                      |
+| `as`     | `customer` or `expert` perspective                                                                                                                    |
+
+Response includes `expertName`, `expertSpecialization`, nested `clinic { id, name, address }`, `customerName`, `reason`, `status`, `scheduledAt`, and `feedback { rating, comment }` when present.
+
 ---
 
 ## Endpoints
