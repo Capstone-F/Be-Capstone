@@ -78,6 +78,33 @@ function coerceAmountMl(value: unknown): number | null {
   return null;
 }
 
+function coerceWaitMinutes(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isNaN(parsed) && parsed >= 0) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function coerceDosageText(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  return null;
+}
+
 function parseStep(raw: unknown, index: number): RoutineGenerationStepOutput {
   if (!raw || typeof raw !== 'object') {
     throw new InternalServerErrorException(
@@ -99,6 +126,8 @@ function parseStep(raw: unknown, index: number): RoutineGenerationStepOutput {
     ),
     protocolId: coerceProtocolId(step.protocolId),
     amountMl: coerceAmountMl(step.amountMl),
+    waitMinutes: coerceWaitMinutes(step.waitMinutes),
+    dosageText: coerceDosageText(step.dosageText),
   };
 }
 

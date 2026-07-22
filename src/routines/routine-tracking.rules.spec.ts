@@ -1,0 +1,240 @@
+import {
+  DayHistoryStatus,
+  RoutinePeriod,
+  SessionState,
+  StepCompletionStatus,
+} from './enums';
+import {
+  aggregateSessionState,
+  averageCompletionRate,
+  computeCurrentStreak,
+  computeProgress,
+  defaultPeriodForNow,
+  deriveDayHistoryStatus,
+  deriveSessionState,
+  eachDateInclusive,
+  getVnDateParts,
+  progressFromStatuses,
+  shiftDate,
+} from './routine-tracking.rules';
+
+describe('routine-tracking.rules', () => {
+  describe('getVnDateParts / defaultPeriodForNow', () => {
+    it('uses Asia/Ho_Chi_Minh calendar date', () => {
+      // 2026-07-21 17:00 UTC = 2026-07-22 00:00 VN
+      const parts = getVnDateParts(new Date('2026-07-21T17:00:00.000Z'));
+      expect(parts.date).toBe('2026-07-22');
+      expect(parts.hour).toBe(0);
+    });
+
+    it('defaults to MORNING before 14:00 VN', () => {
+      // 2026-07-22 06:00 UTC = 13:00 VN
+      expect(defaultPeriodForNow(new Date('2026-07-22T06:00:00.000Z'))).toBe(
+        RoutinePeriod.MORNING,
+      );
+    });
+
+    it('defaults to EVENING at/after 14:00 VN', () => {
+      // 2026-07-22 07:00 UTC = 14:00 VN
+      expect(defaultPeriodForNow(new Date('2026-07-22T07:00:00.000Z'))).toBe(
+        RoutinePeriod.EVENING,
+      );
+    });
+  });
+
+  describe('progress', () => {
+    it('computes completionRate from completed/total only', () => {
+      expect(computeProgress(4, 3, 1)).toEqual({
+        completedCount: 3,
+        skippedCount: 1,
+        totalCount: 4,
+        completionRate: 75,
+      });
+    });
+
+    it('returns 0 rate when total is 0', () => {
+      expect(computeProgress(0, 0, 0).completionRate).toBe(0);
+    });
+
+    it('counts statuses via progressFromStatuses', () => {
+      expect(
+        progressFromStatuses([
+          StepCompletionStatus.COMPLETED,
+          StepCompletionStatus.SKIPPED,
+          null,
+          undefined,
+        ]),
+      ).toEqual({
+        completedCount: 1,
+        skippedCount: 1,
+        totalCount: 4,
+        completionRate: 25,
+      });
+    });
+  });
+
+  describe('deriveSessionState', () => {
+    it('NOT_STARTED when nothing acted today', () => {
+      expect(
+        deriveSessionState({
+          totalCount: 4,
+          actedCount: 0,
+          sessionDate: '2026-07-22',
+          today: '2026-07-22',
+        }),
+      ).toBe(SessionState.NOT_STARTED);
+    });
+
+    it('MISSED when nothing acted on a past day', () => {
+      expect(
+        deriveSessionState({
+          totalCount: 4,
+          actedCount: 0,
+          sessionDate: '2026-07-21',
+          today: '2026-07-22',
+        }),
+      ).toBe(SessionState.MISSED);
+    });
+
+    it('IN_PROGRESS when partially acted', () => {
+      expect(
+        deriveSessionState({
+          totalCount: 4,
+          actedCount: 2,
+          sessionDate: '2026-07-22',
+          today: '2026-07-22',
+        }),
+      ).toBe(SessionState.IN_PROGRESS);
+    });
+
+    it('COMPLETED when all steps acted including skips', () => {
+      expect(
+        deriveSessionState({
+          totalCount: 4,
+          actedCount: 4,
+          sessionDate: '2026-07-22',
+          today: '2026-07-22',
+        }),
+      ).toBe(SessionState.COMPLETED);
+    });
+  });
+
+  describe('aggregateSessionState', () => {
+    it('returns EMPTY for no routines', () => {
+      expect(aggregateSessionState([])).toBe(SessionState.EMPTY);
+    });
+
+    it('aggregates mixed states to IN_PROGRESS', () => {
+      expect(
+        aggregateSessionState([
+          SessionState.COMPLETED,
+          SessionState.NOT_STARTED,
+        ]),
+      ).toBe(SessionState.IN_PROGRESS);
+    });
+  });
+
+  describe('deriveDayHistoryStatus', () => {
+    it('returns null before routine activation', () => {
+      expect(
+        deriveDayHistoryStatus({
+          date: '2026-07-01',
+          today: '2026-07-22',
+          routineActiveFrom: '2026-07-10',
+          periodTotals: [2, 2],
+          periodActed: [0, 0],
+        }),
+      ).toBeNull();
+    });
+
+    it('marks past idle days as MISSED', () => {
+      expect(
+        deriveDayHistoryStatus({
+          date: '2026-07-21',
+          today: '2026-07-22',
+          routineActiveFrom: '2026-07-01',
+          periodTotals: [2, 2],
+          periodActed: [0, 0],
+        }),
+      ).toBe(DayHistoryStatus.MISSED);
+    });
+
+    it('marks today idle as NOT_STARTED', () => {
+      expect(
+        deriveDayHistoryStatus({
+          date: '2026-07-22',
+          today: '2026-07-22',
+          routineActiveFrom: '2026-07-01',
+          periodTotals: [2, 2],
+          periodActed: [0, 0],
+        }),
+      ).toBe(DayHistoryStatus.NOT_STARTED);
+    });
+
+    it('marks partial day as PARTIAL', () => {
+      expect(
+        deriveDayHistoryStatus({
+          date: '2026-07-21',
+          today: '2026-07-22',
+          routineActiveFrom: '2026-07-01',
+          periodTotals: [2, 2],
+          periodActed: [2, 0],
+        }),
+      ).toBe(DayHistoryStatus.PARTIAL);
+    });
+
+    it('marks day COMPLETED when every period with steps is fully acted', () => {
+      expect(
+        deriveDayHistoryStatus({
+          date: '2026-07-21',
+          today: '2026-07-22',
+          routineActiveFrom: '2026-07-01',
+          periodTotals: [2, 0],
+          periodActed: [2, 0],
+        }),
+      ).toBe(DayHistoryStatus.COMPLETED);
+    });
+  });
+
+  describe('streak / dates', () => {
+    it('enumerates inclusive date range', () => {
+      expect(eachDateInclusive('2026-07-20', '2026-07-22')).toEqual([
+        '2026-07-20',
+        '2026-07-21',
+        '2026-07-22',
+      ]);
+    });
+
+    it('computes streak ending yesterday when today incomplete', () => {
+      const streak = computeCurrentStreak(
+        [
+          { date: '2026-07-20', status: DayHistoryStatus.COMPLETED },
+          { date: '2026-07-21', status: DayHistoryStatus.COMPLETED },
+          { date: '2026-07-22', status: DayHistoryStatus.NOT_STARTED },
+        ],
+        '2026-07-22',
+      );
+      expect(streak).toBe(2);
+    });
+
+    it('includes today when today is COMPLETED', () => {
+      const streak = computeCurrentStreak(
+        [
+          { date: '2026-07-21', status: DayHistoryStatus.COMPLETED },
+          { date: '2026-07-22', status: DayHistoryStatus.COMPLETED },
+        ],
+        '2026-07-22',
+      );
+      expect(streak).toBe(2);
+    });
+
+    it('averages rates', () => {
+      expect(averageCompletionRate([100, 50])).toBe(75);
+      expect(averageCompletionRate([])).toBe(0);
+    });
+
+    it('shifts dates', () => {
+      expect(shiftDate('2026-07-01', -1)).toBe('2026-06-30');
+    });
+  });
+});

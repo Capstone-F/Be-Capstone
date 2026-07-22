@@ -14,7 +14,9 @@ Return ONLY a single JSON object (no markdown, no commentary) with this exact sh
       "instructions": string,
       "productVariantId": string,
       "protocolId": string | null,
-      "amountMl": number | null
+      "amountMl": number | null,
+      "waitMinutes": number | null,
+      "dosageText": string | null
     }
   ]
 }
@@ -25,8 +27,10 @@ Rules:
 - stepOrder must start at 1 within each period and increase sequentially.
 - Prefer protocol timeOfUse when choosing MORNING vs EVENING (AM → MORNING, PM → EVENING, AM_PM → both periods).
 - protocolId should match the product's protocolId when available, otherwise null.
-- amountMl may be null when not specified.
-- Write clear, practical instructions tailored to the customer's profile and survey labels.
+- amountMl: numeric milliliters when measurable (e.g. 2 for serum); null when not applicable.
+- dosageText: short human-readable amount (e.g. "pea-sized", "2 pumps", "2 drops"); null only if unknown.
+- waitMinutes: minutes to wait after this step before the next product. Use 0 for cleansers/first steps; typically 3–5 after actives/serums; null if unknown.
+- Write clear, practical instructions tailored to the customer's profile and survey labels (how to apply, massage time, tips).
 - Include every purchased product in at least one step when possible.`;
 
 export function buildOllamaRoutineUserPrompt(

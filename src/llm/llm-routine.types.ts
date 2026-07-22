@@ -32,6 +32,8 @@ export type RoutineGenerationStepOutput = {
   productVariantId: string;
   protocolId: string | null;
   amountMl: number | null;
+  waitMinutes: number | null;
+  dosageText: string | null;
 };
 
 export type RoutineGenerationOutput = {

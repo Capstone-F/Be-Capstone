@@ -43,6 +43,14 @@ export class RoutineStep {
   @Column({ nullable: true, type: 'text' })
   instructions: string | null;
 
+  /** Minutes to wait after this step before the next product. */
+  @Column({ type: 'int', nullable: true })
+  waitMinutes: number | null;
+
+  /** Human-readable dosage, e.g. "pea-sized", "2 pumps". */
+  @Column({ nullable: true, type: 'varchar' })
+  dosageText: string | null;
+
   @OneToMany(() => RoutineStepProtocol, (rsp) => rsp.routineStep)
   stepProtocols: RoutineStepProtocol[];
 

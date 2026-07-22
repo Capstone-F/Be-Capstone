@@ -1,6 +1,24 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { RoutinePeriod, RoutineStatus, RoutineType } from '../enums';
 
+export class RoutineStepProductVariantDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty({ description: 'Product display name' })
+  name!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  sku!: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Product image URL when available; currently always null until catalog supports media',
+  })
+  imageUrl!: string | null;
+}
+
 export class RoutineStepResponseDto {
   @ApiProperty()
   id!: string;
@@ -17,11 +35,33 @@ export class RoutineStepResponseDto {
   @ApiPropertyOptional({ nullable: true })
   instructions!: string | null;
 
-  @ApiPropertyOptional({ nullable: true })
-  productVariantId!: string | null;
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Minutes to wait after this step before the next product',
+  })
+  waitMinutes!: number | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Human-readable dosage, e.g. pea-sized or 2 pumps',
+  })
+  dosageText!: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Numeric dosage in milliliters when measurable',
+  })
+  amountMl!: number | null;
 
   @ApiPropertyOptional({ nullable: true })
   protocolId!: string | null;
+
+  @ApiPropertyOptional({
+    type: RoutineStepProductVariantDto,
+    nullable: true,
+    description: 'Linked product variant; null when the step has no product',
+  })
+  productVariant!: RoutineStepProductVariantDto | null;
 }
 
 export class RoutineResponseDto {
@@ -49,7 +89,11 @@ export class RoutineResponseDto {
   @ApiPropertyOptional({ nullable: true })
   surveyRecommendationId!: string | null;
 
-  @ApiProperty({ type: [RoutineStepResponseDto] })
+  @ApiProperty({
+    type: [RoutineStepResponseDto],
+    description:
+      'Steps sorted by period (MORNING then EVENING), then stepOrder',
+  })
   steps!: RoutineStepResponseDto[];
 
   @ApiProperty()

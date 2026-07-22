@@ -66,6 +66,8 @@ describe('OllamaLlmRoutineProvider', () => {
           productVariantId: 'v1',
           protocolId: 'p1',
           amountMl: null,
+          waitMinutes: 5,
+          dosageText: '2 drops',
         },
       ],
     });
@@ -97,6 +99,8 @@ describe('OllamaLlmRoutineProvider', () => {
     expect(result.steps).toHaveLength(1);
     expect(result.steps[0].period).toBe(RoutinePeriod.MORNING);
     expect(result.steps[0].productVariantId).toBe('v1');
+    expect(result.steps[0].waitMinutes).toBe(5);
+    expect(result.steps[0].dosageText).toBe('2 drops');
   });
 
   it('throws ServiceUnavailableException on non-2xx response', async () => {

@@ -1,0 +1,371 @@
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { Customer } from '../users/customer.entity';
+import {
+  CheckInMood,
+  EmptyRoutineReason,
+  RoutinePeriod,
+  RoutineStatus,
+  RoutineType,
+  SessionState,
+  SideEffectType,
+  SkipReason,
+  StepCompletionStatus,
+  StepSessionStatus,
+} from './enums';
+import { RoutineCheckIn } from './routine-check-in.entity';
+import { RoutineSideEffect } from './routine-side-effect.entity';
+import { RoutineStepCompletion } from './routine-step-completion.entity';
+import { RoutineStep } from './routine-step.entity';
+import { RoutineTrackingService } from './routine-tracking.service';
+import { Routine } from './routine.entity';
+
+describe('RoutineTrackingService', () => {
+  let service: RoutineTrackingService;
+  let routineRepository: {
+    find: jest.Mock;
+    findOne: jest.Mock;
+  };
+  let stepRepository: { find: jest.Mock };
+  let completionRepository: {
+    find: jest.Mock;
+    findOne: jest.Mock;
+    create: jest.Mock;
+    save: jest.Mock;
+  };
+  let checkInRepository: {
+    find: jest.Mock;
+    findOne: jest.Mock;
+    findOneOrFail: jest.Mock;
+    create: jest.Mock;
+    save: jest.Mock;
+  };
+  let sideEffectRepository: { create: jest.Mock; save: jest.Mock };
+  let customerRepository: { findOne: jest.Mock };
+
+  const now = new Date('2026-07-22T03:00:00.000Z'); // 10:00 VN → MORNING
+  const today = '2026-07-22';
+
+  const customer = { id: 'cust-1', userId: 'user-1' } as Customer;
+
+  const morningSteps = [
+    {
+      id: 'step-1',
+      name: 'Cleanser',
+      period: RoutinePeriod.MORNING,
+      stepOrder: 1,
+      instructions: 'Wash',
+      waitMinutes: 0,
+      dosageText: '1 pump',
+      details: [],
+      stepProtocols: [],
+    },
+    {
+      id: 'step-2',
+      name: 'Toner',
+      period: RoutinePeriod.MORNING,
+      stepOrder: 2,
+      instructions: 'Tone',
+      waitMinutes: 1,
+      dosageText: '2 drops',
+      details: [],
+      stepProtocols: [],
+    },
+  ];
+
+  const activeRoutine = {
+    id: 'routine-1',
+    customerId: 'cust-1',
+    type: RoutineType.AI_RECOMMENDED,
+    status: RoutineStatus.ACTIVE,
+    title: 'AM/PM',
+    description: null,
+    createdAt: new Date('2026-07-01T00:00:00.000Z'),
+    steps: [
+      ...morningSteps,
+      {
+        id: 'step-e1',
+        name: 'Serum',
+        period: RoutinePeriod.EVENING,
+        stepOrder: 1,
+        instructions: 'Night',
+        waitMinutes: null,
+        dosageText: null,
+        details: [],
+        stepProtocols: [],
+      },
+    ],
+  };
+
+  beforeEach(async () => {
+    routineRepository = {
+      find: jest.fn(),
+      findOne: jest.fn(),
+    };
+    stepRepository = { find: jest.fn() };
+    completionRepository = {
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn((x) => x),
+      save: jest.fn(async (x) => ({ id: 'comp-1', ...x })),
+    };
+    checkInRepository = {
+      find: jest.fn(),
+      findOne: jest.fn().mockResolvedValue(null),
+      findOneOrFail: jest.fn(),
+      create: jest.fn((x) => x),
+      save: jest.fn(async (x) => ({ id: 'ci-1', createdAt: now, ...x })),
+    };
+    sideEffectRepository = {
+      create: jest.fn((x) => x),
+      save: jest.fn(async (x) => x),
+    };
+    customerRepository = {
+      findOne: jest.fn().mockResolvedValue(customer),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        RoutineTrackingService,
+        { provide: getRepositoryToken(Routine), useValue: routineRepository },
+        {
+          provide: getRepositoryToken(RoutineStep),
+          useValue: stepRepository,
+        },
+        {
+          provide: getRepositoryToken(RoutineStepCompletion),
+          useValue: completionRepository,
+        },
+        {
+          provide: getRepositoryToken(RoutineCheckIn),
+          useValue: checkInRepository,
+        },
+        {
+          provide: getRepositoryToken(RoutineSideEffect),
+          useValue: sideEffectRepository,
+        },
+        {
+          provide: getRepositoryToken(Customer),
+          useValue: customerRepository,
+        },
+      ],
+    }).compile();
+
+    service = module.get(RoutineTrackingService);
+  });
+
+  describe('getToday', () => {
+    it('returns EMPTY + NO_ACTIVE_ROUTINE when none', async () => {
+      routineRepository.find.mockResolvedValue([]);
+      const result = await service.getToday('user-1', undefined, now);
+      expect(result.sessionState).toBe(SessionState.EMPTY);
+      expect(result.reason).toBe(EmptyRoutineReason.NO_ACTIVE_ROUTINE);
+      expect(result.routines).toEqual([]);
+      expect(result.period).toBe(RoutinePeriod.MORNING);
+      expect(result.date).toBe(today);
+    });
+
+    it('returns all ACTIVE routines for the period', async () => {
+      const second = {
+        ...activeRoutine,
+        id: 'routine-2',
+        title: 'Expert',
+        type: RoutineType.EXPERT_PRESCRIBED,
+      };
+      routineRepository.find.mockResolvedValue([activeRoutine, second]);
+      const result = await service.getToday(
+        'user-1',
+        RoutinePeriod.MORNING,
+        now,
+      );
+      expect(result.routines).toHaveLength(2);
+      expect(result.routines[0].sessionState).toBe(SessionState.NOT_STARTED);
+      expect(result.routines[0].steps).toHaveLength(2);
+      expect(
+        result.routines[0].steps.every(
+          (s) => s.status === StepSessionStatus.PENDING,
+        ),
+      ).toBe(true);
+    });
+  });
+
+  describe('completeStep / skipStep', () => {
+    beforeEach(() => {
+      routineRepository.findOne.mockResolvedValue(activeRoutine);
+    });
+
+    it('completes a step and returns updated progress', async () => {
+      completionRepository.findOne.mockResolvedValue(null);
+      completionRepository.find.mockResolvedValue([
+        {
+          routineStepId: 'step-1',
+          status: StepCompletionStatus.COMPLETED,
+          completedAt: now,
+          skipReason: null,
+          skipNote: null,
+        },
+      ]);
+
+      const result = await service.completeStep(
+        'user-1',
+        'routine-1',
+        'step-1',
+        now,
+      );
+      expect(result.progress).toEqual({
+        completedCount: 1,
+        skippedCount: 0,
+        totalCount: 2,
+        completionRate: 50,
+      });
+      expect(result.sessionState).toBe(SessionState.IN_PROGRESS);
+      expect(result.steps[0].status).toBe(StepSessionStatus.COMPLETED);
+      expect(completionRepository.save).toHaveBeenCalled();
+    });
+
+    it('is idempotent when completing twice', async () => {
+      completionRepository.findOne.mockResolvedValue({
+        status: StepCompletionStatus.COMPLETED,
+      });
+      completionRepository.find.mockResolvedValue([
+        {
+          routineStepId: 'step-1',
+          status: StepCompletionStatus.COMPLETED,
+          completedAt: now,
+          skipReason: null,
+          skipNote: null,
+        },
+      ]);
+      await service.completeStep('user-1', 'routine-1', 'step-1', now);
+      expect(completionRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('conflicts when flipping COMPLETED to SKIPPED', async () => {
+      completionRepository.findOne.mockResolvedValue({
+        status: StepCompletionStatus.COMPLETED,
+      });
+      await expect(
+        service.skipStep(
+          'user-1',
+          'routine-1',
+          'step-1',
+          { reason: SkipReason.FORGOT },
+          now,
+        ),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('requires note for OTHER skip', async () => {
+      await expect(
+        service.skipStep(
+          'user-1',
+          'routine-1',
+          'step-1',
+          { reason: SkipReason.OTHER },
+          now,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('forbids other customer routine', async () => {
+      routineRepository.findOne.mockResolvedValue({
+        ...activeRoutine,
+        customerId: 'other',
+      });
+      await expect(
+        service.completeStep('user-1', 'routine-1', 'step-1', now),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects inactive routine', async () => {
+      routineRepository.findOne.mockResolvedValue({
+        ...activeRoutine,
+        status: RoutineStatus.PAUSED,
+      });
+      await expect(
+        service.completeStep('user-1', 'routine-1', 'step-1', now),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('404 when step missing', async () => {
+      await expect(
+        service.completeStep('user-1', 'routine-1', 'missing', now),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('createCheckIn', () => {
+    beforeEach(() => {
+      routineRepository.findOne.mockResolvedValue(activeRoutine);
+      stepRepository.find.mockResolvedValue(morningSteps);
+      completionRepository.find.mockResolvedValue([
+        { routineStepId: 'step-1', status: StepCompletionStatus.COMPLETED },
+        { routineStepId: 'step-2', status: StepCompletionStatus.SKIPPED },
+      ]);
+    });
+
+    it('stores completionRate and side effects', async () => {
+      const saved = {
+        id: 'ci-1',
+        routineId: 'routine-1',
+        checkInDate: today,
+        period: RoutinePeriod.MORNING,
+        overallMood: CheckInMood.OK,
+        acneLevel: 1,
+        oilLevel: null,
+        rednessLevel: null,
+        moistureLevel: null,
+        completionRate: 50,
+        note: 'fine',
+        createdAt: now,
+        sideEffects: [
+          {
+            id: 'se-1',
+            type: SideEffectType.REDNESS,
+            severity: 2,
+            note: null,
+          },
+        ],
+      };
+      checkInRepository.findOneOrFail.mockResolvedValue(saved);
+
+      const result = await service.createCheckIn(
+        'user-1',
+        'routine-1',
+        {
+          period: RoutinePeriod.MORNING,
+          overallMood: CheckInMood.OK,
+          acneLevel: 1,
+          note: 'fine',
+          sideEffects: [{ type: SideEffectType.REDNESS, severity: 2 }],
+        },
+        now,
+      );
+
+      expect(checkInRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ completionRate: 50 }),
+      );
+      expect(sideEffectRepository.save).toHaveBeenCalled();
+      expect(result.completionRate).toBe(50);
+      expect(result.sideEffects).toHaveLength(1);
+    });
+
+    it('409 on duplicate check-in', async () => {
+      checkInRepository.findOne.mockResolvedValue({ id: 'existing' });
+      await expect(
+        service.createCheckIn(
+          'user-1',
+          'routine-1',
+          { period: RoutinePeriod.MORNING },
+          now,
+        ),
+      ).rejects.toThrow(ConflictException);
+    });
+  });
+});
