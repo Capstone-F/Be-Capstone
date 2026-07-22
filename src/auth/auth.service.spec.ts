@@ -19,16 +19,27 @@ function makeJwt(payload: Record<string, unknown>): string {
   return `${header}.${body}.fake-signature`;
 }
 
+function decodeJwtPayload(token: string): Record<string, unknown> {
+  const parts = token.split('.');
+  const payload = Buffer.from(parts[1], 'base64url').toString('utf-8');
+  return JSON.parse(payload) as Record<string, unknown>;
+}
+
 const mockUser = { id: 'uuid-1', keycloakSub: 'sub-001' } as User;
 const mockUsersService = {
   upsertFromKeycloak: jest
     .fn()
     .mockResolvedValue({ user: mockUser, isNewUser: false }),
   findById: jest.fn().mockResolvedValue(mockUser),
+  findByKeycloakSub: jest.fn(),
 } as unknown as jest.Mocked<UsersService>;
 
+const PUBLIC_ISSUER = 'http://localhost:8080/realms/be-capstone';
+const INTERNAL_ISSUER = 'http://keycloak:8080/realms/be-capstone';
+const TOKEN_ENDPOINT = `${INTERNAL_ISSUER}/protocol/openid-connect/token`;
+const LOGOUT_ENDPOINT = `${INTERNAL_ISSUER}/protocol/openid-connect/logout`;
+
 describe('AuthService', () => {
-  const originalFetch = global.fetch;
   const config = {
     keycloakPublicUrl: 'http://localhost:8080',
     keycloakInternalUrl: 'http://keycloak:8080',
@@ -39,13 +50,46 @@ describe('AuthService', () => {
     frontendUrl: 'http://localhost:5173',
     mobileRedirectUris: ['glowscan://auth/callback'],
   } as AppConfigService;
-  const keycloakAdmin = new KeycloakAdminService(config);
-  const service = new AuthService(config, mockUsersService, keycloakAdmin);
+
+  const mockKeycloakAdmin = {
+    getPublicIssuer: jest.fn().mockReturnValue(PUBLIC_ISSUER),
+    getInternalIssuer: jest.fn().mockReturnValue(INTERNAL_ISSUER),
+    getTokenEndpoint: jest.fn().mockReturnValue(TOKEN_ENDPOINT),
+    getLogoutEndpoint: jest.fn().mockReturnValue(LOGOUT_ENDPOINT),
+    postForm: jest.fn(),
+    decodeJwtPayload: jest.fn(decodeJwtPayload),
+    extractRolesFromToken: jest.fn((token: string) => {
+      const payload = decodeJwtPayload(token);
+      const realmAccess = payload.realm_access as
+        | { roles?: string[] }
+        | undefined;
+      return realmAccess?.roles ?? [];
+    }),
+    requestPasswordGrant: jest.fn(),
+    getAdminToken: jest.fn(),
+    getClientByClientId: jest.fn(),
+    updateClient: jest.fn(),
+  } as unknown as jest.Mocked<KeycloakAdminService>;
+
+  const service = new AuthService(config, mockUsersService, mockKeycloakAdmin);
 
   afterEach(() => {
-    global.fetch = originalFetch;
     jest.restoreAllMocks();
     jest.clearAllMocks();
+    mockKeycloakAdmin.getPublicIssuer.mockReturnValue(PUBLIC_ISSUER);
+    mockKeycloakAdmin.getInternalIssuer.mockReturnValue(INTERNAL_ISSUER);
+    mockKeycloakAdmin.getTokenEndpoint.mockReturnValue(TOKEN_ENDPOINT);
+    mockKeycloakAdmin.getLogoutEndpoint.mockReturnValue(LOGOUT_ENDPOINT);
+    mockKeycloakAdmin.decodeJwtPayload.mockImplementation(decodeJwtPayload);
+    mockKeycloakAdmin.extractRolesFromToken.mockImplementation(
+      (token: string) => {
+        const payload = decodeJwtPayload(token);
+        const realmAccess = payload.realm_access as
+          | { roles?: string[] }
+          | undefined;
+        return realmAccess?.roles ?? [];
+      },
+    );
   });
 
   describe('buildLoginUrl', () => {
@@ -59,6 +103,7 @@ describe('AuthService', () => {
         'http://localhost:3000/auth/callback',
       );
       expect(result.state).toBeTruthy();
+      expect(mockKeycloakAdmin.getPublicIssuer).toHaveBeenCalled();
     });
 
     it('should add kc_idp_hint when idpHint is provided', () => {
@@ -80,17 +125,13 @@ describe('AuthService', () => {
         realm_access: { roles: ['customer', 'offline_access'] },
       });
 
-      global.fetch = jest.fn().mockResolvedValueOnce({
-        ok: true,
-        text: async () =>
-          JSON.stringify({
-            access_token: accessToken,
-            id_token: idToken,
-            refresh_token: 'rt',
-            token_type: 'Bearer',
-            expires_in: 300,
-          }),
-      } as Response);
+      mockKeycloakAdmin.postForm.mockResolvedValueOnce({
+        access_token: accessToken,
+        id_token: idToken,
+        refresh_token: 'rt',
+        token_type: 'Bearer',
+        expires_in: 300,
+      });
 
       const result = await service.exchangeCodeAndUpsertUser('abc', 'google');
 
@@ -100,6 +141,10 @@ describe('AuthService', () => {
       expect(result.user).toEqual(mockUser);
       expect(result.isNewUser).toBe(false);
       expect(result.tokenExpiresAt).toBeGreaterThan(Date.now());
+      expect(mockKeycloakAdmin.postForm).toHaveBeenCalledWith(
+        TOKEN_ENDPOINT,
+        expect.any(URLSearchParams),
+      );
       expect(mockUsersService.upsertFromKeycloak).toHaveBeenCalledWith(
         expect.objectContaining({ sub: '123' }),
         'google',
@@ -114,15 +159,11 @@ describe('AuthService', () => {
         realm_access: { roles: ['customer'] },
       });
 
-      global.fetch = jest.fn().mockResolvedValueOnce({
-        ok: true,
-        text: async () =>
-          JSON.stringify({
-            access_token: accessToken,
-            token_type: 'Bearer',
-            expires_in: 300,
-          }),
-      } as Response);
+      mockKeycloakAdmin.postForm.mockResolvedValueOnce({
+        access_token: accessToken,
+        token_type: 'Bearer',
+        expires_in: 300,
+      });
 
       const result = await service.exchangeCodeAndUpsertUser('code-xyz');
 
@@ -135,11 +176,9 @@ describe('AuthService', () => {
     });
 
     it('should throw if token endpoint fails', async () => {
-      global.fetch = jest.fn().mockResolvedValue({
-        ok: false,
-        status: 400,
-        text: async () => 'invalid_grant',
-      } as Response);
+      mockKeycloakAdmin.postForm.mockRejectedValueOnce(
+        new BadGatewayException('Keycloak request failed (400): invalid_grant'),
+      );
 
       await expect(
         service.exchangeCodeAndUpsertUser('bad'),
@@ -149,7 +188,6 @@ describe('AuthService', () => {
 
   describe('refreshTokenIfNeeded', () => {
     it('should not refresh if token is still valid', async () => {
-      global.fetch = jest.fn();
       const session = {
         refreshToken: 'rt',
         tokenExpiresAt: Date.now() + 60_000,
@@ -157,7 +195,7 @@ describe('AuthService', () => {
 
       await service.refreshTokenIfNeeded(session);
 
-      expect(global.fetch).not.toHaveBeenCalled();
+      expect(mockKeycloakAdmin.postForm).not.toHaveBeenCalled();
     });
 
     it('should refresh if token is expired', async () => {
@@ -166,15 +204,11 @@ describe('AuthService', () => {
         realm_access: { roles: ['staff'] },
       });
 
-      global.fetch = jest.fn().mockResolvedValueOnce({
-        ok: true,
-        text: async () =>
-          JSON.stringify({
-            access_token: newAccessToken,
-            refresh_token: 'new-rt',
-            expires_in: 300,
-          }),
-      } as Response);
+      mockKeycloakAdmin.postForm.mockResolvedValueOnce({
+        access_token: newAccessToken,
+        refresh_token: 'new-rt',
+        expires_in: 300,
+      });
 
       const session = {
         userId: 'u1',
@@ -188,14 +222,16 @@ describe('AuthService', () => {
       expect(session.refreshToken).toBe('new-rt');
       expect(session.roles).toEqual([Role.Staff]);
       expect(session.tokenExpiresAt).toBeGreaterThan(Date.now());
+      expect(mockKeycloakAdmin.postForm).toHaveBeenCalledWith(
+        TOKEN_ENDPOINT,
+        expect.any(URLSearchParams),
+      );
     });
 
     it('should throw UnauthorizedException if refresh fails', async () => {
-      global.fetch = jest.fn().mockResolvedValueOnce({
-        ok: false,
-        status: 400,
-        text: async () => 'invalid_grant',
-      } as Response);
+      mockKeycloakAdmin.postForm.mockRejectedValueOnce(
+        new BadGatewayException('Keycloak request failed (400): invalid_grant'),
+      );
 
       const session = {
         userId: 'u1',
@@ -211,23 +247,20 @@ describe('AuthService', () => {
 
   describe('revokeToken', () => {
     it('should call keycloak logout endpoint', async () => {
-      global.fetch = jest.fn().mockResolvedValueOnce({
-        ok: true,
-        text: async () => '',
-      } as Response);
+      mockKeycloakAdmin.postForm.mockResolvedValueOnce({});
 
       await service.revokeToken('some-rt');
 
-      const call = (global.fetch as jest.Mock).mock.calls[0];
-      expect(call[0]).toContain('/protocol/openid-connect/logout');
+      expect(mockKeycloakAdmin.postForm).toHaveBeenCalledWith(
+        LOGOUT_ENDPOINT,
+        expect.any(URLSearchParams),
+      );
     });
 
     it('should not throw if revocation fails', async () => {
-      global.fetch = jest.fn().mockResolvedValueOnce({
-        ok: false,
-        status: 400,
-        text: async () => 'error',
-      } as Response);
+      mockKeycloakAdmin.postForm.mockRejectedValueOnce(
+        new BadGatewayException('Keycloak request failed (400): error'),
+      );
 
       await expect(service.revokeToken('bad-rt')).resolves.toBeUndefined();
     });
@@ -324,13 +357,11 @@ describe('AuthService', () => {
           realm_access: { roles: ['customer', 'offline_access'] },
         },
       });
-      (mockUsersService as any).findByKeycloakSub = jest
-        .fn()
-        .mockResolvedValue({
-          id: 'uuid-1',
-          keycloakSub: 'sub-001',
-          clinicId: null,
-        });
+      mockUsersService.findByKeycloakSub = jest.fn().mockResolvedValue({
+        id: 'uuid-1',
+        keycloakSub: 'sub-001',
+        clinicId: null,
+      });
 
       await expect(
         service.authenticateBearerToken('access.jwt'),
@@ -341,10 +372,7 @@ describe('AuthService', () => {
         clinicId: null,
       });
       expect(jwtVerify).toHaveBeenCalledWith('access.jwt', expect.anything(), {
-        issuer: [
-          'http://localhost:8080/realms/be-capstone',
-          'http://keycloak:8080/realms/be-capstone',
-        ],
+        issuer: [PUBLIC_ISSUER, INTERNAL_ISSUER],
       });
     });
 
@@ -360,9 +388,7 @@ describe('AuthService', () => {
       (jwtVerify as jest.Mock).mockResolvedValue({
         payload: { sub: 'missing-sub', realm_access: { roles: ['customer'] } },
       });
-      (mockUsersService as any).findByKeycloakSub = jest
-        .fn()
-        .mockResolvedValue(null);
+      mockUsersService.findByKeycloakSub = jest.fn().mockResolvedValue(null);
 
       await expect(
         service.authenticateBearerToken('access.jwt'),

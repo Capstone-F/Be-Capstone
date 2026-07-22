@@ -38,6 +38,7 @@ describe('OllamaLlmRoutineProvider', () => {
     ollamaTimeoutMs: 120000,
   };
 
+  const originalFetch = global.fetch;
   let provider: OllamaLlmRoutineProvider;
   let fetchMock: jest.Mock;
 
@@ -51,6 +52,7 @@ describe('OllamaLlmRoutineProvider', () => {
   });
 
   afterEach(() => {
+    global.fetch = originalFetch;
     jest.restoreAllMocks();
   });
 
