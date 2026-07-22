@@ -11,7 +11,7 @@ import {
 } from 'typeorm';
 import { Customer } from '../users/customer.entity';
 import { Expert } from '../users/expert.entity';
-import { ConsultationStatus } from './enums';
+import { BookingCancelledBy, ConsultationStatus } from './enums';
 import { ChatHistory } from './chat-history.entity';
 import { Feedback } from './feedback.entity';
 
@@ -52,6 +52,19 @@ export class ConsultationRequest {
 
   @Column({ type: 'timestamp', nullable: true })
   completedAt: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  cancelledAt: Date | null;
+
+  @Column({ nullable: true, type: 'text' })
+  cancelReason: string | null;
+
+  @Column({
+    type: 'varchar',
+    enum: BookingCancelledBy,
+    nullable: true,
+  })
+  cancelledBy: BookingCancelledBy | null;
 
   @OneToMany(() => ChatHistory, (chat) => chat.consultation)
   chatHistory: ChatHistory[];

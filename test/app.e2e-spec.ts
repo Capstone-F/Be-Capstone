@@ -60,7 +60,10 @@ import { ExpertsModule } from '../src/experts/experts.module';
 import { BookingsModule } from '../src/bookings/bookings.module';
 import { ExpertAvailability } from '../src/bookings/expert-availability.entity';
 import { ConsultationRequest } from '../src/consultations/consultation-request.entity';
-import { ConsultationStatus } from '../src/consultations/enums';
+import {
+  ConsultationStatus,
+  BookingCancelledBy,
+} from '../src/consultations/enums';
 import { StockBatch } from '../src/stock/stock-batch.entity';
 import { StockMovement } from '../src/stock/stock-movement.entity';
 import { ProductInstance } from '../src/stock/product-instance.entity';
@@ -2723,6 +2726,564 @@ describe('BE Capstone API (e2e)', () => {
         expect(body.total).toBe(1);
         expect(body.items).toHaveLength(1);
         expect(body.items[0].status).toBe(ConsultationStatus.PENDING);
+      });
+    });
+
+    describe('PATCH /bookings/:id/confirm', () => {
+      it('should confirm PENDING booking for assigned expert', async () => {
+        const clinic = await seedClinic('Confirm Clinic A');
+        const expertUser = await seedUser({
+          keycloakSub: 'kc-booking-confirm-expert-a',
+          email: 'confirm-expert-a@example.com',
+          name: 'Confirm Expert A',
+          roles: [Role.Expert],
+          clinicId: clinic.id,
+        });
+        const expert = await dataSource.getRepository(Expert).save(
+          dataSource.getRepository(Expert).create({
+            userId: expertUser.id,
+            clinicId: clinic.id,
+            specialization: ExpertSpecialty.DERMATOLOGY,
+            licenseNumber: 'LIC-CONFIRM-A',
+            bio: 'Confirm expert A',
+            rating: 4.5,
+            consultationFee: 300000,
+            sessionLengthHours: 1,
+            isActive: true,
+          }),
+        );
+
+        const customerUser = await seedUser({
+          keycloakSub: 'kc-booking-confirm-customer',
+          email: 'confirm-customer@example.com',
+          name: 'Confirm Customer',
+          roles: [Role.Customer],
+        });
+        const customer = await dataSource
+          .getRepository(Customer)
+          .save(
+            dataSource
+              .getRepository(Customer)
+              .create({ userId: customerUser.id }),
+          );
+        const consultation = await dataSource
+          .getRepository(ConsultationRequest)
+          .save(
+            dataSource.getRepository(ConsultationRequest).create({
+              customerId: customer.id,
+              expertId: expert.id,
+              reason: 'Please confirm',
+              status: ConsultationStatus.PENDING,
+              scheduledAt: new Date('2030-03-01T09:00:00.000Z'),
+            }),
+          );
+
+        const expertSid = await performMockLogin({
+          userId: expertUser.id,
+          keycloakSub: expertUser.keycloakSub,
+          roles: [Role.Expert],
+          clinicId: clinic.id,
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .patch(`/bookings/${consultation.id}/confirm`)
+          .set('Cookie', expertSid)
+          .expect(200);
+
+        expect(body.id).toBe(consultation.id);
+        expect(body.status).toBe(ConsultationStatus.CONFIRMED);
+        expect(body.clinic).toMatchObject({
+          id: clinic.id,
+          name: clinic.name,
+        });
+
+        const customerSidLocal = await performMockLogin({
+          userId: customerUser.id,
+          keycloakSub: customerUser.keycloakSub,
+          roles: [Role.Customer],
+        });
+        const list = await request(app.getHttpServer())
+          .get('/bookings/me')
+          .set('Cookie', customerSidLocal)
+          .expect(200);
+        expect(list.body.items[0].status).toBe(ConsultationStatus.CONFIRMED);
+        expect(list.body.items[0].clinic.id).toBe(clinic.id);
+      });
+
+      it('should return 403 when another expert confirms the booking', async () => {
+        const expertA = await seedExpertForBookings({ name: 'Expert A' });
+        const expertB = await seedExpertForBookings({ name: 'Expert B' });
+        const consultation = await seedConsultation({
+          expertId: expertA.id,
+          scheduledAt: new Date('2030-03-02T09:00:00.000Z'),
+          status: ConsultationStatus.PENDING,
+        });
+
+        const expertBUser = await dataSource
+          .getRepository(Expert)
+          .findOneOrFail({
+            where: { id: expertB.id },
+            relations: ['user'],
+          });
+        const expertBSid = await performMockLogin({
+          userId: expertB.userId,
+          keycloakSub: expertBUser.user.keycloakSub,
+          roles: [Role.Expert],
+          clinicId: expertB.clinicId,
+        });
+
+        await request(app.getHttpServer())
+          .patch(`/bookings/${consultation.id}/confirm`)
+          .set('Cookie', expertBSid)
+          .expect(403);
+      });
+
+      it('should return 400 when booking is not PENDING', async () => {
+        const clinic = await seedClinic('Confirm Clinic Already');
+        const expertUser = await seedUser({
+          keycloakSub: 'kc-booking-confirm-already',
+          email: 'confirm-already@example.com',
+          name: 'Confirm Already Expert',
+          roles: [Role.Expert],
+          clinicId: clinic.id,
+        });
+        const expert = await dataSource.getRepository(Expert).save(
+          dataSource.getRepository(Expert).create({
+            userId: expertUser.id,
+            clinicId: clinic.id,
+            specialization: ExpertSpecialty.DERMATOLOGY,
+            licenseNumber: 'LIC-CONFIRM-ALREADY',
+            bio: 'Already confirmed',
+            rating: 4.5,
+            consultationFee: 300000,
+            sessionLengthHours: 1,
+            isActive: true,
+          }),
+        );
+        const consultation = await seedConsultation({
+          expertId: expert.id,
+          scheduledAt: new Date('2030-03-03T09:00:00.000Z'),
+          status: ConsultationStatus.CONFIRMED,
+        });
+
+        const expertSid = await performMockLogin({
+          userId: expertUser.id,
+          keycloakSub: expertUser.keycloakSub,
+          roles: [Role.Expert],
+          clinicId: clinic.id,
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .patch(`/bookings/${consultation.id}/confirm`)
+          .set('Cookie', expertSid)
+          .expect(400);
+
+        expect(body.message).toMatch(/PENDING/i);
+      });
+
+      it('should return 403 when caller is a customer', async () => {
+        await request(app.getHttpServer())
+          .patch('/bookings/00000000-0000-0000-0000-000000000001/confirm')
+          .set('Cookie', customerSid)
+          .expect(403);
+      });
+    });
+
+    describe('PATCH /bookings/:id/cancel', () => {
+      it('should let owning customer cancel PENDING with reason', async () => {
+        const customerUser = await seedUser({
+          keycloakSub: 'kc-booking-cancel-customer',
+          email: 'cancel-customer@example.com',
+          name: 'Cancel Customer',
+          roles: [Role.Customer],
+        });
+        const customer = await dataSource
+          .getRepository(Customer)
+          .save(
+            dataSource
+              .getRepository(Customer)
+              .create({ userId: customerUser.id }),
+          );
+        const expert = await seedExpertForBookings();
+        const consultation = await dataSource
+          .getRepository(ConsultationRequest)
+          .save(
+            dataSource.getRepository(ConsultationRequest).create({
+              customerId: customer.id,
+              expertId: expert.id,
+              reason: 'Booked',
+              status: ConsultationStatus.PENDING,
+              scheduledAt: new Date('2030-04-01T09:00:00.000Z'),
+            }),
+          );
+
+        const sid = await performMockLogin({
+          userId: customerUser.id,
+          keycloakSub: customerUser.keycloakSub,
+          roles: [Role.Customer],
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .patch(`/bookings/${consultation.id}/cancel`)
+          .set('Cookie', sid)
+          .send({ reason: 'Schedule conflict' })
+          .expect(200);
+
+        expect(body.status).toBe(ConsultationStatus.CANCELLED);
+        expect(body.cancelReason).toBe('Schedule conflict');
+        expect(body.cancelledBy).toBe(BookingCancelledBy.CUSTOMER);
+        expect(body.cancelledAt).toBeTruthy();
+      });
+
+      it('should free the slot after cancel', async () => {
+        const expert = await seedExpertForBookings({ sessionLengthHours: 2 });
+        await seedAvailability(expert.id, [
+          { dayOfWeek: 2, startHour: 9, endHour: 18 },
+        ]);
+        const consultation = await seedConsultation({
+          expertId: expert.id,
+          scheduledAt: new Date('2026-07-07T10:00:00.000Z'),
+          status: ConsultationStatus.CONFIRMED,
+        });
+
+        const expertEntity = await dataSource
+          .getRepository(Expert)
+          .findOneOrFail({
+            where: { id: expert.id },
+            relations: ['user'],
+          });
+        const expertSid = await performMockLogin({
+          userId: expert.userId,
+          keycloakSub: expertEntity.user.keycloakSub,
+          roles: [Role.Expert],
+          clinicId: expert.clinicId,
+        });
+
+        await request(app.getHttpServer())
+          .patch(`/bookings/${consultation.id}/cancel`)
+          .set('Cookie', expertSid)
+          .send({})
+          .expect(200);
+
+        const { body } = await request(app.getHttpServer())
+          .get(`/bookings/${expert.id}?date=2026-07-07`)
+          .set('Cookie', customerSid)
+          .expect(200);
+
+        const tuesday = body.days.find(
+          (d: { date: string }) => d.date === '2026-07-07',
+        );
+        const slot10 = tuesday.slots.find(
+          (s: { startAt: string }) => new Date(s.startAt).getUTCHours() === 10,
+        );
+        expect(slot10.available).toBe(true);
+      });
+
+      it('should return 403 for unrelated customer', async () => {
+        const consultation = await seedConsultation({
+          expertId: (await seedExpertForBookings()).id,
+          scheduledAt: new Date('2030-04-02T09:00:00.000Z'),
+          status: ConsultationStatus.PENDING,
+        });
+
+        await request(app.getHttpServer())
+          .patch(`/bookings/${consultation.id}/cancel`)
+          .set('Cookie', customerSid)
+          .send({})
+          .expect(403);
+      });
+
+      it('should return 400 when cancelling IN_PROGRESS', async () => {
+        const clinic = await seedClinic('Cancel In Progress Clinic');
+        const expertUser = await seedUser({
+          keycloakSub: 'kc-booking-cancel-ip',
+          email: 'cancel-ip@example.com',
+          name: 'Cancel IP Expert',
+          roles: [Role.Expert],
+          clinicId: clinic.id,
+        });
+        const expert = await dataSource.getRepository(Expert).save(
+          dataSource.getRepository(Expert).create({
+            userId: expertUser.id,
+            clinicId: clinic.id,
+            specialization: ExpertSpecialty.DERMATOLOGY,
+            licenseNumber: 'LIC-CANCEL-IP',
+            bio: 'IP',
+            rating: 4.5,
+            consultationFee: 300000,
+            sessionLengthHours: 1,
+            isActive: true,
+          }),
+        );
+        const consultation = await seedConsultation({
+          expertId: expert.id,
+          scheduledAt: new Date('2030-04-03T09:00:00.000Z'),
+          status: ConsultationStatus.IN_PROGRESS,
+        });
+
+        const sid = await performMockLogin({
+          userId: expertUser.id,
+          keycloakSub: expertUser.keycloakSub,
+          roles: [Role.Expert],
+          clinicId: clinic.id,
+        });
+
+        await request(app.getHttpServer())
+          .patch(`/bookings/${consultation.id}/cancel`)
+          .set('Cookie', sid)
+          .send({})
+          .expect(400);
+      });
+    });
+
+    describe('PATCH /bookings/:id/start and /complete', () => {
+      it('should start then complete and show in past tab', async () => {
+        const clinic = await seedClinic('Lifecycle Clinic');
+        const expertUser = await seedUser({
+          keycloakSub: 'kc-booking-lifecycle-expert',
+          email: 'lifecycle-expert@example.com',
+          name: 'Lifecycle Expert',
+          roles: [Role.Expert],
+          clinicId: clinic.id,
+        });
+        const expert = await dataSource.getRepository(Expert).save(
+          dataSource.getRepository(Expert).create({
+            userId: expertUser.id,
+            clinicId: clinic.id,
+            specialization: ExpertSpecialty.DERMATOLOGY,
+            licenseNumber: 'LIC-LIFE',
+            bio: 'Lifecycle',
+            rating: 4.5,
+            consultationFee: 300000,
+            sessionLengthHours: 1,
+            isActive: true,
+          }),
+        );
+
+        const customerUser = await seedUser({
+          keycloakSub: 'kc-booking-lifecycle-customer',
+          email: 'lifecycle-customer@example.com',
+          name: 'Lifecycle Customer',
+          roles: [Role.Customer],
+        });
+        const customer = await dataSource
+          .getRepository(Customer)
+          .save(
+            dataSource
+              .getRepository(Customer)
+              .create({ userId: customerUser.id }),
+          );
+        const consultation = await dataSource
+          .getRepository(ConsultationRequest)
+          .save(
+            dataSource.getRepository(ConsultationRequest).create({
+              customerId: customer.id,
+              expertId: expert.id,
+              reason: 'Session',
+              status: ConsultationStatus.CONFIRMED,
+              scheduledAt: new Date('2030-05-01T09:00:00.000Z'),
+            }),
+          );
+
+        const expertSid = await performMockLogin({
+          userId: expertUser.id,
+          keycloakSub: expertUser.keycloakSub,
+          roles: [Role.Expert],
+          clinicId: clinic.id,
+        });
+
+        const started = await request(app.getHttpServer())
+          .patch(`/bookings/${consultation.id}/start`)
+          .set('Cookie', expertSid)
+          .expect(200);
+        expect(started.body.status).toBe(ConsultationStatus.IN_PROGRESS);
+        expect(started.body.startedAt).toBeTruthy();
+
+        const completed = await request(app.getHttpServer())
+          .patch(`/bookings/${consultation.id}/complete`)
+          .set('Cookie', expertSid)
+          .expect(200);
+        expect(completed.body.status).toBe(ConsultationStatus.COMPLETED);
+        expect(completed.body.completedAt).toBeTruthy();
+
+        const customerSidLocal = await performMockLogin({
+          userId: customerUser.id,
+          keycloakSub: customerUser.keycloakSub,
+          roles: [Role.Customer],
+        });
+        const past = await request(app.getHttpServer())
+          .get('/bookings/me?tab=past')
+          .set('Cookie', customerSidLocal)
+          .expect(200);
+        expect(past.body.total).toBe(1);
+        expect(past.body.items[0].status).toBe(ConsultationStatus.COMPLETED);
+      });
+
+      it('should return 400 when completing without start', async () => {
+        const clinic = await seedClinic('Complete Direct Clinic');
+        const expertUser = await seedUser({
+          keycloakSub: 'kc-booking-complete-direct',
+          email: 'complete-direct@example.com',
+          name: 'Complete Direct Expert',
+          roles: [Role.Expert],
+          clinicId: clinic.id,
+        });
+        const expert = await dataSource.getRepository(Expert).save(
+          dataSource.getRepository(Expert).create({
+            userId: expertUser.id,
+            clinicId: clinic.id,
+            specialization: ExpertSpecialty.DERMATOLOGY,
+            licenseNumber: 'LIC-CD',
+            bio: 'CD',
+            rating: 4.5,
+            consultationFee: 300000,
+            sessionLengthHours: 1,
+            isActive: true,
+          }),
+        );
+        const consultation = await seedConsultation({
+          expertId: expert.id,
+          scheduledAt: new Date('2030-05-02T09:00:00.000Z'),
+          status: ConsultationStatus.CONFIRMED,
+        });
+
+        const sid = await performMockLogin({
+          userId: expertUser.id,
+          keycloakSub: expertUser.keycloakSub,
+          roles: [Role.Expert],
+          clinicId: clinic.id,
+        });
+
+        await request(app.getHttpServer())
+          .patch(`/bookings/${consultation.id}/complete`)
+          .set('Cookie', sid)
+          .expect(400);
+      });
+    });
+
+    describe('POST /bookings/:id/feedback', () => {
+      it('should submit feedback, update expert rating, and expose on GET me/:id', async () => {
+        const clinic = await seedClinic('Feedback Clinic');
+        const expertUser = await seedUser({
+          keycloakSub: 'kc-booking-feedback-expert',
+          email: 'feedback-expert@example.com',
+          name: 'Feedback Expert',
+          roles: [Role.Expert],
+          clinicId: clinic.id,
+        });
+        const expert = await dataSource.getRepository(Expert).save(
+          dataSource.getRepository(Expert).create({
+            userId: expertUser.id,
+            clinicId: clinic.id,
+            specialization: ExpertSpecialty.DERMATOLOGY,
+            licenseNumber: 'LIC-FB',
+            bio: 'FB',
+            rating: 0,
+            consultationFee: 300000,
+            sessionLengthHours: 1,
+            isActive: true,
+          }),
+        );
+
+        const customerUser = await seedUser({
+          keycloakSub: 'kc-booking-feedback-customer',
+          email: 'feedback-customer@example.com',
+          name: 'Feedback Customer',
+          roles: [Role.Customer],
+        });
+        const customer = await dataSource
+          .getRepository(Customer)
+          .save(
+            dataSource
+              .getRepository(Customer)
+              .create({ userId: customerUser.id }),
+          );
+        const consultation = await dataSource
+          .getRepository(ConsultationRequest)
+          .save(
+            dataSource.getRepository(ConsultationRequest).create({
+              customerId: customer.id,
+              expertId: expert.id,
+              reason: 'Done',
+              status: ConsultationStatus.COMPLETED,
+              scheduledAt: new Date('2030-06-01T09:00:00.000Z'),
+              completedAt: new Date(),
+            }),
+          );
+
+        const sid = await performMockLogin({
+          userId: customerUser.id,
+          keycloakSub: customerUser.keycloakSub,
+          roles: [Role.Customer],
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .post(`/bookings/${consultation.id}/feedback`)
+          .set('Cookie', sid)
+          .send({ rating: 5, comment: 'Excellent' })
+          .expect(201);
+
+        expect(body.feedback).toEqual({ rating: 5, comment: 'Excellent' });
+
+        const detail = await request(app.getHttpServer())
+          .get(`/bookings/me/${consultation.id}`)
+          .set('Cookie', sid)
+          .expect(200);
+        expect(detail.body.feedback).toEqual({
+          rating: 5,
+          comment: 'Excellent',
+        });
+
+        const updatedExpert = await dataSource
+          .getRepository(Expert)
+          .findOneByOrFail({ id: expert.id });
+        expect(Number(updatedExpert.rating)).toBe(5);
+
+        await request(app.getHttpServer())
+          .post(`/bookings/${consultation.id}/feedback`)
+          .set('Cookie', sid)
+          .send({ rating: 4 })
+          .expect(409);
+      });
+
+      it('should return 400 for non-COMPLETED bookings', async () => {
+        const expert = await seedExpertForBookings();
+        const customerUser = await seedUser({
+          keycloakSub: 'kc-booking-feedback-pending',
+          email: 'feedback-pending@example.com',
+          name: 'Feedback Pending',
+          roles: [Role.Customer],
+        });
+        const customer = await dataSource
+          .getRepository(Customer)
+          .save(
+            dataSource
+              .getRepository(Customer)
+              .create({ userId: customerUser.id }),
+          );
+        const consultation = await dataSource
+          .getRepository(ConsultationRequest)
+          .save(
+            dataSource.getRepository(ConsultationRequest).create({
+              customerId: customer.id,
+              expertId: expert.id,
+              reason: 'Pending',
+              status: ConsultationStatus.PENDING,
+              scheduledAt: new Date('2030-06-02T09:00:00.000Z'),
+            }),
+          );
+
+        const sid = await performMockLogin({
+          userId: customerUser.id,
+          keycloakSub: customerUser.keycloakSub,
+          roles: [Role.Customer],
+        });
+
+        await request(app.getHttpServer())
+          .post(`/bookings/${consultation.id}/feedback`)
+          .set('Cookie', sid)
+          .send({ rating: 5 })
+          .expect(400);
       });
     });
   });
