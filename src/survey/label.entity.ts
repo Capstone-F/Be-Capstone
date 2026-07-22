@@ -38,6 +38,9 @@ export class Label {
   @Column({ nullable: true, type: 'varchar' })
   description: string | null;
 
+  @Column({ nullable: true, type: 'varchar' })
+  vietnameseNormalized: string | null;
+
   @Column({ default: true })
   isActive: boolean;
 

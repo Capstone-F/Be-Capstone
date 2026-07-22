@@ -235,10 +235,10 @@ Returns the same order shape for the authenticated owner only (includes `shippin
 
 **Catalog vs survey:**
 
-| Cart source | Behavior                                                                                                         |
-| ----------- | ---------------------------------------------------------------------------------------------------------------- |
-| `CATALOG`   | Normal e-commerce order                                                                                          |
-| `SURVEY`    | Validates recommended variants; if the cart contains **all** recommended variants, applies survey combo discount |
+| Cart source | Behavior                                                                                                        |
+| ----------- | --------------------------------------------------------------------------------------------------------------- |
+| `CATALOG`   | Normal e-commerce order                                                                                         |
+| `SURVEY`    | Validates recommended variants; if **every protocol** has ≥1 ranked cart variant, applies survey combo discount |
 
 **Money formula:**
 
@@ -467,7 +467,7 @@ Empty cart
 | Empty cart checkout | `POST /orders` fails with `Cart is empty`                                           |
 | Order ownership     | `GET /orders`, `GET /orders/:id`, and payment checkout only for the owning customer |
 | Mixed sources       | Not allowed in one cart                                                             |
-| Survey combo        | Discount only when cart includes every recommended variant                          |
+| Survey combo        | Discount when cart covers **every protocol** with ≥1 ranked variant                 |
 | Shipping before pay | Checkout rejects PENDING orders without a Delivery row                              |
 
 ---

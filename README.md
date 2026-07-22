@@ -308,6 +308,10 @@ All env vars are centrally managed in `src/config/env.config.ts`. The app valida
 | `MOBILE_REDIRECT_URIS`           | No       | `glowscan://auth/callback`            | Comma-separated whitelist of mobile deep-link redirect URIs |
 | `MOBILE_AUTH_CODE_TTL_SECONDS`   | No       | `120`                                 | TTL for one-time mobile auth codes in Redis                 |
 | `MOBILE_OAUTH_STATE_TTL_SECONDS` | No       | `600`                                 | TTL for mobile OAuth state entries in Redis                 |
+| `LLM_PROVIDER`                   | No       | `mock`                                | Routine LLM: `mock` \| `ollama` (openai/gemini reserved)    |
+| `OLLAMA_BASE_URL`                | No       | `http://host.docker.internal:11434`   | Ollama API base (Docker API → host Ollama)                  |
+| `OLLAMA_MODEL`                   | No       | `gpt-oss:120b-cloud`                  | Ollama model tag for routine generation                     |
+| `OLLAMA_TIMEOUT_MS`              | No       | `120000`                              | Ollama chat request timeout (ms)                            |
 
 ---
 

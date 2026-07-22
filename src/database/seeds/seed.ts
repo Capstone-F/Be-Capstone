@@ -47,12 +47,18 @@ import { Role } from '../../auth/roles.enum';
 import { Customer } from '../../users/customer.entity';
 import { Order } from '../../commerce/order.entity';
 
-type LabelCategorySeed = { code: string; name: string; description: string };
+type LabelCategorySeed = {
+  code: string;
+  name: string;
+  description: string;
+  vietnameseNormalized: string;
+};
 type LabelSeed = {
   code: string;
   name: string;
   categoryCode: string;
   description: string;
+  vietnameseNormalized: string;
   isActive?: boolean;
 };
 
@@ -94,46 +100,55 @@ const LABEL_CATEGORIES: LabelCategorySeed[] = [
     code: 'SKIN_CONCERN',
     name: 'Skin Concern',
     description: 'Observed skin conditions and dermatologic concerns',
+    vietnameseNormalized: 'Vấn đề về da',
   },
   {
     code: 'SKIN_GOAL',
     name: 'Skin Goal',
     description: 'Desired treatment outcomes for skincare routines',
+    vietnameseNormalized: 'Mục tiêu chăm sóc da',
   },
   {
     code: 'ALLERGY',
     name: 'Allergy',
     description: 'Known cosmetic or skincare ingredient allergies',
+    vietnameseNormalized: 'Dị ứng thành phần',
   },
   {
     code: 'CONTRAINDICATION',
     name: 'Contraindication',
     description: 'Clinical or procedural factors that restrict treatment',
+    vietnameseNormalized: 'Chống chỉ định',
   },
   {
     code: 'AGE_GROUP',
     name: 'Age Group',
     description: 'Customer age range for protocol suitability',
+    vietnameseNormalized: 'Độ tuổi',
   },
   {
     code: 'GENDER',
     name: 'Gender',
     description: 'Customer gender for protocol suitability',
+    vietnameseNormalized: 'Giới tính',
   },
   {
     code: 'LIFESTYLE',
     name: 'Lifestyle',
     description: 'Environmental and behavioral lifestyle factors',
+    vietnameseNormalized: 'Thói quen sinh hoạt',
   },
   {
     code: 'EXPERIENCE_LEVEL',
     name: 'Experience Level',
     description: 'Customer familiarity with active skincare ingredients',
+    vietnameseNormalized: 'Kinh nghiệm dưỡng da',
   },
   {
     code: 'PRODUCT_PREFERENCE',
     name: 'Product Preference',
     description: 'Formulation and product attribute preferences',
+    vietnameseNormalized: 'Sở thích sản phẩm',
   },
 ];
 
@@ -144,486 +159,556 @@ const LABELS: LabelSeed[] = [
     name: 'Acne',
     categoryCode: 'SKIN_CONCERN',
     description: 'Inflammatory and non-inflammatory acne lesions',
+    vietnameseNormalized: 'Mụn sưng, mụn viêm hoặc mụn trứng cá',
   },
   {
     code: 'BLACKHEADS',
     name: 'Blackheads',
     categoryCode: 'SKIN_CONCERN',
     description: 'Open comedones caused by oxidized sebum in pores',
+    vietnameseNormalized: 'Mụn đầu đen, mụn cám',
   },
   {
     code: 'WHITEHEADS',
     name: 'Whiteheads',
     categoryCode: 'SKIN_CONCERN',
     description: 'Closed comedones with trapped sebum beneath the skin',
+    vietnameseNormalized: 'Mụn ẩn, mụn đầu trắng',
   },
   {
     code: 'ENLARGED_PORES',
     name: 'Enlarged Pores',
     categoryCode: 'SKIN_CONCERN',
     description: 'Visibly dilated follicular openings',
+    vietnameseNormalized: 'Lỗ chân lông to',
   },
   {
     code: 'HYPERPIGMENTATION',
     name: 'Hyperpigmentation',
     categoryCode: 'SKIN_CONCERN',
     description: 'Excess melanin deposition causing darkened skin patches',
+    vietnameseNormalized: 'Thâm sạm, đốm nâu',
   },
   {
     code: 'MELASMA',
     name: 'Melasma',
     categoryCode: 'SKIN_CONCERN',
     description: 'Symmetric hormonally influenced facial hyperpigmentation',
+    vietnameseNormalized: 'Nám da mặt',
   },
   {
     code: 'FRECKLES',
     name: 'Freckles',
     categoryCode: 'SKIN_CONCERN',
     description: 'Small ephelides from sun-induced melanin clusters',
+    vietnameseNormalized: 'Tàn nhang',
   },
   {
     code: 'POST_INFLAMMATORY_HYPERPIGMENTATION',
     name: 'Post-inflammatory Hyperpigmentation',
     categoryCode: 'SKIN_CONCERN',
     description: 'Dark marks remaining after inflammatory skin injury (PIH)',
+    vietnameseNormalized: 'Vết thâm đen, thâm nâu sau mụn',
   },
   {
     code: 'POST_INFLAMMATORY_ERYTHEMA',
     name: 'Post-inflammatory Erythema',
     categoryCode: 'SKIN_CONCERN',
     description: 'Persistent redness after inflammatory skin injury (PIE)',
+    vietnameseNormalized: 'Vết thâm đỏ, hồng đỏ sau mụn',
   },
   {
     code: 'WRINKLES',
     name: 'Wrinkles',
     categoryCode: 'SKIN_CONCERN',
     description: 'Visible creases from collagen and elastin loss',
+    vietnameseNormalized: 'Nếp nhăn rõ rệt',
   },
   {
     code: 'FINE_LINES',
     name: 'Fine Lines',
     categoryCode: 'SKIN_CONCERN',
     description: 'Early superficial lines from dehydration or photoaging',
+    vietnameseNormalized: 'Rãnh nhăn nông, nếp nhăn mờ',
   },
   {
     code: 'DULL_SKIN',
     name: 'Dull Skin',
     categoryCode: 'SKIN_CONCERN',
     description: 'Lack of radiance from uneven surface reflection',
+    vietnameseNormalized: 'Da xỉn màu, thiếu sức sống',
   },
   {
     code: 'ROUGH_TEXTURE',
     name: 'Rough Texture',
     categoryCode: 'SKIN_CONCERN',
     description: 'Uneven or coarse skin surface from buildup or damage',
+    vietnameseNormalized: 'Bề mặt da sần sùi, thô ráp',
   },
   {
     code: 'DEHYDRATED_SKIN',
     name: 'Dehydrated Skin',
     categoryCode: 'SKIN_CONCERN',
     description: 'Water loss causing tightness without necessarily low sebum',
+    vietnameseNormalized: 'Da khô căng, thiếu nước',
   },
   {
     code: 'REDNESS',
     name: 'Redness',
     categoryCode: 'SKIN_CONCERN',
     description: 'Diffuse or localized erythema and flushing',
+    vietnameseNormalized: 'Da hay bị ửng đỏ rát',
   },
   {
     code: 'ROSACEA',
     name: 'Rosacea',
     categoryCode: 'SKIN_CONCERN',
     description: 'Chronic inflammatory condition with redness and flushing',
+    vietnameseNormalized: 'Da mẩn đỏ nhạy cảm mạn tính',
   },
   {
     code: 'BARRIER_DAMAGE',
     name: 'Barrier Damage',
     categoryCode: 'SKIN_CONCERN',
     description: 'Compromised stratum corneum with increased sensitivity',
+    vietnameseNormalized: 'Hàng rào bảo vệ da bị tổn thương',
   },
   {
     code: 'DARK_CIRCLES',
     name: 'Dark Circles',
     categoryCode: 'SKIN_CONCERN',
     description: 'Periorbital hyperpigmentation or shadowing',
+    vietnameseNormalized: 'Quầng thâm mắt',
   },
   {
     code: 'EYE_BAGS',
     name: 'Eye Bags',
     categoryCode: 'SKIN_CONCERN',
     description: 'Periorbital puffiness from fluid or fat prominence',
+    vietnameseNormalized: 'Bọng mắt',
   },
   {
     code: 'UNEVEN_SKIN_TONE',
     name: 'Uneven Skin Tone',
     categoryCode: 'SKIN_CONCERN',
     description: 'Irregular coloration across facial skin areas',
+    vietnameseNormalized: 'Tông màu da không đều',
   },
-
   // SKIN_GOAL
   {
     code: 'ACNE_TREATMENT',
     name: 'Acne Treatment',
     categoryCode: 'SKIN_GOAL',
     description: 'Reduce active breakouts and prevent new lesions',
+    vietnameseNormalized: 'Giảm mụn và ngăn ngừa mụn quay lại',
   },
   {
     code: 'BRIGHTENING',
     name: 'Brightening',
     categoryCode: 'SKIN_GOAL',
     description: 'Improve skin luminosity and radiance',
+    vietnameseNormalized: 'Dưỡng sáng da rạng rỡ',
   },
   {
     code: 'ANTI_AGING',
     name: 'Anti-aging',
     categoryCode: 'SKIN_GOAL',
     description: 'Address signs of photoaging and collagen decline',
+    vietnameseNormalized: 'Ngăn ngừa lão hóa và nếp nhăn',
   },
   {
     code: 'HYDRATION',
     name: 'Hydration',
     categoryCode: 'SKIN_GOAL',
     description: 'Increase skin water content and moisture retention',
+    vietnameseNormalized: 'Cấp ẩm sâu và duy trì độ ẩm',
   },
   {
     code: 'OIL_CONTROL',
     name: 'Oil Control',
     categoryCode: 'SKIN_GOAL',
     description: 'Regulate excess sebum production',
+    vietnameseNormalized: 'Kiểm soát dầu nhờn, giảm bóng dầu',
   },
   {
     code: 'BARRIER_REPAIR',
     name: 'Barrier Repair',
     categoryCode: 'SKIN_GOAL',
     description: 'Restore and strengthen the skin moisture barrier',
+    vietnameseNormalized: 'Phục hồi da yếu và làm dịu kích ứng',
   },
   {
     code: 'REDUCE_PIGMENTATION',
     name: 'Reduce Pigmentation',
     categoryCode: 'SKIN_GOAL',
     description: 'Fade hyperpigmented spots and even discoloration',
+    vietnameseNormalized: 'Làm mờ thâm nám và đốm nâu',
   },
   {
     code: 'REDUCE_WRINKLES',
     name: 'Reduce Wrinkles',
     categoryCode: 'SKIN_GOAL',
     description: 'Minimize depth and appearance of wrinkles',
+    vietnameseNormalized: 'Cải thiện rãnh nhăn và nếp nhăn',
   },
   {
     code: 'REDUCE_REDNESS',
     name: 'Reduce Redness',
     categoryCode: 'SKIN_GOAL',
     description: 'Calm erythema and decrease visible flushing',
+    vietnameseNormalized: 'Làm dịu tình trạng ửng đỏ rát',
   },
   {
     code: 'IMPROVE_SKIN_TEXTURE',
     name: 'Improve Skin Texture',
     categoryCode: 'SKIN_GOAL',
     description: 'Smooth uneven or rough skin surface',
+    vietnameseNormalized: 'Cải thiện bề mặt da sần sùi',
   },
   {
     code: 'EVEN_SKIN_TONE',
     name: 'Even Skin Tone',
     categoryCode: 'SKIN_GOAL',
     description: 'Balance overall facial color uniformity',
+    vietnameseNormalized: 'Dưỡng da đều màu',
   },
   {
     code: 'MINIMIZE_PORES',
     name: 'Minimize Pores',
     categoryCode: 'SKIN_GOAL',
     description: 'Reduce the visible appearance of pore size',
+    vietnameseNormalized: 'Thu nhỏ vẻ ngoài lỗ chân lông',
   },
-
   // ALLERGY
   {
     code: 'FRAGRANCE',
     name: 'Fragrance',
     categoryCode: 'ALLERGY',
     description: 'Allergy or sensitivity to added fragrance compounds',
+    vietnameseNormalized: 'Hương liệu (Fragrance/Parfum)',
   },
   {
     code: 'ALCOHOL',
     name: 'Alcohol',
     categoryCode: 'ALLERGY',
     description: 'Sensitivity to denatured alcohol in formulations',
+    vietnameseNormalized: 'Cồn khô (Alcohol Denat)',
   },
   {
     code: 'ESSENTIAL_OIL',
     name: 'Essential Oil',
     categoryCode: 'ALLERGY',
     description: 'Reaction to botanical essential oil components',
+    vietnameseNormalized: 'Tinh dầu thực vật (Essential Oils)',
   },
   {
     code: 'LANOLIN',
     name: 'Lanolin',
     categoryCode: 'ALLERGY',
     description: 'Allergy to wool-derived lanolin emollients',
+    vietnameseNormalized: 'Mỡ cừu (Lanolin)',
   },
   {
     code: 'SALICYLIC_ACID',
     name: 'Salicylic Acid',
     categoryCode: 'ALLERGY',
     description: 'Sensitivity to beta hydroxy acid exfoliants',
+    vietnameseNormalized: 'Salicylic Acid (BHA)',
   },
   {
     code: 'BENZOYL_PEROXIDE',
     name: 'Benzoyl Peroxide',
     categoryCode: 'ALLERGY',
     description: 'Irritation or allergy to benzoyl peroxide',
+    vietnameseNormalized: 'Benzoyl Peroxide',
   },
   {
     code: 'RETINOIDS',
     name: 'Retinoids',
     categoryCode: 'ALLERGY',
     description: 'Sensitivity to retinol and retinoid derivatives',
+    vietnameseNormalized: 'Retinoids (Retinol/Tretinoin...)',
   },
   {
     code: 'VITAMIN_C',
     name: 'Vitamin C',
     categoryCode: 'ALLERGY',
     description: 'Sensitivity to ascorbic acid or its derivatives',
+    vietnameseNormalized: 'Vitamin C nguyên chất (L-AA...)',
   },
   {
     code: 'NIACINAMIDE',
     name: 'Niacinamide',
     categoryCode: 'ALLERGY',
     description: 'Sensitivity to vitamin B3 (niacinamide)',
+    vietnameseNormalized: 'Niacinamide (Vitamin B3)',
   },
-
   // CONTRAINDICATION
   {
     code: 'PREGNANCY',
     name: 'Pregnancy',
     categoryCode: 'CONTRAINDICATION',
     description: 'Currently pregnant; restricts certain active ingredients',
+    vietnameseNormalized: 'Đang mang thai',
   },
   {
     code: 'BREASTFEEDING',
     name: 'Breastfeeding',
     categoryCode: 'CONTRAINDICATION',
     description: 'Currently breastfeeding; restricts certain actives',
+    vietnameseNormalized: 'Đang cho con bú',
   },
   {
     code: 'OPEN_WOUND',
     name: 'Open Wound',
     categoryCode: 'CONTRAINDICATION',
     description: 'Broken or unhealed skin requiring actives to be avoided',
+    vietnameseNormalized: 'Da có vết thương hở, vết trầy xước',
   },
   {
     code: 'ACTIVE_SKIN_INFECTION',
     name: 'Active Skin Infection',
     categoryCode: 'CONTRAINDICATION',
     description: 'Bacterial, viral, or fungal infection on treatment area',
+    vietnameseNormalized: 'Da đang bị viêm nhiễm hoặc mụn nước',
   },
   {
     code: 'RECENT_CHEMICAL_PEEL',
     name: 'Recent Chemical Peel',
     categoryCode: 'CONTRAINDICATION',
     description: 'Chemical peel within the recovery window',
+    vietnameseNormalized: 'Vừa lột da sinh học (Peel da mạnh)',
   },
   {
     code: 'RECENT_LASER_TREATMENT',
     name: 'Recent Laser Treatment',
     categoryCode: 'CONTRAINDICATION',
     description: 'Laser procedure within the required healing period',
+    vietnameseNormalized: 'Vừa điều trị Laser/Lăn kim',
   },
   {
     code: 'RECENT_MICRONEEDLING',
     name: 'Recent Microneedling',
     categoryCode: 'CONTRAINDICATION',
     description: 'Microneedling within the post-procedure recovery window',
+    vietnameseNormalized: 'Vừa phi kim hoặc lăn kim',
   },
-
   // AGE_GROUP
   {
     code: 'UNDER_18',
     name: 'Under 18',
     categoryCode: 'AGE_GROUP',
     description: 'Customer is younger than 18 years old',
+    vietnameseNormalized: 'Dưới 18 tuổi',
   },
   {
     code: 'AGE_18_25',
     name: '18–25',
     categoryCode: 'AGE_GROUP',
     description: 'Customer age range 18 to 25 years',
+    vietnameseNormalized: 'Từ 18 đến 25 tuổi',
   },
   {
     code: 'AGE_26_35',
     name: '26–35',
     categoryCode: 'AGE_GROUP',
     description: 'Customer age range 26 to 35 years',
+    vietnameseNormalized: 'Từ 26 đến 35 tuổi',
   },
   {
     code: 'AGE_36_45',
     name: '36–45',
     categoryCode: 'AGE_GROUP',
     description: 'Customer age range 36 to 45 years',
+    vietnameseNormalized: 'Từ 36 đến 45 tuổi',
   },
   {
     code: 'AGE_46_60',
     name: '46–60',
     categoryCode: 'AGE_GROUP',
     description: 'Customer age range 46 to 60 years',
+    vietnameseNormalized: 'Từ 46 đến 60 tuổi',
   },
   {
     code: 'ABOVE_60',
     name: 'Above 60',
     categoryCode: 'AGE_GROUP',
     description: 'Customer is older than 60 years',
+    vietnameseNormalized: 'Trên 60 tuổi',
   },
-
   // GENDER
   {
     code: 'MALE',
     name: 'Male',
     categoryCode: 'GENDER',
     description: 'Male gender',
+    vietnameseNormalized: 'Nam',
   },
   {
     code: 'FEMALE',
     name: 'Female',
     categoryCode: 'GENDER',
     description: 'Female gender',
+    vietnameseNormalized: 'Nữ',
   },
   {
     code: 'NOT_PREFER_TO_SAY',
     name: 'Prefer not to say',
     categoryCode: 'GENDER',
     description: 'Customer prefers not to disclose gender',
+    vietnameseNormalized: 'Không muốn tiết lộ',
   },
-
   // LIFESTYLE
   {
     code: 'OUTDOOR_LIFESTYLE',
     name: 'Outdoor Lifestyle',
     categoryCode: 'LIFESTYLE',
     description: 'Frequent outdoor daily activities and sun exposure',
+    vietnameseNormalized: 'Thường xuyên hoạt động ngoài trời',
   },
   {
     code: 'INDOOR_LIFESTYLE',
     name: 'Indoor Lifestyle',
     categoryCode: 'LIFESTYLE',
     description: 'Primarily indoor daily routine with limited sun exposure',
+    vietnameseNormalized: 'Chủ yếu làm việc trong nhà/văn phòng',
   },
   {
     code: 'NIGHT_SHIFT',
     name: 'Night Shift',
     categoryCode: 'LIFESTYLE',
     description: 'Regular overnight work disrupting circadian skin rhythm',
+    vietnameseNormalized: 'Thức khuya hoặc làm ca đêm',
   },
   {
     code: 'HIGH_SUN_EXPOSURE',
     name: 'High Sun Exposure',
     categoryCode: 'LIFESTYLE',
     description: 'Prolonged unprotected ultraviolet exposure',
+    vietnameseNormalized: 'Tiếp xúc nhiều với ánh nắng trực tiếp',
   },
   {
     code: 'HEAVY_MAKEUP',
     name: 'Heavy Makeup',
     categoryCode: 'LIFESTYLE',
     description: 'Daily full-coverage or long-wear cosmetic use',
+    vietnameseNormalized: 'Trang điểm đậm, dùng kem nền hàng ngày',
   },
   {
     code: 'FREQUENT_EXERCISE',
     name: 'Frequent Exercise',
     categoryCode: 'LIFESTYLE',
     description: 'Regular physical activity with sweat and friction',
+    vietnameseNormalized: 'Tập thể thao thường xuyên ra nhiều mồ hôi',
   },
   {
     code: 'AIR_CONDITIONED_ENVIRONMENT',
     name: 'Air-conditioned Environment',
     categoryCode: 'LIFESTYLE',
     description: 'Prolonged exposure to dry, climate-controlled air',
+    vietnameseNormalized: 'Ngồi điều hòa/máy lạnh liên tục',
   },
   {
     code: 'SMOKING',
     name: 'Smoking',
     categoryCode: 'LIFESTYLE',
     description: 'Tobacco use affecting skin oxidative stress',
+    vietnameseNormalized: 'Có hút thuốc lá hoặc tiếp xúc khói thuốc',
   },
   {
     code: 'HIGH_STRESS',
     name: 'High Stress',
     categoryCode: 'LIFESTYLE',
     description: 'Elevated chronic stress impacting skin inflammation',
+    vietnameseNormalized: 'Thường xuyên căng thẳng, áp lực cao',
   },
-
   // EXPERIENCE_LEVEL
   {
     code: 'BEGINNER',
     name: 'Beginner',
     categoryCode: 'EXPERIENCE_LEVEL',
     description: 'New to active ingredients and multi-step routines',
+    vietnameseNormalized: 'Người mới bắt đầu (Chưa dùng active bao giờ)',
   },
   {
     code: 'INTERMEDIATE',
     name: 'Intermediate',
     categoryCode: 'EXPERIENCE_LEVEL',
     description: 'Comfortable with common actives at moderate strength',
+    vietnameseNormalized: 'Đã có kinh nghiệm cơ bản',
   },
   {
     code: 'ADVANCED',
     name: 'Advanced',
     categoryCode: 'EXPERIENCE_LEVEL',
     description: 'Experienced with potent actives and layered routines',
+    vietnameseNormalized: 'Đã rất quen thuộc và thành thạo',
   },
-
   // PRODUCT_PREFERENCE
   {
     code: 'FRAGRANCE_FREE',
     name: 'Fragrance Free',
     categoryCode: 'PRODUCT_PREFERENCE',
     description: 'Prefers products without added fragrance',
+    vietnameseNormalized: 'Không chứa hương liệu',
   },
   {
     code: 'ALCOHOL_FREE',
     name: 'Alcohol Free',
     categoryCode: 'PRODUCT_PREFERENCE',
     description: 'Prefers formulations without denatured alcohol',
+    vietnameseNormalized: 'Không chứa cồn khô',
   },
   {
     code: 'ESSENTIAL_OIL_FREE',
     name: 'Essential Oil Free',
     categoryCode: 'PRODUCT_PREFERENCE',
     description: 'Prefers products without essential oils',
+    vietnameseNormalized: 'Không chứa tinh dầu',
   },
   {
     code: 'NON_COMEDOGENIC',
     name: 'Non-Comedogenic',
     categoryCode: 'PRODUCT_PREFERENCE',
     description: 'Prefers products unlikely to clog pores',
+    vietnameseNormalized: 'Không gây bít tắc lỗ chân lông',
   },
   {
     code: 'HYPOALLERGENIC',
     name: 'Hypoallergenic',
     categoryCode: 'PRODUCT_PREFERENCE',
     description: 'Prefers low-allergen formulated products',
+    vietnameseNormalized: 'Công thức ít gây kích ứng',
   },
   {
     code: 'DERMATOLOGIST_TESTED',
     name: 'Dermatologist Tested',
     categoryCode: 'PRODUCT_PREFERENCE',
     description: 'Prefers clinically or dermatologist-evaluated products',
+    vietnameseNormalized: 'Được kiểm nghiệm bởi bác sĩ da liễu',
   },
   {
     code: 'VEGAN',
     name: 'Vegan',
     categoryCode: 'PRODUCT_PREFERENCE',
     description: 'Prefers products without animal-derived ingredients',
+    vietnameseNormalized: 'Thuần chay (Vegan)',
   },
   {
     code: 'CRUELTY_FREE',
     name: 'Cruelty Free',
     categoryCode: 'PRODUCT_PREFERENCE',
     description: 'Prefers products not tested on animals',
+    vietnameseNormalized: 'Không thử nghiệm trên động vật (Cruelty-Free)',
   },
 ];
 
 const SKIN_TYPES = [
   {
     code: 'OSPW',
-    name: 'Oily, Sensitive, Pigmented, Wrinkled',
-    description: 'Baumann type OSPW',
+    name: 'Da dầu, dễ kích ứng, có vết thâm sạm và bắt đầu xuất hiện nếp nhăn',
+    description:
+      'Làn da thường xuyên tiết nhiều dầu, nhạy cảm dễ ửng đỏ khi gặp kích ứng, có vết thâm hoặc sạm nám sau mụn và bắt đầu có dấu hiệu lão hóa.',
     oilyDry: OilyDry.OILY,
     sensitiveResistant: SensitiveResistant.SENSITIVE,
     pigmentedNonPigmented: PigmentedNonPigmented.PIGMENTED,
@@ -631,8 +716,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'OSPT',
-    name: 'Oily, Sensitive, Pigmented, Tight',
-    description: 'Baumann type OSPT',
+    name: 'Da dầu, dễ kích ứng, dễ thâm sau mụn nhưng độ đàn hồi tốt',
+    description:
+      'Làn da thường tiết nhiều dầu, nhạy cảm dễ mẩn đỏ, dễ để lại vết thâm sau mụn nhưng cấu trúc da vẫn săn chắc và ít nếp nhăn.',
     oilyDry: OilyDry.OILY,
     sensitiveResistant: SensitiveResistant.SENSITIVE,
     pigmentedNonPigmented: PigmentedNonPigmented.PIGMENTED,
@@ -640,8 +726,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'OSNW',
-    name: 'Oily, Sensitive, Non-pigmented, Wrinkled',
-    description: 'Baumann type OSNW',
+    name: 'Da dầu, dễ kích ứng, ít thâm sạm nhưng bắt đầu có nếp nhăn',
+    description:
+      'Làn da thường xuyên bóng dầu, nhạy cảm với mỹ phẩm hoặc môi trường, không bị sạm nám nhiều nhưng bắt đầu xuất hiện nếp nhăn.',
     oilyDry: OilyDry.OILY,
     sensitiveResistant: SensitiveResistant.SENSITIVE,
     pigmentedNonPigmented: PigmentedNonPigmented.NON_PIGMENTED,
@@ -649,8 +736,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'OSNT',
-    name: 'Oily, Sensitive, Non-pigmented, Tight',
-    description: 'Baumann type OSNT',
+    name: 'Da dầu, dễ kích ứng, đều màu và độ đàn hồi tốt',
+    description:
+      'Làn da tiết nhiều dầu, nhạy cảm dễ rát nhẹ khi dùng sản phẩm lạ, nhưng tông da đều màu và cấu trúc da vẫn rất căng mịn.',
     oilyDry: OilyDry.OILY,
     sensitiveResistant: SensitiveResistant.SENSITIVE,
     pigmentedNonPigmented: PigmentedNonPigmented.NON_PIGMENTED,
@@ -658,8 +746,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'ORPW',
-    name: 'Oily, Resistant, Pigmented, Wrinkled',
-    description: 'Baumann type ORPW',
+    name: 'Da dầu, khỏe mạnh, có vết thâm sạm và có nếp nhăn',
+    description:
+      'Làn da tiết dầu thường xuyên, sức đề kháng da tốt ít khi bị kích ứng, tuy nhiên có các vết thâm nám và nếp nhăn xuất hiện.',
     oilyDry: OilyDry.OILY,
     sensitiveResistant: SensitiveResistant.RESISTANT,
     pigmentedNonPigmented: PigmentedNonPigmented.PIGMENTED,
@@ -667,8 +756,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'ORPT',
-    name: 'Oily, Resistant, Pigmented, Tight',
-    description: 'Baumann type ORPT',
+    name: 'Da dầu, khỏe mạnh, dễ thâm sau mụn và độ đàn hồi tốt',
+    description:
+      'Làn da hay bóng dầu, khỏe mạnh không dễ kích ứng, dễ có vết thâm sạm sau khi lên mụn nhưng độ đàn hồi và độ căng săn chắc rất tốt.',
     oilyDry: OilyDry.OILY,
     sensitiveResistant: SensitiveResistant.RESISTANT,
     pigmentedNonPigmented: PigmentedNonPigmented.PIGMENTED,
@@ -676,8 +766,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'ORNW',
-    name: 'Oily, Resistant, Non-pigmented, Wrinkled',
-    description: 'Baumann type ORNW',
+    name: 'Da dầu, khỏe mạnh, đều màu nhưng bắt đầu có nếp nhăn',
+    description:
+      'Làn da hay đổ dầu, ít nhạy cảm và đều màu, tuy nhiên đang có các dấu hiệu lão hóa như nếp nhăn ở vùng mắt hoặc trán.',
     oilyDry: OilyDry.OILY,
     sensitiveResistant: SensitiveResistant.RESISTANT,
     pigmentedNonPigmented: PigmentedNonPigmented.NON_PIGMENTED,
@@ -685,8 +776,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'ORNT',
-    name: 'Oily, Resistant, Non-pigmented, Tight',
-    description: 'Baumann type ORNT',
+    name: 'Da dầu, khỏe mạnh, đều màu và độ đàn hồi căng mịn',
+    description:
+      'Làn da bóng dầu nhưng rất khỏe, không bị kích ứng hay sạm nám, cấu trúc da săn chắc đàn hồi tốt và ít nếp nhăn.',
     oilyDry: OilyDry.OILY,
     sensitiveResistant: SensitiveResistant.RESISTANT,
     pigmentedNonPigmented: PigmentedNonPigmented.NON_PIGMENTED,
@@ -694,8 +786,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'DSPW',
-    name: 'Dry, Sensitive, Pigmented, Wrinkled',
-    description: 'Baumann type DSPW',
+    name: 'Da khô, dễ kích ứng, có vết thâm sạm và có nếp nhăn',
+    description:
+      'Làn da thường có cảm giác khô căng, nhạy cảm dễ ửng đỏ rát nhẹ, dễ bị thâm sạm nám và có nhiều nếp nhăn do thiếu ẩm.',
     oilyDry: OilyDry.DRY,
     sensitiveResistant: SensitiveResistant.SENSITIVE,
     pigmentedNonPigmented: PigmentedNonPigmented.PIGMENTED,
@@ -703,8 +796,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'DSPT',
-    name: 'Dry, Sensitive, Pigmented, Tight',
-    description: 'Baumann type DSPT',
+    name: 'Da khô, dễ kích ứng, dễ thâm sạm nhưng độ đàn hồi tốt',
+    description:
+      'Làn da hơi khô ráp, nhạy cảm với các yếu tố kích thích bên ngoài, dễ có thâm sạm nhưng bề mặt da vẫn giữ được độ săn chắc.',
     oilyDry: OilyDry.DRY,
     sensitiveResistant: SensitiveResistant.SENSITIVE,
     pigmentedNonPigmented: PigmentedNonPigmented.PIGMENTED,
@@ -712,8 +806,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'DSNW',
-    name: 'Dry, Sensitive, Non-pigmented, Wrinkled',
-    description: 'Baumann type DSNW',
+    name: 'Da khô, dễ kích ứng, đều màu nhưng bắt đầu xuất hiện nếp nhăn',
+    description:
+      'Làn da khô thiếu độ ẩm, nhạy cảm dễ châm chích, tông da khá đều màu nhưng dễ hình thành nếp nhăn chùng nhão.',
     oilyDry: OilyDry.DRY,
     sensitiveResistant: SensitiveResistant.SENSITIVE,
     pigmentedNonPigmented: PigmentedNonPigmented.NON_PIGMENTED,
@@ -721,8 +816,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'DSNT',
-    name: 'Dry, Sensitive, Non-pigmented, Tight',
-    description: 'Baumann type DSNT',
+    name: 'Da khô, dễ kích ứng, đều màu và độ đàn hồi căng tốt',
+    description:
+      'Làn da thường có xu hướng khô, nhạy cảm nhẹ, không bị vết thâm sạm hay sạm màu và độ đàn hồi của da vẫn còn tốt.',
     oilyDry: OilyDry.DRY,
     sensitiveResistant: SensitiveResistant.SENSITIVE,
     pigmentedNonPigmented: PigmentedNonPigmented.NON_PIGMENTED,
@@ -730,8 +826,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'DRPW',
-    name: 'Dry, Resistant, Pigmented, Wrinkled',
-    description: 'Baumann type DRPW',
+    name: 'Da khô, khỏe mạnh, có vết thâm sạm và có nếp nhăn',
+    description:
+      'Làn da khô ít khi bị mẩn cảm kích ứng, tuy nhiên có xuất hiện các đốm thâm nám sạm và nếp nhăn lão hóa.',
     oilyDry: OilyDry.DRY,
     sensitiveResistant: SensitiveResistant.RESISTANT,
     pigmentedNonPigmented: PigmentedNonPigmented.PIGMENTED,
@@ -739,8 +836,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'DRPT',
-    name: 'Dry, Resistant, Pigmented, Tight',
-    description: 'Baumann type DRPT',
+    name: 'Da khô, khỏe mạnh, dễ thâm sạm nhưng cấu trúc săn chắc',
+    description:
+      'Làn da khô ráo và khỏe mạnh ít nhạy cảm, dễ có một vài vết thâm sạm nhưng độ đàn hồi da vẫn rất tốt, ít nếp nhăn.',
     oilyDry: OilyDry.DRY,
     sensitiveResistant: SensitiveResistant.RESISTANT,
     pigmentedNonPigmented: PigmentedNonPigmented.PIGMENTED,
@@ -748,8 +846,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'DRNW',
-    name: 'Dry, Resistant, Non-pigmented, Wrinkled',
-    description: 'Baumann type DRNW',
+    name: 'Da khô, khỏe mạnh, đều màu nhưng có nếp nhăn lão hóa',
+    description:
+      'Làn da khô ít kích ứng, bề mặt da sáng đều màu nhưng cần bổ sung dưỡng ẩm do bắt đầu có nếp nhăn và rãnh nhăn.',
     oilyDry: OilyDry.DRY,
     sensitiveResistant: SensitiveResistant.RESISTANT,
     pigmentedNonPigmented: PigmentedNonPigmented.NON_PIGMENTED,
@@ -757,8 +856,9 @@ const SKIN_TYPES = [
   },
   {
     code: 'DRNT',
-    name: 'Dry, Resistant, Non-pigmented, Tight',
-    description: 'Baumann type DRNT',
+    name: 'Da khô, khỏe mạnh, sáng đều màu và săn chắc căng mịn',
+    description:
+      'Làn da khô lý tưởng, khỏe mạnh không kích ứng, tông màu da sáng đều mịn màng và độ đàn hồi rất tốt.',
     oilyDry: OilyDry.DRY,
     sensitiveResistant: SensitiveResistant.RESISTANT,
     pigmentedNonPigmented: PigmentedNonPigmented.NON_PIGMENTED,
@@ -1343,6 +1443,7 @@ async function upsertLabelCategory(
   }
   row.name = seed.name;
   row.description = seed.description;
+  row.vietnameseNormalized = seed.vietnameseNormalized;
   return repo.save(row);
 }
 
@@ -1357,6 +1458,7 @@ async function upsertLabel(
       code: seed.code,
       name: seed.name,
       description: seed.description,
+      vietnameseNormalized: seed.vietnameseNormalized,
       categoryId,
       isActive: seed.isActive ?? true,
     });
@@ -1364,6 +1466,7 @@ async function upsertLabel(
   }
   row.name = seed.name;
   row.description = seed.description;
+  row.vietnameseNormalized = seed.vietnameseNormalized;
   row.categoryId = categoryId;
   row.isActive = seed.isActive ?? true;
   return repo.save(row);

@@ -114,6 +114,49 @@ Disables the account in Keycloak and sets `isActive` locally.
 
 ---
 
+## Admin customer cheat endpoints (App Admin)
+
+Used for QA / demos. Require `app_admin`. See also [survey-flow.md](survey-flow.md) §5.
+
+| Method  | Path                           | Description                                                                                                                     |
+| ------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `PATCH` | `/admin/customers/:id/survey`  | Replace survey answers by `questionCode` + `labelCodes`; re-derives skin type; deletes existing recommendations for that survey |
+| `PATCH` | `/admin/customers/:id/profile` | Update `fullName`, `phone`, `age`, and/or `allergyCodes`                                                                        |
+
+### `PATCH /admin/customers/:id/survey` body
+
+```json
+{
+  "answers": [
+    {
+      "questionCode": "PRIMARY_CONCERN",
+      "labelCodes": ["ACNE", "BLACKHEADS"]
+    },
+    {
+      "questionCode": "SKIN_GOALS",
+      "labelCodes": ["ACNE_TREATMENT"]
+    }
+  ]
+}
+```
+
+Returns a `SurveyResponseDto`. Label codes must be valid options for each question. After update, call `GET /recommendations/latest` again to rebuild a snapshot.
+
+### `PATCH /admin/customers/:id/profile` body
+
+```json
+{
+  "fullName": "Demo Customer",
+  "phone": "+84901234567",
+  "age": 28,
+  "allergyCodes": ["FRAGRANCE"]
+}
+```
+
+All fields optional. Setting `allergyCodes` replaces the customer’s allergy set and clears recommendation snapshots for that customer so the next recommendation run re-filters products.
+
+---
+
 ## User model fields
 
 | Field         | Type           | Description                                |

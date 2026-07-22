@@ -130,30 +130,28 @@ describe('RoutineGeneratorService', () => {
       customerSurvey: { answers: [] },
     });
 
-    routineRepository.findOne
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        id: 'routine-1',
-        type: RoutineType.AI_RECOMMENDED,
-        status: RoutineStatus.ACTIVE,
-        title: 'Personalized routine',
-        description: 'desc',
-        sourceOrderId: 'order-1',
-        customerSurveyId: 'survey-1',
-        surveyRecommendationId: 'rec-1',
-        createdAt: new Date(),
-        steps: [
-          {
-            id: 'step-0',
-            name: 'Serum A',
-            period: RoutinePeriod.MORNING,
-            stepOrder: 1,
-            instructions: 'Apply morning and night',
-            details: [{ productVariantId: 'v1' }],
-            stepProtocols: [{ protocolId: 'p1' }],
-          },
-        ],
-      });
+    routineRepository.findOne.mockResolvedValue({
+      id: 'routine-1',
+      type: RoutineType.AI_RECOMMENDED,
+      status: RoutineStatus.ACTIVE,
+      title: 'Personalized routine',
+      description: 'desc',
+      sourceOrderId: 'order-1',
+      customerSurveyId: 'survey-1',
+      surveyRecommendationId: 'rec-1',
+      createdAt: new Date(),
+      steps: [
+        {
+          id: 'step-0',
+          name: 'Serum A',
+          period: RoutinePeriod.MORNING,
+          stepOrder: 1,
+          instructions: 'Apply morning and night',
+          details: [{ productVariantId: 'v1' }],
+          stepProtocols: [{ protocolId: 'p1' }],
+        },
+      ],
+    });
 
     const routine = await service.generateForUser('user-1', {
       orderId: 'order-1',

@@ -1,9 +1,12 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
 import { Customer } from '../users/customer.entity';
+import { CustomerSkinTypeDetails } from '../users/customer-skin-type-details.entity';
+import { SkinType } from '../users/skin-type.entity';
+import { SurveyRecommendation } from '../recommendations/survey-recommendation.entity';
 import { AnswerLabel } from './answer-label.entity';
 import { Answer } from './answer.entity';
 import { CustomerSurvey } from './customer-survey.entity';
@@ -26,8 +29,11 @@ import { AdminSurveyQuestionsController } from './admin-survey-questions.control
       LabelCategory,
       Label,
       Customer,
+      SkinType,
+      CustomerSkinTypeDetails,
+      SurveyRecommendation,
     ]),
-    AuthModule,
+    forwardRef(() => AuthModule),
   ],
   controllers: [SurveysController, AdminSurveyQuestionsController],
   providers: [SurveyService, SessionGuard, RolesGuard],

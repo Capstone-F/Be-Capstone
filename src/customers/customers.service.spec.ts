@@ -152,7 +152,18 @@ describe('CustomersService', () => {
           id: 'customer-1',
           phone: '+84901234567',
           gender: Gender.FEMALE,
-          skinType: { code: 'OSPW', name: 'Oily Sensitive Pigmented Wrinkled' },
+          skinType: {
+            code: 'OSPW',
+            name: 'Oily Sensitive Pigmented Wrinkled',
+            description: null,
+          },
+          baumannScores: {
+            oilyDryScore: 1,
+            sensitiveResistantScore: 2,
+            pigmentedNonPigmentedScore: 3,
+            wrinkledTightScore: 4,
+            assessedAt: new Date('2026-01-01'),
+          },
         }),
       );
       expect(result.allergies).toEqual([

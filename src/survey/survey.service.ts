@@ -8,6 +8,9 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Customer } from '../users/customer.entity';
+import { CustomerSkinTypeDetails } from '../users/customer-skin-type-details.entity';
+import { SkinType } from '../users/skin-type.entity';
+import { SurveyRecommendation } from '../recommendations/survey-recommendation.entity';
 import { AnswerLabel } from './answer-label.entity';
 import { Answer } from './answer.entity';
 import { CustomerSurvey } from './customer-survey.entity';
@@ -44,6 +47,12 @@ export class SurveyService {
     private readonly labelRepository: Repository<Label>,
     @InjectRepository(Customer)
     private readonly customerRepository: Repository<Customer>,
+    @InjectRepository(SkinType)
+    private readonly skinTypeRepository: Repository<SkinType>,
+    @InjectRepository(CustomerSkinTypeDetails)
+    private readonly customerSkinTypeDetailsRepository: Repository<CustomerSkinTypeDetails>,
+    @InjectRepository(SurveyRecommendation)
+    private readonly surveyRecommendationRepository: Repository<SurveyRecommendation>,
   ) {}
 
   async listAdminQuestions(
@@ -193,6 +202,7 @@ export class SurveyService {
             labelCode: option.label.code,
             name: option.label.name,
             description: option.label.description,
+            vietnameseNormalized: option.label.vietnameseNormalized ?? null,
           })),
       }));
   }
@@ -295,7 +305,10 @@ export class SurveyService {
     userId: string,
     surveyId: string,
   ): Promise<SurveyResponseDto> {
-    const { survey } = await this.getOwnedInProgressSurvey(userId, surveyId);
+    const { customer, survey } = await this.getOwnedInProgressSurvey(
+      userId,
+      surveyId,
+    );
 
     const answerCount = await this.answerRepository.count({
       where: { surveyId: survey.id },
@@ -310,7 +323,223 @@ export class SurveyService {
     survey.completedAt = new Date();
     await this.surveyRepository.save(survey);
 
+    await this.deriveAndSaveSkinType(customer.id, survey.id);
+
     return this.getSurveyForUser(userId, surveyId);
+  }
+
+  public async deriveAndSaveSkinType(customerId: string, surveyId: string) {
+    const surveyWithAnswers = await this.surveyRepository.findOne({
+      where: { id: surveyId, customerId },
+      relations: [
+        'answers',
+        'answers.answerLabels',
+        'answers.answerLabels.label',
+      ],
+    });
+    if (!surveyWithAnswers) {
+      throw new NotFoundException(
+        `Survey ${surveyId} not found for customer ${customerId}`,
+      );
+    }
+
+    const labelCodes = new Set<string>();
+    for (const answer of surveyWithAnswers.answers ?? []) {
+      for (const al of answer.answerLabels ?? []) {
+        if (al.label?.code && al.label.isActive) {
+          labelCodes.add(al.label.code.trim());
+        }
+      }
+    }
+
+    // 1. Oily vs Dry (O vs D)
+    let oilyScore = 0;
+    let dryScore = 0;
+    if (labelCodes.has('OIL_CONTROL')) oilyScore += 30;
+    if (labelCodes.has('ACNE')) oilyScore += 25;
+    if (labelCodes.has('BLACKHEADS')) oilyScore += 20;
+    if (labelCodes.has('ENLARGED_PORES')) oilyScore += 25;
+
+    if (labelCodes.has('DEHYDRATED_SKIN')) dryScore += 30;
+    if (labelCodes.has('HYDRATION')) dryScore += 25;
+    if (labelCodes.has('BARRIER_DAMAGE')) dryScore += 20;
+    if (labelCodes.has('ROUGH_TEXTURE')) dryScore += 15;
+    if (labelCodes.has('FINE_LINES')) dryScore += 10;
+
+    const oilyLetter = oilyScore >= dryScore ? 'O' : 'D';
+
+    // 2. Sensitive vs Resistant (S vs R) - BR-03 tie-break: R when unclear
+    let sensitiveScore = 0;
+    if (labelCodes.has('REDNESS') || labelCodes.has('REDUCE_REDNESS'))
+      sensitiveScore += 30;
+    if (labelCodes.has('ROSACEA')) sensitiveScore += 40;
+    if (labelCodes.has('BARRIER_DAMAGE') || labelCodes.has('BARRIER_REPAIR'))
+      sensitiveScore += 30;
+
+    const allergyLabels = [
+      'FRAGRANCE',
+      'ALCOHOL',
+      'ESSENTIAL_OIL',
+      'SALICYLIC_ACID',
+      'BENZOYL_PEROXIDE',
+      'RETINOIDS',
+      'VITAMIN_C',
+      'NIACINAMIDE',
+    ];
+    for (const alg of allergyLabels) {
+      if (labelCodes.has(alg)) sensitiveScore += 15;
+    }
+    const sensitiveLetter = sensitiveScore > 0 ? 'S' : 'R';
+
+    // 3. Pigmented vs Non-pigmented (P vs N) - BR-03 tie-break: N when unclear
+    let pigmentedScore = 0;
+    if (
+      labelCodes.has('HYPERPIGMENTATION') ||
+      labelCodes.has('REDUCE_PIGMENTATION')
+    )
+      pigmentedScore += 30;
+    if (labelCodes.has('MELASMA') || labelCodes.has('FRECKLES'))
+      pigmentedScore += 30;
+    if (
+      labelCodes.has('POST_INFLAMMATORY_HYPERPIGMENTATION') ||
+      labelCodes.has('POST_INFLAMMATORY_ERYTHEMA')
+    )
+      pigmentedScore += 25;
+    if (
+      labelCodes.has('BRIGHTENING') ||
+      labelCodes.has('UNEVEN_SKIN_TONE') ||
+      labelCodes.has('EVEN_SKIN_TONE')
+    )
+      pigmentedScore += 20;
+    const pigmentedLetter = pigmentedScore > 0 ? 'P' : 'N';
+
+    // 4. Wrinkled vs Tight (W vs T) - BR-03 tie-break: T when unclear
+    let wrinkledScore = 0;
+    if (labelCodes.has('WRINKLES') || labelCodes.has('REDUCE_WRINKLES'))
+      wrinkledScore += 40;
+    if (labelCodes.has('FINE_LINES') || labelCodes.has('ANTI_AGING'))
+      wrinkledScore += 25;
+    if (labelCodes.has('AGE_36_45')) wrinkledScore += 15;
+    if (labelCodes.has('AGE_46_60') || labelCodes.has('ABOVE_60'))
+      wrinkledScore += 30;
+    const wrinkledLetter = wrinkledScore > 0 ? 'W' : 'T';
+
+    const baumannCode = `${oilyLetter}${sensitiveLetter}${pigmentedLetter}${wrinkledLetter}`;
+    let skinType = await this.skinTypeRepository.findOne({
+      where: { code: baumannCode },
+    });
+    if (!skinType) {
+      skinType = await this.skinTypeRepository.findOne({
+        where: { code: 'ORNT' },
+      });
+    }
+
+    let details = await this.customerSkinTypeDetailsRepository.findOne({
+      where: { customerId },
+      relations: ['skinType'],
+    });
+    if (!details) {
+      details = this.customerSkinTypeDetailsRepository.create({ customerId });
+    }
+    details.skinTypeId = skinType?.id ?? null;
+    details.skinType = skinType ?? null;
+    details.oilyDryScore = oilyScore - dryScore;
+    details.sensitiveResistantScore = sensitiveScore;
+    details.pigmentedNonPigmentedScore = pigmentedScore;
+    details.wrinkledTightScore = wrinkledScore;
+    details.assessedAt = new Date();
+
+    return this.customerSkinTypeDetailsRepository.save(details);
+  }
+
+  async adminUpdateSurveyByCustomerId(
+    customerId: string,
+    answersInput: { questionCode: string; labelCodes: string[] }[],
+  ): Promise<SurveyResponseDto> {
+    const customer = await this.customerRepository.findOne({
+      where: { id: customerId },
+    });
+    if (!customer) {
+      throw new NotFoundException(`Customer ${customerId} not found`);
+    }
+
+    const survey = await this.surveyRepository.findOne({
+      where: { customerId: customer.id },
+      order: { completedAt: 'DESC', createdAt: 'DESC' },
+    });
+    if (!survey) {
+      throw new NotFoundException(`No survey found for customer ${customerId}`);
+    }
+
+    for (const input of answersInput) {
+      const question = await this.questionRepository.findOne({
+        where: { code: input.questionCode.trim(), isActive: true },
+        relations: ['options', 'options.label'],
+      });
+      if (!question) {
+        throw new BadRequestException(
+          `Unknown active question code: ${input.questionCode}`,
+        );
+      }
+      const allowedCodes = new Set(
+        (question.options ?? [])
+          .filter((o) => o.isActive && o.label?.isActive)
+          .map((o) => o.label.code.trim()),
+      );
+      for (const code of input.labelCodes) {
+        if (!allowedCodes.has(code.trim())) {
+          throw new BadRequestException(
+            `Label code ${code} is not a valid option for question ${input.questionCode}`,
+          );
+        }
+      }
+    }
+
+    await this.answerRepository.delete({ surveyId: survey.id });
+
+    for (const input of answersInput) {
+      const question = await this.questionRepository.findOneOrFail({
+        where: { code: input.questionCode.trim() },
+      });
+      const answer = await this.answerRepository.save(
+        this.answerRepository.create({
+          surveyId: survey.id,
+          questionId: question.id,
+        }),
+      );
+
+      if (input.labelCodes.length > 0) {
+        const labels = await this.labelRepository.find({
+          where: { code: In(input.labelCodes.map((c) => c.trim())) },
+        });
+        for (const label of labels) {
+          await this.answerLabelRepository.save(
+            this.answerLabelRepository.create({
+              answerId: answer.id,
+              labelId: label.id,
+            }),
+          );
+        }
+      }
+    }
+
+    if (!survey.isCompleted) {
+      survey.isCompleted = true;
+      survey.completedAt = new Date();
+      await this.surveyRepository.save(survey);
+    }
+
+    await this.deriveAndSaveSkinType(customer.id, survey.id);
+
+    await this.surveyRecommendationRepository.delete({
+      customerSurveyId: survey.id,
+    });
+
+    const answers = await this.answerRepository.find({
+      where: { surveyId: survey.id },
+      relations: ['answerLabels', 'answerLabels.label'],
+    });
+    return this.toSurveyDto(survey, answers);
   }
 
   async getSurveyForUser(
@@ -398,6 +627,7 @@ export class SurveyService {
           labelCode: option.label.code,
           name: option.label.name,
           description: option.label.description,
+          vietnameseNormalized: option.label.vietnameseNormalized ?? null,
         })),
     };
   }
@@ -457,6 +687,7 @@ export class SurveyService {
         labels: (a.answerLabels ?? []).map((al) => ({
           code: al.label.code,
           name: al.label.name,
+          vietnameseNormalized: al.label.vietnameseNormalized ?? null,
         })),
       })),
     };

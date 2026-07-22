@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { AppEnv, getMissingRequiredEnv, resolveAppEnv } from './env.config';
+import { LlmConfig } from './llm.config';
 import { PaymentConfig } from './payment.config';
 
 @Injectable()
@@ -123,6 +124,16 @@ export class AppConfigService {
   /** LLM provider key for routine generation (mock by default). */
   get llmProvider(): string {
     return this.env.LLM_PROVIDER;
+  }
+
+  /** Grouped LLM / Ollama settings for routine generation. */
+  get llmConfig(): LlmConfig {
+    return {
+      provider: this.env.LLM_PROVIDER,
+      ollamaBaseUrl: this.env.OLLAMA_BASE_URL,
+      ollamaModel: this.env.OLLAMA_MODEL,
+      ollamaTimeoutMs: this.env.OLLAMA_TIMEOUT_MS,
+    };
   }
 
   getMissingRequiredKeys(): string[] {

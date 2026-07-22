@@ -1,15 +1,18 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { SurveyService } from './survey.service';
 import { QuestionPriority } from './question.entity';
 
 describe('SurveyService question bank', () => {
   const surveyRepository = {
     findOne: jest.fn(),
+    save: jest.fn(),
   };
   const answerRepository = {
     findOne: jest.fn(),
+    find: jest.fn(),
     save: jest.fn(),
     create: jest.fn((value) => value),
+    delete: jest.fn(),
   };
   const answerLabelRepository = {
     delete: jest.fn(),
@@ -18,6 +21,8 @@ describe('SurveyService question bank', () => {
   };
   const questionRepository = {
     find: jest.fn(),
+    findOne: jest.fn(),
+    findOneOrFail: jest.fn(),
   };
   const questionOptionRepository = {};
   const labelRepository = {
@@ -25,6 +30,17 @@ describe('SurveyService question bank', () => {
   };
   const customerRepository = {
     findOne: jest.fn(),
+  };
+  const skinTypeRepository = {
+    findOne: jest.fn(),
+  };
+  const customerSkinTypeDetailsRepository = {
+    findOne: jest.fn(),
+    create: jest.fn((value) => value),
+    save: jest.fn(async (value) => value),
+  };
+  const surveyRecommendationRepository = {
+    delete: jest.fn(),
   };
 
   let service: SurveyService;
@@ -39,6 +55,9 @@ describe('SurveyService question bank', () => {
       questionOptionRepository as never,
       labelRepository as never,
       customerRepository as never,
+      skinTypeRepository as never,
+      customerSkinTypeDetailsRepository as never,
+      surveyRecommendationRepository as never,
     );
     customerRepository.findOne.mockResolvedValue({
       id: 'customer-id',
@@ -73,6 +92,7 @@ describe('SurveyService question bank', () => {
               code: 'ACNE',
               name: 'Acne',
               description: null,
+              vietnameseNormalized: 'Mụn sưng, mụn viêm hoặc mụn trứng cá',
               isActive: true,
             },
           },
@@ -112,6 +132,7 @@ describe('SurveyService question bank', () => {
       labelCode: 'ACNE',
       name: 'Acne',
       description: null,
+      vietnameseNormalized: 'Mụn sưng, mụn viêm hoặc mụn trứng cá',
     });
   });
 
@@ -148,5 +169,111 @@ describe('SurveyService question bank', () => {
         ],
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('derives ORPT skin type from oily and pigmented labels', async () => {
+    surveyRepository.findOne.mockResolvedValue({
+      id: 'survey-id',
+      customerId: 'customer-id',
+      answers: [
+        {
+          answerLabels: [
+            { label: { code: 'ACNE', isActive: true } },
+            { label: { code: 'MELASMA', isActive: true } },
+          ],
+        },
+      ],
+    });
+    skinTypeRepository.findOne.mockResolvedValue({
+      id: 'st-orpt',
+      code: 'ORPT',
+    });
+    customerSkinTypeDetailsRepository.findOne.mockResolvedValue(null);
+
+    const details = await service.deriveAndSaveSkinType(
+      'customer-id',
+      'survey-id',
+    );
+
+    expect(skinTypeRepository.findOne).toHaveBeenCalledWith({
+      where: { code: 'ORPT' },
+    });
+    expect(details.skinTypeId).toBe('st-orpt');
+    expect(customerSkinTypeDetailsRepository.save).toHaveBeenCalled();
+  });
+
+  it('admin cheat updates answers, derives skin type, and clears recommendations', async () => {
+    customerRepository.findOne.mockResolvedValue({ id: 'customer-id' });
+    surveyRepository.findOne
+      .mockResolvedValueOnce({
+        id: 'survey-id',
+        customerId: 'customer-id',
+        isCompleted: true,
+      })
+      .mockResolvedValueOnce({
+        id: 'survey-id',
+        customerId: 'customer-id',
+        answers: [
+          {
+            answerLabels: [{ label: { code: 'ACNE', isActive: true } }],
+          },
+        ],
+      });
+
+    questionRepository.findOne.mockResolvedValue({
+      id: 'q1',
+      code: 'PRIMARY_CONCERN',
+      options: [
+        {
+          isActive: true,
+          label: { code: 'ACNE', isActive: true },
+        },
+      ],
+    });
+    questionRepository.findOneOrFail.mockResolvedValue({
+      id: 'q1',
+      code: 'PRIMARY_CONCERN',
+    });
+    labelRepository.find.mockResolvedValue([
+      { id: 'label-acne', code: 'ACNE' },
+    ]);
+    answerRepository.save.mockResolvedValue({ id: 'answer-1' });
+    skinTypeRepository.findOne.mockResolvedValue({ id: 'st', code: 'ORNT' });
+    customerSkinTypeDetailsRepository.findOne.mockResolvedValue(null);
+    answerRepository.find.mockResolvedValue([
+      {
+        id: 'answer-1',
+        questionId: 'q1',
+        value: null,
+        answerLabels: [
+          {
+            label: {
+              code: 'ACNE',
+              name: 'Acne',
+              vietnameseNormalized: 'Mụn',
+            },
+          },
+        ],
+      },
+    ]);
+
+    const result = await service.adminUpdateSurveyByCustomerId('customer-id', [
+      { questionCode: 'PRIMARY_CONCERN', labelCodes: ['ACNE'] },
+    ]);
+
+    expect(answerRepository.delete).toHaveBeenCalledWith({
+      surveyId: 'survey-id',
+    });
+    expect(surveyRecommendationRepository.delete).toHaveBeenCalledWith({
+      customerSurveyId: 'survey-id',
+    });
+    expect(result.answers[0].labels[0].vietnameseNormalized).toBe('Mụn');
+  });
+
+  it('throws when admin cheat targets a missing customer', async () => {
+    customerRepository.findOne.mockResolvedValue(null);
+    await expect(
+      service.adminUpdateSurveyByCustomerId('missing', []),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

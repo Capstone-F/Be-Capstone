@@ -9,6 +9,9 @@ export class SurveyQuestionOptionDto {
 
   @ApiPropertyOptional({ nullable: true })
   description!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  vietnameseNormalized!: string | null;
 }
 
 export class SurveyQuestionDto {
@@ -43,6 +46,9 @@ export class SurveyAnswerLabelDto {
 
   @ApiProperty()
   name!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  vietnameseNormalized!: string | null;
 }
 
 export class SurveyAnswerDto {

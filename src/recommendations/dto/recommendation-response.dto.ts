@@ -66,6 +66,20 @@ export class RecommendedProductDto {
   variants!: RankedVariantDto[];
 }
 
+export class RecommendationConflictDto {
+  @ApiProperty()
+  protocolCode!: string;
+
+  @ApiProperty()
+  conflictingProtocolCode!: string;
+
+  @ApiProperty()
+  severity!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  reason!: string | null;
+}
+
 export class RecommendationResponseDto {
   @ApiProperty()
   id!: string;
@@ -81,6 +95,9 @@ export class RecommendationResponseDto {
 
   @ApiProperty({ type: [RuleEngineProtocolDto] })
   protocols!: RuleEngineProtocolDto[];
+
+  @ApiPropertyOptional({ type: [RecommendationConflictDto] })
+  conflicts?: RecommendationConflictDto[];
 
   @ApiProperty({ type: [RecommendedProductDto] })
   products!: RecommendedProductDto[];

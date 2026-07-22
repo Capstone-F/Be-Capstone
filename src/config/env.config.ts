@@ -167,7 +167,23 @@ export const ENV_DEFINITIONS = {
     required: false,
     defaultValue: 'mock',
     description:
-      'LLM provider for routine generation (mock | openai | gemini). Only mock is implemented.',
+      'LLM provider for routine generation (mock | ollama | openai | gemini). mock and ollama are implemented.',
+  },
+  OLLAMA_BASE_URL: {
+    required: false,
+    defaultValue: 'http://host.docker.internal:11434',
+    description:
+      'Ollama API base URL. Use http://host.docker.internal:11434 when the API runs in Docker and Ollama on the host; use http://localhost:11434 when both run on the host.',
+  },
+  OLLAMA_MODEL: {
+    required: false,
+    defaultValue: 'gpt-oss:120b-cloud',
+    description: 'Ollama model tag used for routine generation.',
+  },
+  OLLAMA_TIMEOUT_MS: {
+    required: false,
+    defaultValue: '120000',
+    description: 'Timeout in milliseconds for Ollama chat requests.',
   },
 } as const satisfies Record<string, EnvDefinition>;
 
@@ -205,6 +221,9 @@ export type AppEnv = {
   MOBILE_AUTH_CODE_TTL_SECONDS: number;
   MOBILE_OAUTH_STATE_TTL_SECONDS: number;
   LLM_PROVIDER: string;
+  OLLAMA_BASE_URL: string;
+  OLLAMA_MODEL: string;
+  OLLAMA_TIMEOUT_MS: number;
 };
 
 export function getMissingRequiredEnv(
@@ -366,5 +385,16 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
     ),
     LLM_PROVIDER:
       raw.LLM_PROVIDER?.trim() || ENV_DEFINITIONS.LLM_PROVIDER.defaultValue,
+    OLLAMA_BASE_URL: (
+      raw.OLLAMA_BASE_URL?.trim() ||
+      ENV_DEFINITIONS.OLLAMA_BASE_URL.defaultValue
+    ).replace(/\/+$/, ''),
+    OLLAMA_MODEL:
+      raw.OLLAMA_MODEL?.trim() || ENV_DEFINITIONS.OLLAMA_MODEL.defaultValue,
+    OLLAMA_TIMEOUT_MS: parsePositiveInt(
+      raw.OLLAMA_TIMEOUT_MS,
+      'OLLAMA_TIMEOUT_MS',
+      ENV_DEFINITIONS.OLLAMA_TIMEOUT_MS.defaultValue,
+    ),
   };
 }

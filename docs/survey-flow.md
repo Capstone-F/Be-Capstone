@@ -1,13 +1,15 @@
-# Survey → Recommendation → Purchase Integration Guide
+# Survey → Recommendation → Purchase → Routine Integration Guide
 
-End-to-end guide for integrating GlowScan’s **personalized survey → ingredient protocols → recommended products → SURVEY cart → order → payment** flow with this backend.
+End-to-end guide for integrating GlowScan’s **personalized survey → ingredient protocols → recommended products → SURVEY cart → order → payment → AI skincare routine** flow with this backend.
+
+The **final deliverable of this flow is a personalized routine** (`POST /routines/generate` → `GET /routines/me`). Purchasing recommended products is the required middle step: the routine is built from the paid survey order’s products.
 
 **Auth (register / login):** do not duplicate here — use:
 
 - [Web Authentication Guide](auth-web.md) — session cookie (`sid`) for SPAs
 - [Mobile Authentication Guide](auth-mobile.md) — Bearer tokens for Expo / React Native
 
-**After cart creation:** reuse the shared checkout stack in [E-Commerce Integration Guide](ecommerce-flow.md) (order → shipping → VNPay → tracking).
+**After cart creation:** reuse the shared checkout stack in [E-Commerce Integration Guide](ecommerce-flow.md) (order → shipping → VNPay → tracking), then return here for routine generation.
 
 See also: [VNPay Payment Integration](payments.md) · [User Management & RBAC](users.md)
 
@@ -44,10 +46,9 @@ See also: [VNPay Payment Integration](payments.md) · [User Management & RBAC](u
 ┌──────────────┐   ┌─────────────────┐   ┌──────────────┐   ┌──────────────────┐
 │ Base profile │──▶│ Survey session  │──▶│ Complete     │──▶│ Rule engine      │
 │ (age, gender,│   │ + answers       │   │ survey       │   │ → protocols      │
-│  allergies,  │   │ (label codes)   │   │              │   │ → products       │
-│  Baumann)    │   └─────────────────┘   └──────────────┘   └────────┬─────────┘
-└──────────────┘                                                      │
-  ✅ Ready         🔶 Extend (static Qs)    ✅ Ready                   ▼
+│  allergies)  │   │ (label codes)   │   │ (+ skin type)│   │ → products       │
+└──────────────┘   └─────────────────┘   └──────────────┘   └────────┬─────────┘
+  ✅ Ready         ✅ Ready (L1/L2)         ✅ Ready                   ▼
                                                             ┌──────────────────┐
                                                             │ Recommendation   │
                                                             │ snapshot         │
@@ -56,30 +57,31 @@ See also: [VNPay Payment Integration](payments.md) · [User Management & RBAC](u
                                                                      ▼
 ┌──────────────┐   ┌─────────────────┐   ┌──────────────┐   ┌──────────────────┐
 │ Routine (AI) │◀──│ Payment + ship  │◀──│ Order        │◀──│ SURVEY cart      │
-│ (optional)   │   │ (VNPay)         │   │ source=SURVEY│   │ + combo discount │
+│ FINAL STEP   │   │ (VNPay)         │   │ source=SURVEY│   │ + combo discount │
 └──────────────┘   └─────────────────┘   └──────────────┘   └──────────────────┘
   ✅ Ready           ✅ (ecommerce-flow)   ✅ Ready           ✅ Ready
 ```
 
-**Target happy path (survey purchase):**
+**Happy path (ends with a routine):**
 
-1. Customer already has a **base profile** (age / DOB, gender, allergies, Baumann skin type, …).
+1. Customer already has a **base profile** (age / DOB, gender, allergies). Baumann skin type may be missing and is **derived on survey complete**.
 2. Start a survey session → fetch questions (with answer options / labels).
 3. Submit answers as **label codes** (plus optional free text).
-4. Complete the survey.
-5. Fetch recommendations → rule engine matches **ingredient protocols** → maps to catalog **product variants** → persists an immutable snapshot.
+4. Complete the survey → backend derives and saves Baumann skin type from answer labels.
+5. Fetch recommendations → rule engine matches **ingredient protocols** → maps to ranked **product variants** (stock + allergy filtered) → persists an immutable snapshot.
 6. User reviews protocols + products → adds selected variants to cart with `source: SURVEY` + `surveyRecommendationId`.
-7. Create order from cart (`source: SURVEY`). If the cart contains **all** recommended variants (full combo), apply survey combo discount.
-8. Attach shipping → VNPay checkout → same fulfillment path as catalog.
-9. (Optional) After `PAID` survey order → generate AI routine.
+7. Create order from cart (`source: SURVEY`). If **every protocol** has ≥1 ranked variant in the cart, apply survey combo discount.
+8. Attach shipping → VNPay checkout → wait until order is `PAID`.
+9. **Generate the AI routine** with `POST /routines/generate` (`orderId` of the paid survey order), then show it via `GET /routines/me` (or the generate response). This is the **end state** of the survey flow.
 
 > **Important split:**
 >
 > - **Base profile** = who the user is (stored on `Customer` / Baumann details).
 > - **Survey** = concern / lifestyle / goal signals as **labels**.
 > - **Rule engine** = labels + skin type → ranked **ingredient protocols**.
-> - **Recommendation** = protocols → cheapest matching **product variants** (snapshot).
-> - **Cart / order** = commerce with `source: SURVEY`.
+> - **Recommendation** = protocols → **ranked product variants** per protocol (snapshot; stock + allergy filtered).
+> - **Cart / order** = commerce with `source: SURVEY` (funds the products used in the routine).
+> - **Routine** = morning/evening steps tied to purchased variants — the **product outcome** of this flow.
 
 There is also a lighter path: `GET /products/suggestion` ranks products from **profile only** (no completed survey required). That is **not** the survey purchase flow and does **not** create a `SurveyRecommendation` snapshot.
 
@@ -115,13 +117,13 @@ The survey flow assumes the customer has already completed onboarding / base pro
 
 Typical base fields used downstream:
 
-| Field           | Used for                                      |
-| --------------- | --------------------------------------------- |
-| `dateOfBirth`   | Age group labels (`UNDER_18`, `AGE_18_25`, …) |
-| `gender`        | Gender labels                                 |
-| `allergies`     | Safety filtering (esp. product suggestion)    |
-| `skinType`      | Baumann 16-type code (e.g. `OSPW`)            |
-| `baumannScores` | Axis scores (O/D, S/R, P/N, W/T)              |
+| Field           | Used for                                                             |
+| --------------- | -------------------------------------------------------------------- |
+| `dateOfBirth`   | Age group labels (`UNDER_18`, `AGE_18_25`, …)                        |
+| `gender`        | Gender labels                                                        |
+| `allergies`     | Safety filtering (product suggestion **and** survey recommendations) |
+| `skinType`      | Baumann 16-type code (e.g. `OSPW`); includes optional `description`  |
+| `baumannScores` | Axis scores (O/D, S/R, P/N, W/T)                                     |
 
 ```http
 GET /customers/me
@@ -131,24 +133,31 @@ Example (shape abbreviated):
 
 ```json
 {
-  "id": "...",
-  "gender": "FEMALE",
-  "dateOfBirth": "1998-05-12",
-  "skinType": { "code": "OSPT", "name": "..." },
-  "baumannScores": {
-    "oilyDryScore": 72,
-    "sensitiveResistantScore": 65,
-    "pigmentedNonPigmentedScore": 58,
-    "wrinkledTightScore": 30
+  "customer": {
+    "id": "...",
+    "gender": "FEMALE",
+    "dateOfBirth": "1998-05-12",
+    "skinType": {
+      "code": "OSPT",
+      "name": "...",
+      "description": null
+    },
+    "baumannScores": {
+      "oilyDryScore": 72,
+      "sensitiveResistantScore": 65,
+      "pigmentedNonPigmentedScore": 58,
+      "wrinkledTightScore": 30,
+      "assessedAt": "..."
+    }
   },
-  "allergies": [{ "code": "FRAGRANCE", "name": "Fragrance" }],
+  "allergies": [{ "id": "...", "code": "FRAGRANCE", "name": "Fragrance" }],
   "surveyHistory": []
 }
 ```
 
-**Client gate (recommended):** before starting a survey, ensure DOB + gender + skin type exist. If missing, send the user to profile / base onboarding first.
+**Client gate (recommended):** before starting a survey, ensure **DOB + gender** exist. Skin type is **optional** at start — it is derived and written on `POST /surveys/:id/complete`. After complete, call `GET /customers/me` if the UI needs the updated Baumann type / scores.
 
-> Baumann type lives on the **customer profile**, not on `CustomerSurvey`. Do **not** ask the user “Are you OSPT or DSPW?” — infer axes from profile / symptom questions and store the type on the profile.
+> Baumann type lives on the **customer profile**, not on `CustomerSurvey`. Do **not** ask the user “Are you OSPT or DSPW?” — infer axes from survey labels on complete and store the type on the profile.
 
 ---
 
@@ -181,16 +190,24 @@ Response shape:
     "priority": "CORE",
     "category": "SKIN_CONCERN",
     "options": [
-      { "labelCode": "ACNE", "name": "Acne", "description": "..." },
+      {
+        "labelCode": "ACNE",
+        "name": "Acne",
+        "description": "Inflammatory and non-inflammatory acne lesions",
+        "vietnameseNormalized": "Mụn sưng, mụn viêm hoặc mụn trứng cá"
+      },
       {
         "labelCode": "HYPERPIGMENTATION",
         "name": "Hyperpigmentation",
-        "description": "..."
+        "description": "...",
+        "vietnameseNormalized": "Thâm sạm, đốm nâu"
       }
     ]
   }
 ]
 ```
+
+**Locale contract:** `name` / `description` are English; `vietnameseNormalized` is the Vietnamese display name (nullable). Prefer `vietnameseNormalized` for VI UI when present, otherwise fall back to `name`.
 
 Without `surveyId`, only `CORE` questions are returned. With an owned survey,
 the API evaluates `askWhen.anyLabelCodes` against submitted answers and adds
@@ -266,7 +283,7 @@ Content-Type: application/json
 - Re-submitting the same `questionId` replaces previous labels for that answer.
 - You may call this endpoint multiple times (progressive answering).
 
-Response = full `SurveyResponseDto` including saved `answers[].labels`.
+Response = full `SurveyResponseDto` including saved `answers[].labels` (`code`, `name`, optional `vietnameseNormalized`).
 
 ---
 
@@ -305,6 +322,8 @@ POST /surveys/<surveyId>/complete
 ```
 
 Completion alone does **not** create product recommendations. Call the recommendations endpoint next.
+
+**Side effect on complete:** the backend derives Baumann skin type from the survey’s answer labels (O/D, S/R, P/N, W/T axes), persists `CustomerSkinTypeDetails` (including axis scores + `assessedAt`), and falls back to `ORNT` if the computed code is missing from seed. Re-fetch `GET /customers/me` to show the updated type in the client.
 
 ---
 
@@ -350,6 +369,14 @@ Response (abbreviated):
       "matchedLabelCodes": ["ACNE", "OILY_SKIN"]
     }
   ],
+  "conflicts": [
+    {
+      "protocolCode": "BHA_2PCT_PM",
+      "conflictingProtocolCode": "RETINOL_PM",
+      "severity": "HIGH",
+      "reason": "Do not combine in the same routine without guidance"
+    }
+  ],
   "products": [
     {
       "recommendationItemId": "...",
@@ -380,10 +407,18 @@ Response (abbreviated):
 }
 ```
 
+**Product mapping rules (when the snapshot is first created):**
+
+- Rank linked variants by price then SKU (up to 10 per protocol).
+- Drop variants with **remaining stock ≤ 0**.
+- Drop variants that conflict with the customer’s **active allergy** labels (ingredient-name heuristics).
+- Flat `productVariantId` on each product row is the default (rank-1) choice after filters.
+- Optional `conflicts[]` lists ingredient-protocol pairs that collide within the recommended set (informational for FE).
+
 **Client UX suggestion:**
 
-1. First screen: show `protocols[]` (ingredient protocol list — what the engine prescribed).
-2. User taps Continue → show each `products[].variants[]` ranked by price then SKU. Flat product fields are the default (cheapest) display hint only.
+1. First screen: show `protocols[]` (ingredient protocol list — what the engine prescribed). Optionally surface `conflicts[]` as warnings.
+2. User taps Continue → show each `products[].variants[]` ranked by price then SKU. Flat product fields are the default (cheapest in-stock, non-allergenic) display hint only.
 3. Keep `id` (`surveyRecommendationId`) for the cart step.
 4. Add any ranked `productVariantId` directly to the SURVEY cart (no selection PATCH). Multiple variants of the same protocol are allowed.
 
@@ -468,14 +503,18 @@ Admin combo % (not customer-facing):
 
 ---
 
-### 4.9 (Optional) Generate AI routine after payment ✅ Ready
+### 4.9 Generate AI routine after payment (flow outcome) ✅ Ready
 
-Only **PAID** orders with `source: SURVEY` are eligible.
+After the survey order is **PAID**, generate the personalized skincare routine. This is the **final step** of the survey integration path — the client should land on a routine screen, not stop at “order paid.”
 
-| Method | Path                 | Auth     | Status   |
-| ------ | -------------------- | -------- | -------- |
-| POST   | `/routines/generate` | Customer | ✅ Ready |
-| GET    | `/routines/me`       | Customer | ✅ Ready |
+Only orders with `source: SURVEY` and status `PAID` are eligible. Catalog purchases cannot generate routines.
+
+| Method | Path                 | Auth     | Status   | Purpose                                      |
+| ------ | -------------------- | -------- | -------- | -------------------------------------------- |
+| POST   | `/routines/generate` | Customer | ✅ Ready | Create routine from a paid survey order      |
+| GET    | `/routines/me`       | Customer | ✅ Ready | List all routines for the authenticated user |
+
+#### 4.9.1 Create routine
 
 ```http
 POST /routines/generate
@@ -486,7 +525,73 @@ Content-Type: application/json
 }
 ```
 
-Catalog purchases cannot generate routines.
+Response (`RoutineResponseDto`, abbreviated):
+
+```json
+{
+  "id": "<routine-uuid>",
+  "type": "AI_RECOMMENDED",
+  "status": "ACTIVE",
+  "title": "Personalized routine for OSPW skin",
+  "description": "...",
+  "sourceOrderId": "<paid-survey-order-uuid>",
+  "customerSurveyId": "<survey-uuid>",
+  "surveyRecommendationId": "<recommendation-uuid>",
+  "steps": [
+    {
+      "id": "...",
+      "name": "Acne Serum",
+      "period": "MORNING",
+      "stepOrder": 1,
+      "instructions": "Apply gently after cleansing.",
+      "productVariantId": "<variant-uuid-from-order>",
+      "protocolId": "<protocol-uuid>"
+    },
+    {
+      "id": "...",
+      "name": "Acne Serum",
+      "period": "EVENING",
+      "stepOrder": 1,
+      "instructions": "Apply gently after cleansing.",
+      "productVariantId": "<variant-uuid-from-order>",
+      "protocolId": "<protocol-uuid>"
+    }
+  ],
+  "createdAt": "..."
+}
+```
+
+**Rules:**
+
+- Steps only reference `productVariantId`s that were on the paid order (hallucinated products are dropped).
+- Periods are `MORNING` / `EVENING`.
+- **Multiple routines per order** are allowed (`sourceOrderId` is not unique). Calling generate again creates another routine.
+- LLM backend: `LLM_PROVIDER=mock` (default) or `ollama` — see env table below / README.
+
+#### 4.9.2 List routines
+
+```http
+GET /routines/me
+```
+
+Returns `RoutineResponseDto[]` (newest first). Use this after generate, on app home, or when the user reopens the app to show their routine(s).
+
+**Client UX suggestion:**
+
+1. After payment success (IPN / poll `GET /payments/:id` → order `PAID`), call `POST /routines/generate`.
+2. Navigate to the routine detail UI using the generate response (or refresh with `GET /routines/me`).
+3. Allow “Regenerate” by calling generate again with the same `orderId` if product copy / LLM output should be refreshed.
+
+**LLM provider env** (see README / `.env.example`):
+
+| Variable            | Default                             | Notes                                                                   |
+| ------------------- | ----------------------------------- | ----------------------------------------------------------------------- |
+| `LLM_PROVIDER`      | `mock`                              | `mock` (deterministic) or `ollama` (live). `openai` / `gemini` reserved |
+| `OLLAMA_BASE_URL`   | `http://host.docker.internal:11434` | Use when API runs in Docker and Ollama on the host                      |
+| `OLLAMA_MODEL`      | `gpt-oss:120b-cloud`                | Model tag passed to Ollama                                              |
+| `OLLAMA_TIMEOUT_MS` | `120000`                            | Chat request timeout                                                    |
+
+Use `OLLAMA_BASE_URL=http://localhost:11434` only when the Nest API also runs on the host (not in Docker).
 
 ---
 
@@ -494,20 +599,31 @@ Catalog purchases cannot generate routines.
 
 ### Survey purchase path
 
-| Step                                | Method      | Path                                       | Status    |
-| ----------------------------------- | ----------- | ------------------------------------------ | --------- |
-| Get / update base profile           | GET / PATCH | `/customers/me`                            | ✅ Ready  |
-| Allergy options                     | GET         | `/customers/allergies`                     | ✅ Ready  |
-| List questions (+ options — target) | GET         | `/surveys/questions`                       | 🔶 Extend |
-| Start survey                        | POST        | `/surveys`                                 | ✅ Ready  |
-| Submit answers                      | POST        | `/surveys/:id/answers`                     | ✅ Ready  |
-| Get survey                          | GET         | `/surveys/:id`                             | ✅ Ready  |
-| Complete survey                     | POST        | `/surveys/:id/complete`                    | ✅ Ready  |
-| Protocols + products snapshot       | GET         | `/recommendations/latest`                  | ✅ Ready  |
-| Add to SURVEY cart                  | POST        | `/cart/items`                              | ✅ Ready  |
-| Create order                        | POST        | `/orders`                                  | ✅ Ready  |
-| Shipping + payment                  | —           | See [ecommerce-flow.md](ecommerce-flow.md) | ✅ Ready  |
-| Generate routine                    | POST        | `/routines/generate`                       | ✅ Ready  |
+| Step                                 | Method      | Path                                       | Status   |
+| ------------------------------------ | ----------- | ------------------------------------------ | -------- |
+| Get / update base profile            | GET / PATCH | `/customers/me`                            | ✅ Ready |
+| Allergy options                      | GET         | `/customers/allergies`                     | ✅ Ready |
+| List questions (+ options)           | GET         | `/surveys/questions`                       | ✅ Ready |
+| Start survey                         | POST        | `/surveys`                                 | ✅ Ready |
+| Submit answers                       | POST        | `/surveys/:id/answers`                     | ✅ Ready |
+| Get survey                           | GET         | `/surveys/:id`                             | ✅ Ready |
+| Complete survey (+ derive skin type) | POST        | `/surveys/:id/complete`                    | ✅ Ready |
+| Protocols + products snapshot        | GET         | `/recommendations/latest`                  | ✅ Ready |
+| Add to SURVEY cart                   | POST        | `/cart/items`                              | ✅ Ready |
+| Create order                         | POST        | `/orders`                                  | ✅ Ready |
+| Shipping + payment                   | —           | See [ecommerce-flow.md](ecommerce-flow.md) | ✅ Ready |
+| **Generate routine (flow outcome)**  | POST        | `/routines/generate`                       | ✅ Ready |
+| **List my routines**                 | GET         | `/routines/me`                             | ✅ Ready |
+
+### Admin (App Admin) — QA / cheat
+
+| Step                           | Method | Path                           | Status   |
+| ------------------------------ | ------ | ------------------------------ | -------- |
+| Cheat update survey answers    | PATCH  | `/admin/customers/:id/survey`  | ✅ Ready |
+| Cheat update profile/allergies | PATCH  | `/admin/customers/:id/profile` | ✅ Ready |
+| Question bank CRUD             | —      | `/admin/survey-questions`      | ✅ Ready |
+
+See [users.md](users.md) for admin customer cheat request bodies.
 
 ### Related (not survey-purchase)
 
@@ -527,8 +643,8 @@ Customer profile                Survey answers
 ─────────────────               ──────────────
 age → AGE_GROUP label           question → labelCodes[]
 gender → GENDER label
-skinType → Baumann filter
-allergies → safety (suggest)
+skinType → Baumann filter       (may be derived on complete)
+allergies → safety (suggest + recommendations)
         \                     /
          \                   /
           ▼                 ▼
@@ -537,31 +653,35 @@ allergies → safety (suggest)
                   ▼
         IngredientProtocol[]  (scored)
                   │
-                  ▼  product_protocols
-        ProductVariant[]      (cheapest per protocol)
+                  ▼  product_protocols + stock/allergy filters
+        Ranked ProductVariant[] per protocol
                   │
                   ▼
-        SurveyRecommendation (immutable snapshot)
+        SurveyRecommendation (immutable snapshot + conflicts)
                   │
                   ▼
         Cart source=SURVEY → Order source=SURVEY
+                  │
+                  ▼
+        Routine(s) AI_RECOMMENDED (many per sourceOrderId)
 ```
 
 ### 6.2 Core entities
 
-| Entity                     | Role                                                              |
-| -------------------------- | ----------------------------------------------------------------- |
-| `Question`                 | Survey prompt (`code`, `text`, `questionType`, `displayOrder`)    |
-| `Label` / `LabelCategory`  | Answer tags consumed by rule engine (`ACNE`, `ACNE_TREATMENT`, …) |
-| `CustomerSurvey`           | One session; `isCompleted` / `completedAt`                        |
-| `Answer` + `AnswerLabel`   | User response linking question → labels                           |
-| `IngredientProtocol`       | Prescribed active / usage pattern                                 |
-| `ProtocolLabel`            | `REQUIRED` / `OPTIONAL` / `EXCLUDED` label match                  |
-| `ProtocolSkinType`         | `RECOMMENDED` / `AVOID` for Baumann types                         |
-| `ProductProtocol`          | Links catalog product → protocol                                  |
-| `SurveyRecommendation`     | Snapshot header (1:1 with completed survey)                       |
-| `SurveyRecommendationItem` | Protocol + chosen `productVariantId` + `matchScore`               |
-| `Order`                    | `source: SURVEY \| CATALOG`, optional combo discount              |
+| Entity                     | Role                                                                   |
+| -------------------------- | ---------------------------------------------------------------------- |
+| `Question`                 | Survey prompt (`code`, `text`, `questionType`, `displayOrder`)         |
+| `Label` / `LabelCategory`  | Answer tags; EN `name`/`description` + optional `vietnameseNormalized` |
+| `CustomerSurvey`           | One session; `isCompleted` / `completedAt`                             |
+| `Answer` + `AnswerLabel`   | User response linking question → labels                                |
+| `IngredientProtocol`       | Prescribed active / usage pattern                                      |
+| `ProtocolLabel`            | `REQUIRED` / `OPTIONAL` / `EXCLUDED` label match                       |
+| `ProtocolSkinType`         | `RECOMMENDED` / `AVOID` for Baumann types                              |
+| `ProductProtocol`          | Links catalog product → protocol                                       |
+| `SurveyRecommendation`     | Snapshot header (1:1 with completed survey)                            |
+| `SurveyRecommendationItem` | Protocol + primary `productVariantId` + `rankedVariants` + score       |
+| `Routine`                  | AI / expert routine; `sourceOrderId` is many-to-one (nullable)         |
+| `Order`                    | `source: SURVEY \| CATALOG`, optional combo discount                   |
 
 ### 6.3 Seeded survey questions (MVP today)
 
@@ -586,7 +706,7 @@ GlowScan uses Baumann as a **classification layer**, not as a quiz that asks for
 
 **In recommendations:** protocols with `ProtocolSkinType = AVOID` for the customer’s type are dropped; `RECOMMENDED` can boost score.
 
-**In survey UX (target):** ask symptom / experience questions that _infer_ axes; keep the stored type on the customer profile.
+**In survey UX (shipped):** on `POST /surveys/:id/complete`, the backend scores O/D, S/R, P/N, W/T from answer labels, maps to a Baumann code, and stores it on `CustomerSkinTypeDetails`. Richer axis-specific questions remain a bank-expansion opportunity.
 
 ---
 
@@ -618,18 +738,18 @@ Age segment + Environment segment + Baumann type + Primary concern
 
 Each question bank row should carry more than display text:
 
-| Field               | Meaning                                                   |
-| ------------------- | --------------------------------------------------------- |
-| `category`          | Acne, Skin Type, Lifestyle, Safety, Preference, …         |
-| `code` / `text`     | Stable id + UI copy                                       |
-| `intent`            | What signal this measures                                 |
-| `questionType`      | `SINGLE_CHOICE`, `MULTI_SELECT`, `SCALE`, `TEXT`, …       |
-| `askWhen`           | Rules: always / concern=acne / age≥35 / env=hot_humid / … |
-| `priority`          | `CORE` / `CONDITIONAL` / `OPTIONAL`                       |
-| `options[]`         | `{ labelCode, name, description? }`                       |
-| `personalitySignal` | Optional tag for preference layer                         |
-| `sourceInspiration` | AAD / NHS / PROVEN / … (docs / admin only)                |
-| `riskNote`          | Medical / privacy / bias caveats                          |
+| Field               | Meaning                                                    |
+| ------------------- | ---------------------------------------------------------- |
+| `category`          | Acne, Skin Type, Lifestyle, Safety, Preference, …          |
+| `code` / `text`     | Stable id + UI copy                                        |
+| `intent`            | What signal this measures                                  |
+| `questionType`      | `SINGLE_CHOICE`, `MULTI_SELECT`, `SCALE`, `TEXT`, …        |
+| `askWhen`           | Rules: always / concern=acne / age≥35 / env=hot_humid / …  |
+| `priority`          | `CORE` / `CONDITIONAL` / `OPTIONAL`                        |
+| `options[]`         | `{ labelCode, name, description?, vietnameseNormalized? }` |
+| `personalitySignal` | Optional tag for preference layer                          |
+| `sourceInspiration` | AAD / NHS / PROVEN / … (docs / admin only)                 |
+| `riskNote`          | Medical / privacy / bias caveats                           |
 
 ### 7.4 Asking principles
 
@@ -702,7 +822,7 @@ Entry points:
 4. Require all `REQUIRED` labels.
 5. Drop if skin type is `AVOID`.
 6. Score = matched required + optional (+1 if skin type `RECOMMENDED`).
-7. Sort by score; recommendation service maps each protocol to cheapest active linked variant.
+7. Sort by score; recommendation service maps each protocol to **ranked** linked variants (price → SKU), after **stock > 0** and **allergy** filters; attaches optional protocol `conflicts[]`.
 
 **Client implication:** improving personalization is mostly:
 
@@ -729,8 +849,9 @@ Empty cart
                  └─ every protocol covered (≥1 variant) → discountType=COMBO
                       └─ POST /orders/:id/delivery
                            └─ POST /payments/checkout
-                                └─ IPN → Order PAID
-                                     └─ POST /routines/generate (optional)
+                                └─ IPN / poll → Order PAID
+                                     └─ POST /routines/generate   ← flow outcome
+                                          └─ GET /routines/me     ← show / refresh
 ```
 
 | Rule                  | Detail                                                               |
@@ -755,32 +876,34 @@ Empty cart
 
 ### 10.2 Suggested build order
 
-| Phase                                  | Scope                                                                             | Outcome                                             |
-| -------------------------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------- |
-| **A — Wire client on current APIs**    | Profile → survey → answers → complete → recommendations → SURVEY cart → order/pay | End-to-end purchase works with seeded 3 questions   |
-| **B — Questions with options** ✅      | Extend `GET /surveys/questions` (+ DB mapping)                                    | No hardcoded label codes on FE                      |
-| **C — L1 + key L2 seed** ✅            | Concern, sensitivity, acne, pigmentation, active tolerance                        | Better protocol matching with lightweight branching |
-| **D — Conditional next-questions**     | Branching service using `askWhen` metadata                                        | Personalized short flows                            |
-| **E — Personality + preference layer** | Budget, steps, risk tolerance labels                                              | Better routine/product fit                          |
-| **F — Follow-up / progress surveys**   | Post-purchase adherence                                                           | Feed future re-recommendation                       |
+| Phase                                  | Scope                                                                                           | Outcome                                             |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| **A — Wire client on current APIs**    | Profile → survey → answers → complete → recommendations → SURVEY cart → order/pay → **routine** | End-to-end flow ends on a personalized routine      |
+| **B — Questions with options** ✅      | Extend `GET /surveys/questions` (+ DB mapping)                                                  | No hardcoded label codes on FE                      |
+| **C — L1 + key L2 seed** ✅            | Concern, sensitivity, acne, pigmentation, active tolerance                                      | Better protocol matching with lightweight branching |
+| **D — Conditional next-questions**     | Branching service using `askWhen` metadata                                                      | Personalized short flows                            |
+| **E — Personality + preference layer** | Budget, steps, risk tolerance labels                                                            | Better routine/product fit                          |
+| **F — Follow-up / progress surveys**   | Post-purchase adherence                                                                         | Feed future re-recommendation                       |
 
 ### 10.3 Happy-path sequence (implement against this)
 
 ```
-PATCH /customers/me                    ← ensure base profile + Baumann
+PATCH /customers/me                    ← ensure DOB + gender (+ allergies)
 GET   /surveys/questions               ← CORE questions + options
 POST  /surveys
 POST  /surveys/:id/answers             ← one or more batches
 GET   /surveys/questions?surveyId=:id  ← unlock matching L2 questions
-POST  /surveys/:id/complete
-GET   /recommendations/latest          ← protocols + products snapshot
+POST  /surveys/:id/complete            ← derives Baumann skin type
+GET   /customers/me                    ← optional: read derived skinType
+GET   /recommendations/latest          ← protocols + products + conflicts
 POST  /cart/items                      ← source=SURVEY (repeat per product)
 POST  /orders
 GET   /delivery/options
 POST  /orders/:id/delivery
 POST  /payments/checkout
 GET   /payments/:id                    ← poll until PAID
-POST  /routines/generate               ← optional
+POST  /routines/generate               ← create AI routine (flow outcome)
+GET   /routines/me                     ← list / refresh routines
 ```
 
 ### 10.4 Out of scope for this guide
@@ -793,19 +916,20 @@ POST  /routines/generate               ← optional
 
 ## Quick reference — what to build vs reuse
 
-| Layer                                     | Status | Action                                      |
-| ----------------------------------------- | ------ | ------------------------------------------- |
-| Auth                                      | ✅     | Reuse auth docs                             |
-| Base profile + Baumann                    | ✅     | Gate survey start                           |
-| Survey session CRUD                       | ✅     | Use as-is                                   |
-| Question bank + options + light branching | ✅     | Re-fetch with `surveyId` after core answers |
-| Rule engine + recommendation snapshot     | ✅     | Use as-is; enrich seeds                     |
-| SURVEY cart + combo order                 | ✅     | Use as-is                                   |
-| Shipping + VNPay                          | ✅     | [ecommerce-flow.md](ecommerce-flow.md)      |
-| AI routine after paid survey order        | ✅     | Optional post-purchase                      |
+| Layer                                     | Status | Action                                         |
+| ----------------------------------------- | ------ | ---------------------------------------------- |
+| Auth                                      | ✅     | Reuse auth docs                                |
+| Base profile (DOB/gender/allergies)       | ✅     | Gate survey start; Baumann derived on complete |
+| Survey session CRUD                       | ✅     | Use as-is                                      |
+| Question bank + options + light branching | ✅     | Re-fetch with `surveyId` after core answers    |
+| Rule engine + recommendation snapshot     | ✅     | Ranked variants; stock/allergy; conflicts      |
+| SURVEY cart + combo order                 | ✅     | Protocol coverage combo                        |
+| Shipping + VNPay                          | ✅     | [ecommerce-flow.md](ecommerce-flow.md)         |
+| AI routine (`/routines/generate`, `/me`)  | ✅     | **Flow outcome**; multi-routine + Ollama/mock  |
+| Admin customer cheat                      | ✅     | [users.md](users.md)                           |
 
 ```
-Ready today:     Profile → Dynamic L1/L2 Survey → Ranked Recommendations → SURVEY cart → Order → Pay → Routine
+Ready today:     Profile → Survey → Recommendations → SURVEY cart → Order → Pay → Routine
 Build next:      Rich next-question operators → Expanded L2/L3 bank
-Keep stable:     Label codes → Rule engine → Snapshot → Combo discount contract
+Keep stable:     Label codes → Rule engine → Snapshot → Combo discount → Routine contract
 ```

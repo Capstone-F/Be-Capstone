@@ -169,15 +169,6 @@ export class RoutineGeneratorService {
       throw new ForbiddenException('Order has no purchasable items');
     }
 
-    const existing = await this.routineRepository.findOne({
-      where: { sourceOrderId: order.id },
-    });
-    if (existing) {
-      throw new ForbiddenException(
-        'A routine has already been generated for this order',
-      );
-    }
-
     return order;
   }
 
