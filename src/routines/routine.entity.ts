@@ -5,7 +5,6 @@ import {
   JoinColumn,
   ManyToOne,
   OneToMany,
-  OneToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
@@ -52,7 +51,7 @@ export class Routine {
   @Column({ nullable: true, type: 'uuid' })
   sourceOrderId: string | null;
 
-  @OneToOne(() => Order, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => Order, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'sourceOrderId' })
   sourceOrder: Order | null;
 

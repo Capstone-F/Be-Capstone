@@ -116,6 +116,9 @@ services:
     restart: unless-stopped
     env_file:
       - '.env'
+    # Reach Ollama (and other host services) via host.docker.internal
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     # environment:
     #   NODE_ENV: development
     #   PORT: '3000'

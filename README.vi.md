@@ -289,25 +289,29 @@ API sẽ chạy tại `http://localhost:3000` với hot-reload.
 
 Tất cả env được quản lý tập trung trong `src/config/env.config.ts`.
 
-| Biến                             | Bắt buộc | Mặc định                              | Mô tả                                                |
-| -------------------------------- | -------- | ------------------------------------- | ---------------------------------------------------- |
-| `NODE_ENV`                       | Không    | `development`                         | Môi trường chạy                                      |
-| `PORT`                           | Không    | `3000`                                | Port của API                                         |
-| `DATABASE_URL`                   | Có       | —                                     | Chuỗi kết nối Postgres                               |
-| `KEYCLOAK_PUBLIC_URL`            | Có       | —                                     | URL Keycloak browser truy cập được                   |
-| `KEYCLOAK_INTERNAL_URL`          | Không    | `KEYCLOAK_PUBLIC_URL`                 | URL Keycloak cho server-to-server                    |
-| `KEYCLOAK_HEALTH_URL`            | Không    | derived (port 9000)                   | Endpoint health của Keycloak                         |
-| `KEYCLOAK_REALM`                 | Không    | `be-capstone`                         | Tên realm Keycloak                                   |
-| `KEYCLOAK_CLIENT_ID`             | Không    | `be-capstone-api`                     | OIDC client ID                                       |
-| `KEYCLOAK_CLIENT_SECRET`         | Không    | `be-capstone-secret`                  | OIDC client secret                                   |
-| `KEYCLOAK_REDIRECT_URI`          | Không    | `http://localhost:3000/auth/callback` | Redirect URI OAuth đăng ký trên Keycloak             |
-| `REDIS_URL`                      | Không    | `redis://localhost:6379`              | Redis cho session + mobile OAuth state/code          |
-| `SESSION_SECRET`                 | Có       | —                                     | Secret ký session cookie                             |
-| `FRONTEND_URL`                   | Có       | —                                     | Origin web SPA (whitelist redirect)                  |
-| `CORS_ORIGIN`                    | Không    | `FRONTEND_URL`                        | Origin CORS được phép                                |
-| `MOBILE_REDIRECT_URIS`           | Không    | `glowscan://auth/callback`            | Whitelist deep-link mobile (phân tách bằng dấu phẩy) |
-| `MOBILE_AUTH_CODE_TTL_SECONDS`   | Không    | `120`                                 | TTL one-time mobile auth code trong Redis            |
-| `MOBILE_OAUTH_STATE_TTL_SECONDS` | Không    | `600`                                 | TTL OAuth state mobile trong Redis                   |
+| Biến                             | Bắt buộc | Mặc định                              | Mô tả                                                    |
+| -------------------------------- | -------- | ------------------------------------- | -------------------------------------------------------- |
+| `NODE_ENV`                       | Không    | `development`                         | Môi trường chạy                                          |
+| `PORT`                           | Không    | `3000`                                | Port của API                                             |
+| `DATABASE_URL`                   | Có       | —                                     | Chuỗi kết nối Postgres                                   |
+| `KEYCLOAK_PUBLIC_URL`            | Có       | —                                     | URL Keycloak browser truy cập được                       |
+| `KEYCLOAK_INTERNAL_URL`          | Không    | `KEYCLOAK_PUBLIC_URL`                 | URL Keycloak cho server-to-server                        |
+| `KEYCLOAK_HEALTH_URL`            | Không    | derived (port 9000)                   | Endpoint health của Keycloak                             |
+| `KEYCLOAK_REALM`                 | Không    | `be-capstone`                         | Tên realm Keycloak                                       |
+| `KEYCLOAK_CLIENT_ID`             | Không    | `be-capstone-api`                     | OIDC client ID                                           |
+| `KEYCLOAK_CLIENT_SECRET`         | Không    | `be-capstone-secret`                  | OIDC client secret                                       |
+| `KEYCLOAK_REDIRECT_URI`          | Không    | `http://localhost:3000/auth/callback` | Redirect URI OAuth đăng ký trên Keycloak                 |
+| `REDIS_URL`                      | Không    | `redis://localhost:6379`              | Redis cho session + mobile OAuth state/code              |
+| `SESSION_SECRET`                 | Có       | —                                     | Secret ký session cookie                                 |
+| `FRONTEND_URL`                   | Có       | —                                     | Origin web SPA (whitelist redirect)                      |
+| `CORS_ORIGIN`                    | Không    | `FRONTEND_URL`                        | Origin CORS được phép                                    |
+| `MOBILE_REDIRECT_URIS`           | Không    | `glowscan://auth/callback`            | Whitelist deep-link mobile (phân tách bằng dấu phẩy)     |
+| `MOBILE_AUTH_CODE_TTL_SECONDS`   | Không    | `120`                                 | TTL one-time mobile auth code trong Redis                |
+| `MOBILE_OAUTH_STATE_TTL_SECONDS` | Không    | `600`                                 | TTL OAuth state mobile trong Redis                       |
+| `LLM_PROVIDER`                   | Không    | `mock`                                | LLM routine: `mock` \| `ollama` (openai/gemini dự phòng) |
+| `OLLAMA_BASE_URL`                | Không    | `http://host.docker.internal:11434`   | Base URL Ollama (API Docker → Ollama trên host)          |
+| `OLLAMA_MODEL`                   | Không    | `gpt-oss:120b-cloud`                  | Model Ollama cho sinh routine                            |
+| `OLLAMA_TIMEOUT_MS`              | Không    | `120000`                              | Timeout request chat Ollama (ms)                         |
 
 ---
 

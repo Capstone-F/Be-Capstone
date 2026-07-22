@@ -24,6 +24,9 @@ export class LabelCategory {
   @Column({ nullable: true, type: 'varchar' })
   description: string | null;
 
+  @Column({ nullable: true, type: 'varchar' })
+  vietnameseNormalized: string | null;
+
   @OneToMany(() => Label, (label) => label.category)
   labels: Label[];
 

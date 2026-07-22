@@ -55,9 +55,12 @@ import { LabelCategory } from '../src/survey/label-category.entity';
 import { Label } from '../src/survey/label.entity';
 import { Question } from '../src/survey/question.entity';
 import { Customer } from '../src/users/customer.entity';
+import { CustomerAllergy } from '../src/users/customer-allergy.entity';
 import { Gender } from '../src/users/gender.enum';
 import { User } from '../src/users/user.entity';
 import { Role } from '../src/auth/roles.enum';
+import { IngredientConflict } from '../src/ingredients/ingredient-conflict.entity';
+import { StockBatch } from '../src/stock/stock-batch.entity';
 
 describe('Survey purchase → routine generation (e2e)', () => {
   let moduleFixture: TestingModule;
@@ -82,8 +85,11 @@ describe('Survey purchase → routine generation (e2e)', () => {
           SurveyRecommendationItem,
           Customer,
           CustomerSurvey,
+          CustomerAllergy,
+          IngredientConflict,
           ProductProtocol,
           ProductVariant,
+          StockBatch,
           CommerceSetting,
           Order,
           OrderItem,
@@ -181,6 +187,7 @@ describe('Survey purchase → routine generation (e2e)', () => {
         categoryId: labelCategory.id,
         code: `ACNE_${suffix}`,
         name: 'Acne',
+        vietnameseNormalized: 'Mụn sưng, mụn viêm hoặc mụn trứng cá',
         isActive: true,
       }),
     );
@@ -298,6 +305,27 @@ describe('Survey purchase → routine generation (e2e)', () => {
       }),
     );
 
+    const batchRepo = dataSource.getRepository(StockBatch);
+    const today = new Date();
+    const nextYear = new Date(today);
+    nextYear.setFullYear(today.getFullYear() + 1);
+    for (const productVariantId of [
+      variant.id,
+      alternateVariant.id,
+      variant2.id,
+    ]) {
+      await batchRepo.save(
+        batchRepo.create({
+          productVariantId,
+          batchCode: `BATCH-${productVariantId.slice(0, 8)}`,
+          initialQuantity: 50,
+          remainingQuantity: 50,
+          manufacturingDate: today,
+          expirationDate: nextYear,
+        }),
+      );
+    }
+
     const protocol2 = await protocolRepo.save(
       protocolRepo.create({
         ingredientId: ingredient.id,
@@ -328,17 +356,22 @@ describe('Survey purchase → routine generation (e2e)', () => {
       variant,
       alternateVariant,
       variant2,
+      acneLabel,
     };
   }
 
   it('recommends products, applies combo discount, and generates a routine after payment', async () => {
-    const { user, variant, alternateVariant, variant2 } = await seedScenario();
+    const { user, variant, alternateVariant, variant2, acneLabel } =
+      await seedScenario();
 
     const recommendation = await recommendationService.getLatestForUser(
       user.id,
     );
     expect(recommendation.products.length).toBeGreaterThanOrEqual(2);
     expect(recommendation.customerSurveyId).toBeTruthy();
+    expect(Array.isArray(recommendation.conflicts ?? [])).toBe(true);
+    expect(acneLabel.name).toBe('Acne');
+    expect(acneLabel.vietnameseNormalized).toContain('Mụn');
 
     const recommendedVariantIds = recommendation.products.map(
       (p) => p.productVariantId,

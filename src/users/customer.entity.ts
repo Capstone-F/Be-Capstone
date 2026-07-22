@@ -3,10 +3,12 @@ import {
   CreateDateColumn,
   Entity,
   JoinColumn,
+  OneToMany,
   OneToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { CustomerAllergy } from './customer-allergy.entity';
 import { CustomerSkinTypeDetails } from './customer-skin-type-details.entity';
 import { User } from './user.entity';
 import { Gender } from './gender.enum';
@@ -37,6 +39,9 @@ export class Customer {
 
   @OneToOne(() => CustomerSkinTypeDetails, (d) => d.customer)
   skinTypeDetails: CustomerSkinTypeDetails;
+
+  @OneToMany(() => CustomerAllergy, (ca) => ca.customer)
+  allergies: CustomerAllergy[];
 
   @CreateDateColumn()
   createdAt: Date;
