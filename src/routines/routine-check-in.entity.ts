@@ -6,13 +6,19 @@ import {
   ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
+  Unique,
   UpdateDateColumn,
 } from 'typeorm';
+import { CheckInMood, RoutinePeriod } from './enums';
 import { Routine } from './routine.entity';
-import { RoutineStepCompletion } from './routine-step-completion.entity';
 import { RoutineSideEffect } from './routine-side-effect.entity';
 
 @Entity('routine_check_ins')
+@Unique('UQ_routine_check_ins_routine_date_period', [
+  'routineId',
+  'checkInDate',
+  'period',
+])
 export class RoutineCheckIn {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -28,6 +34,12 @@ export class RoutineCheckIn {
 
   @Column({ type: 'date' })
   checkInDate: Date;
+
+  @Column({ type: 'varchar', enum: RoutinePeriod })
+  period: RoutinePeriod;
+
+  @Column({ type: 'varchar', enum: CheckInMood, nullable: true })
+  overallMood: CheckInMood | null;
 
   @Column({ type: 'int', nullable: true })
   acneLevel: number | null;
@@ -46,9 +58,6 @@ export class RoutineCheckIn {
 
   @Column({ nullable: true, type: 'text' })
   note: string | null;
-
-  @OneToMany(() => RoutineStepCompletion, (completion) => completion.checkIn)
-  stepCompletions: RoutineStepCompletion[];
 
   @OneToMany(() => RoutineSideEffect, (effect) => effect.checkIn)
   sideEffects: RoutineSideEffect[];

@@ -30,3 +30,46 @@ export enum SupportHabitType {
   HYDRATION = 'HYDRATION',
   SLEEP = 'SLEEP',
 }
+
+/** Stored outcome on a step completion row. PENDING is derived when no row exists. */
+export enum StepCompletionStatus {
+  COMPLETED = 'COMPLETED',
+  SKIPPED = 'SKIPPED',
+}
+
+export enum StepSessionStatus {
+  PENDING = 'PENDING',
+  COMPLETED = 'COMPLETED',
+  SKIPPED = 'SKIPPED',
+}
+
+export enum SkipReason {
+  OUT_OF_STOCK = 'OUT_OF_STOCK',
+  FORGOT = 'FORGOT',
+  OTHER = 'OTHER',
+}
+
+export enum CheckInMood {
+  GOOD = 'GOOD',
+  OK = 'OK',
+  BAD = 'BAD',
+}
+
+export enum SessionState {
+  EMPTY = 'EMPTY',
+  NOT_STARTED = 'NOT_STARTED',
+  IN_PROGRESS = 'IN_PROGRESS',
+  COMPLETED = 'COMPLETED',
+  MISSED = 'MISSED',
+}
+
+export enum DayHistoryStatus {
+  COMPLETED = 'COMPLETED',
+  PARTIAL = 'PARTIAL',
+  MISSED = 'MISSED',
+  NOT_STARTED = 'NOT_STARTED',
+}
+
+export enum EmptyRoutineReason {
+  NO_ACTIVE_ROUTINE = 'NO_ACTIVE_ROUTINE',
+}

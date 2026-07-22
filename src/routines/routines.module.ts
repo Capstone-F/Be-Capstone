@@ -16,6 +16,7 @@ import { RoutineStepDetails } from './routine-step-details.entity';
 import { RoutineStepProtocol } from './routine-step-protocol.entity';
 import { RoutineStep } from './routine-step.entity';
 import { RoutineSupportHabit } from './routine-support-habit.entity';
+import { RoutineTrackingService } from './routine-tracking.service';
 import { Routine } from './routine.entity';
 import { RoutinesController } from './routines.controller';
 import { SupportHabit } from './support-habit.entity';
@@ -41,7 +42,12 @@ import { SupportHabit } from './support-habit.entity';
     AuthModule,
   ],
   controllers: [RoutinesController],
-  providers: [RoutineGeneratorService, SessionGuard, RolesGuard],
-  exports: [TypeOrmModule, RoutineGeneratorService],
+  providers: [
+    RoutineGeneratorService,
+    RoutineTrackingService,
+    SessionGuard,
+    RolesGuard,
+  ],
+  exports: [TypeOrmModule, RoutineGeneratorService, RoutineTrackingService],
 })
 export class RoutinesModule {}

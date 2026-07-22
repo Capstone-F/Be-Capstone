@@ -5,6 +5,7 @@ import {
   LlmRoutineProvider,
   RoutineGenerationInput,
   RoutineGenerationOutput,
+  RoutineGenerationProductInput,
   RoutineGenerationStepOutput,
 } from './llm-routine.types';
 
@@ -24,31 +25,13 @@ export class MockLlmRoutineProvider implements LlmRoutineProvider {
       const periods = this.resolvePeriods(product.timeOfUse);
       for (const period of periods) {
         const target = period === RoutinePeriod.MORNING ? morning : evening;
-        target.push({
-          name: product.productName,
-          period,
-          stepOrder: target.length + 1,
-          instructions:
-            product.instructions?.trim() ||
-            `Apply ${product.productName} as directed for ${product.protocolName ?? 'your skin concerns'}.`,
-          productVariantId: product.productVariantId,
-          protocolId: product.protocolId,
-          amountMl: null,
-        });
+        target.push(this.buildStep(product, period, target.length + 1));
       }
     }
 
     if (morning.length === 0 && evening.length === 0) {
       input.products.forEach((product, index) => {
-        evening.push({
-          name: product.productName,
-          period: RoutinePeriod.EVENING,
-          stepOrder: index + 1,
-          instructions: `Use ${product.productName} in your evening routine.`,
-          productVariantId: product.productVariantId,
-          protocolId: product.protocolId,
-          amountMl: null,
-        });
+        evening.push(this.buildStep(product, RoutinePeriod.EVENING, index + 1));
       });
     }
 
@@ -62,6 +45,85 @@ export class MockLlmRoutineProvider implements LlmRoutineProvider {
         'AI-recommended routine based on your purchased survey products.',
       steps: [...morning, ...evening],
     });
+  }
+
+  private buildStep(
+    product: RoutineGenerationProductInput,
+    period: RoutinePeriod,
+    stepOrder: number,
+  ): RoutineGenerationStepOutput {
+    const dosage = this.resolveDosage(product);
+    return {
+      name: product.productName,
+      period,
+      stepOrder,
+      instructions:
+        product.instructions?.trim() ||
+        `Apply ${product.productName} as directed for ${product.protocolName ?? 'your skin concerns'}.`,
+      productVariantId: product.productVariantId,
+      protocolId: product.protocolId,
+      amountMl: dosage.amountMl,
+      dosageText: dosage.dosageText,
+      waitMinutes: this.resolveWaitMinutes(product, stepOrder),
+    };
+  }
+
+  private resolveDosage(product: RoutineGenerationProductInput): {
+    amountMl: number;
+    dosageText: string;
+  } {
+    const code = (product.protocolCode ?? '').toLowerCase();
+    const name = (
+      product.protocolName ??
+      product.productName ??
+      ''
+    ).toLowerCase();
+
+    if (code.includes('cleanse') || name.includes('cleanse')) {
+      return { amountMl: 2, dosageText: 'pea-sized' };
+    }
+    if (
+      code.includes('sunscreen') ||
+      name.includes('sunscreen') ||
+      name.includes('spf')
+    ) {
+      return { amountMl: 2, dosageText: 'two finger-lengths' };
+    }
+    if (
+      code.includes('moistur') ||
+      name.includes('moistur') ||
+      name.includes('cream')
+    ) {
+      return { amountMl: 2, dosageText: 'pea-sized' };
+    }
+    if (
+      code.includes('toner') ||
+      name.includes('toner') ||
+      name.includes('essence')
+    ) {
+      return { amountMl: 3, dosageText: '2–3 drops' };
+    }
+    // Default for serums / actives / unknown
+    return { amountMl: 2, dosageText: '2 drops' };
+  }
+
+  private resolveWaitMinutes(
+    product: RoutineGenerationProductInput,
+    stepOrder: number,
+  ): number {
+    if (stepOrder === 1) {
+      return 0;
+    }
+    const code = (product.protocolCode ?? '').toLowerCase();
+    const name = (
+      product.protocolName ??
+      product.productName ??
+      ''
+    ).toLowerCase();
+    if (code.includes('cleanse') || name.includes('cleanse')) {
+      return 0;
+    }
+    return 5;
   }
 
   private resolvePeriods(timeOfUse: TimeOfUse | null): RoutinePeriod[] {

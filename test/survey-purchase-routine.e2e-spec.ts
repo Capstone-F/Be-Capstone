@@ -417,6 +417,24 @@ describe('Survey purchase → routine generation (e2e)', () => {
     expect(routine.sourceOrderId).toBe(order.id);
     expect(routine.steps.length).toBeGreaterThan(0);
     expect(routine.customerSurveyId).toBe(recommendation.customerSurveyId);
+    const step = routine.steps[0];
+    expect(step).toEqual(
+      expect.objectContaining({
+        period: expect.any(String),
+        stepOrder: expect.any(Number),
+        instructions: expect.any(String),
+      }),
+    );
+    expect(step.productVariant).toEqual(
+      expect.objectContaining({
+        id: expect.any(String),
+        name: expect.any(String),
+        imageUrl: null,
+      }),
+    );
+    expect(step).toHaveProperty('waitMinutes');
+    expect(step).toHaveProperty('dosageText');
+    expect(step).toHaveProperty('amountMl');
   });
 
   it('applies combo when a non-default ranked variant covers a protocol', async () => {

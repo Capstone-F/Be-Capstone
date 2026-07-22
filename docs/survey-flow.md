@@ -11,7 +11,7 @@ The **final deliverable of this flow is a personalized routine** (`POST /routine
 
 **After cart creation:** reuse the shared checkout stack in [E-Commerce Integration Guide](ecommerce-flow.md) (order → shipping → VNPay → tracking), then return here for routine generation.
 
-See also: [VNPay Payment Integration](payments.md) · [User Management & RBAC](users.md)
+See also: [VNPay Payment Integration](payments.md) · [User Management & RBAC](users.md) · [Routine Tracking](routine-tracking-flow.md) (Today / check-in / history after generate)
 
 ---
 
@@ -876,14 +876,14 @@ Empty cart
 
 ### 10.2 Suggested build order
 
-| Phase                                  | Scope                                                                                           | Outcome                                             |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| **A — Wire client on current APIs**    | Profile → survey → answers → complete → recommendations → SURVEY cart → order/pay → **routine** | End-to-end flow ends on a personalized routine      |
-| **B — Questions with options** ✅      | Extend `GET /surveys/questions` (+ DB mapping)                                                  | No hardcoded label codes on FE                      |
-| **C — L1 + key L2 seed** ✅            | Concern, sensitivity, acne, pigmentation, active tolerance                                      | Better protocol matching with lightweight branching |
-| **D — Conditional next-questions**     | Branching service using `askWhen` metadata                                                      | Personalized short flows                            |
-| **E — Personality + preference layer** | Budget, steps, risk tolerance labels                                                            | Better routine/product fit                          |
-| **F — Follow-up / progress surveys**   | Post-purchase adherence                                                                         | Feed future re-recommendation                       |
+| Phase                                  | Scope                                                                                           | Outcome                                                              |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| **A — Wire client on current APIs**    | Profile → survey → answers → complete → recommendations → SURVEY cart → order/pay → **routine** | End-to-end flow ends on a personalized routine                       |
+| **B — Questions with options** ✅      | Extend `GET /surveys/questions` (+ DB mapping)                                                  | No hardcoded label codes on FE                                       |
+| **C — L1 + key L2 seed** ✅            | Concern, sensitivity, acne, pigmentation, active tolerance                                      | Better protocol matching with lightweight branching                  |
+| **D — Conditional next-questions**     | Branching service using `askWhen` metadata                                                      | Personalized short flows                                             |
+| **E — Personality + preference layer** | Budget, steps, risk tolerance labels                                                            | Better routine/product fit                                           |
+| **F — Follow-up / progress surveys**   | Post-purchase adherence                                                                         | Daily tracking: [routine-tracking-flow.md](routine-tracking-flow.md) |
 
 ### 10.3 Happy-path sequence (implement against this)
 

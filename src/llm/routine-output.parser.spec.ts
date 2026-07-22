@@ -31,7 +31,26 @@ describe('parseRoutineGenerationOutput', () => {
       productVariantId: 'v1',
       protocolId: 'p1',
       amountMl: 2,
+      waitMinutes: null,
+      dosageText: null,
     });
+  });
+
+  it('parses waitMinutes and dosageText', () => {
+    const result = parseRoutineGenerationOutput(
+      JSON.stringify({
+        ...validJson,
+        steps: [
+          {
+            ...validJson.steps[0],
+            waitMinutes: 5,
+            dosageText: '2 drops',
+          },
+        ],
+      }),
+    );
+    expect(result.steps[0].waitMinutes).toBe(5);
+    expect(result.steps[0].dosageText).toBe('2 drops');
   });
 
   it('extracts JSON from markdown fences', () => {
@@ -58,6 +77,30 @@ describe('parseRoutineGenerationOutput', () => {
     );
     expect(result.steps[0].protocolId).toBeNull();
     expect(result.steps[0].amountMl).toBeNull();
+    expect(result.steps[0].waitMinutes).toBeNull();
+    expect(result.steps[0].dosageText).toBeNull();
+  });
+
+  it('coerces invalid waitMinutes and empty dosageText to null', () => {
+    const result = parseRoutineGenerationOutput(
+      JSON.stringify({
+        title: 'T',
+        description: 'D',
+        steps: [
+          {
+            name: 'Serum',
+            period: 'MORNING',
+            stepOrder: 1,
+            instructions: 'Apply',
+            productVariantId: 'v1',
+            waitMinutes: -1,
+            dosageText: '   ',
+          },
+        ],
+      }),
+    );
+    expect(result.steps[0].waitMinutes).toBeNull();
+    expect(result.steps[0].dosageText).toBeNull();
   });
 
   it('throws on invalid JSON', () => {

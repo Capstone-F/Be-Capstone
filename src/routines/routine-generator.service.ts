@@ -16,12 +16,24 @@ import {
 } from '../llm/llm-routine.types';
 import { Customer } from '../users/customer.entity';
 import { GenerateRoutineDto } from './dto/generate-routine.dto';
-import { RoutineResponseDto } from './dto/routine-response.dto';
-import { RoutineStatus, RoutineType } from './enums';
+import {
+  RoutineResponseDto,
+  RoutineStepProductVariantDto,
+  RoutineStepResponseDto,
+} from './dto/routine-response.dto';
+import { RoutinePeriod, RoutineStatus, RoutineType } from './enums';
 import { RoutineStepDetails } from './routine-step-details.entity';
 import { RoutineStepProtocol } from './routine-step-protocol.entity';
 import { RoutineStep } from './routine-step.entity';
 import { Routine } from './routine.entity';
+
+const ROUTINE_DETAIL_RELATIONS = [
+  'steps',
+  'steps.stepProtocols',
+  'steps.details',
+  'steps.details.productVariant',
+  'steps.details.productVariant.product',
+] as const;
 
 @Injectable()
 export class RoutineGeneratorService {
@@ -92,6 +104,8 @@ export class RoutineGeneratorService {
             period: stepOut.period,
             stepOrder: stepOut.stepOrder,
             instructions: stepOut.instructions,
+            waitMinutes: stepOut.waitMinutes,
+            dosageText: stepOut.dosageText,
           }),
         );
 
@@ -127,10 +141,28 @@ export class RoutineGeneratorService {
     const customer = await this.requireCustomer(userId);
     const routines = await this.routineRepository.find({
       where: { customerId: customer.id },
-      relations: ['steps', 'steps.stepProtocols', 'steps.details'],
+      relations: [...ROUTINE_DETAIL_RELATIONS],
       order: { createdAt: 'DESC' },
     });
     return routines.map((r) => this.toDto(r));
+  }
+
+  async getMyRoutineById(
+    userId: string,
+    routineId: string,
+  ): Promise<RoutineResponseDto> {
+    const customer = await this.requireCustomer(userId);
+    const routine = await this.routineRepository.findOne({
+      where: { id: routineId },
+      relations: [...ROUTINE_DETAIL_RELATIONS],
+    });
+    if (!routine) {
+      throw new NotFoundException(`Routine ${routineId} not found`);
+    }
+    if (routine.customerId !== customer.id) {
+      throw new ForbiddenException('Routine does not belong to this customer');
+    }
+    return this.toDto(routine);
   }
 
   private async assertRoutineEligibleOrder(
@@ -224,8 +256,7 @@ export class RoutineGeneratorService {
   ): Promise<RoutineResponseDto> {
     const routine = await this.routineRepository.findOne({
       where: { id: routineId, customerId },
-      relations: ['steps', 'steps.stepProtocols', 'steps.details'],
-      order: { steps: { stepOrder: 'ASC' } },
+      relations: [...ROUTINE_DETAIL_RELATIONS],
     });
     if (!routine) {
       throw new NotFoundException(`Routine ${routineId} not found`);
@@ -234,9 +265,7 @@ export class RoutineGeneratorService {
   }
 
   private toDto(routine: Routine): RoutineResponseDto {
-    const steps = [...(routine.steps ?? [])].sort(
-      (a, b) => a.stepOrder - b.stepOrder,
-    );
+    const steps = [...(routine.steps ?? [])].sort(compareRoutineSteps);
     return {
       id: routine.id,
       type: routine.type,
@@ -246,16 +275,39 @@ export class RoutineGeneratorService {
       sourceOrderId: routine.sourceOrderId,
       customerSurveyId: routine.customerSurveyId,
       surveyRecommendationId: routine.surveyRecommendationId,
-      steps: steps.map((step) => ({
-        id: step.id,
-        name: step.name,
-        period: step.period,
-        stepOrder: step.stepOrder,
-        instructions: step.instructions,
-        productVariantId: step.details?.[0]?.productVariantId ?? null,
-        protocolId: step.stepProtocols?.[0]?.protocolId ?? null,
-      })),
+      steps: steps.map((step) => this.toStepDto(step)),
       createdAt: routine.createdAt,
+    };
+  }
+
+  private toStepDto(step: RoutineStep): RoutineStepResponseDto {
+    const detail = step.details?.[0];
+    const variant = detail?.productVariant;
+    let productVariant: RoutineStepProductVariantDto | null = null;
+    if (detail?.productVariantId) {
+      productVariant = {
+        id: detail.productVariantId,
+        name: variant?.product?.name ?? detail.productVariantId,
+        sku: variant?.sku ?? null,
+        imageUrl: null,
+      };
+    }
+
+    const amountRaw = detail?.amountMl;
+    const amountMl =
+      amountRaw === null || amountRaw === undefined ? null : Number(amountRaw);
+
+    return {
+      id: step.id,
+      name: step.name,
+      period: step.period,
+      stepOrder: step.stepOrder,
+      instructions: step.instructions,
+      waitMinutes: step.waitMinutes ?? null,
+      dosageText: step.dosageText ?? null,
+      amountMl: Number.isFinite(amountMl as number) ? amountMl : null,
+      protocolId: step.stepProtocols?.[0]?.protocolId ?? null,
+      productVariant,
     };
   }
 
@@ -269,4 +321,17 @@ export class RoutineGeneratorService {
     }
     return customer;
   }
+}
+
+function periodRank(period: RoutinePeriod): number {
+  return period === RoutinePeriod.MORNING ? 0 : 1;
+}
+
+export function compareRoutineSteps(
+  a: Pick<RoutineStep, 'period' | 'stepOrder'>,
+  b: Pick<RoutineStep, 'period' | 'stepOrder'>,
+): number {
+  const byPeriod = periodRank(a.period) - periodRank(b.period);
+  if (byPeriod !== 0) return byPeriod;
+  return a.stepOrder - b.stepOrder;
 }
