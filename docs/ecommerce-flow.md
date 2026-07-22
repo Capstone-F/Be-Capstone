@@ -7,7 +7,7 @@ End-to-end guide for integrating the **catalog → cart → order (+ shipping) �
 - [Web Authentication Guide](auth-web.md) — session cookie (`sid`) for SPAs
 - [Mobile Authentication Guide](auth-mobile.md) — Bearer tokens for Expo / React Native
 
-See also: [VNPay Payment Integration](payments.md) · [User Management & RBAC](users.md)
+See also: [VNPay Payment Integration](payments.md) · [User Management & RBAC](users.md) · [Consultation Flow](consultation-flow.md) (expert bookings use **Wallet**, not VNPay)
 
 ---
 

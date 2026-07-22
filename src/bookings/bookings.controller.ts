@@ -5,6 +5,8 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   Req,
@@ -35,6 +37,8 @@ import {
   BookingResponseDto,
   PaginatedBookingsDto,
 } from './dto/booking-response.dto';
+import { CancelBookingDto } from './dto/cancel-booking.dto';
+import { CreateBookingFeedbackDto } from './dto/create-booking-feedback.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { ListBookingsQueryDto } from './dto/list-bookings-query.dto';
 import { ListSlotsQueryDto } from './dto/list-slots-query.dto';
@@ -86,6 +90,146 @@ export class BookingsController {
     }
     const roles = (auth.roles?.length ? auth.roles : [Role.Customer]) as Role[];
     return this.bookingsService.listMyBookings(auth.userId, roles, query);
+  }
+
+  @Get('me/:id')
+  @ApiOperation({
+    summary: 'Get one of my bookings',
+    description:
+      'Owning customer or assigned expert. Includes feedback when present.',
+  })
+  @ApiOkResponse({ type: BookingResponseDto })
+  @ApiForbiddenResponse({ description: 'Not allowed to view this booking' })
+  @ApiNotFoundResponse({ description: 'Booking not found' })
+  getMyBooking(@Req() req: Request, @Param('id', ParseUUIDPipe) id: string) {
+    const auth = getAuthContext(req);
+    if (!auth?.userId) {
+      throw new UnauthorizedException('Not authenticated');
+    }
+    const roles = (auth.roles?.length ? auth.roles : [Role.Customer]) as Role[];
+    return this.bookingsService.getMyBooking(auth.userId, roles, id);
+  }
+
+  @Post(':id/feedback')
+  @Roles(Role.Customer)
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Submit feedback for a completed booking',
+    description:
+      'Owning customer only, when status is COMPLETED. One feedback per consultation. ' +
+      'Updates the expert aggregate rating from all feedback averages.',
+  })
+  @ApiCreatedResponse({ type: BookingResponseDto })
+  @ApiBadRequestResponse({
+    description: 'Booking is not COMPLETED or invalid rating',
+  })
+  @ApiConflictResponse({ description: 'Feedback already submitted' })
+  @ApiForbiddenResponse({ description: 'Not the owning customer' })
+  @ApiNotFoundResponse({ description: 'Booking not found' })
+  submitFeedback(
+    @Req() req: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: CreateBookingFeedbackDto,
+  ) {
+    const userId = this.requireUserId(req);
+    return this.bookingsService.submitFeedback(userId, id, body);
+  }
+
+  @Patch(':id/confirm')
+  @Roles(Role.Expert)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Confirm a pending booking',
+    description:
+      'Assigned expert only. Transitions status from PENDING to CONFIRMED. ' +
+      'Customers see the updated status on GET /bookings/me.',
+  })
+  @ApiOkResponse({ type: BookingResponseDto })
+  @ApiBadRequestResponse({
+    description: 'Booking is not in PENDING status',
+  })
+  @ApiForbiddenResponse({
+    description: 'Not the assigned expert or missing expert profile',
+  })
+  @ApiNotFoundResponse({ description: 'Booking not found' })
+  confirmBooking(@Req() req: Request, @Param('id', ParseUUIDPipe) id: string) {
+    const userId = this.requireUserId(req);
+    return this.bookingsService.confirmBooking(userId, id);
+  }
+
+  @Patch(':id/cancel')
+  @Roles(Role.Customer, Role.Expert)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Cancel a booking',
+    description:
+      'Owning customer or assigned expert. Allowed from PENDING or CONFIRMED only ' +
+      '(IN_PROGRESS cannot be cancelled). Sets status CANCELLED and stores cancelledAt, ' +
+      'cancelReason, cancelledBy. Freed slot becomes bookable again.',
+  })
+  @ApiOkResponse({ type: BookingResponseDto })
+  @ApiBadRequestResponse({
+    description: 'Booking is not PENDING or CONFIRMED',
+  })
+  @ApiForbiddenResponse({
+    description: 'Not the owning customer or assigned expert',
+  })
+  @ApiNotFoundResponse({ description: 'Booking not found' })
+  cancelBooking(
+    @Req() req: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: CancelBookingDto,
+  ) {
+    const auth = getAuthContext(req);
+    if (!auth?.userId) {
+      throw new UnauthorizedException('Not authenticated');
+    }
+    const roles = (auth.roles?.length ? auth.roles : []) as Role[];
+    return this.bookingsService.cancelBooking(auth.userId, roles, id, body);
+  }
+
+  @Patch(':id/start')
+  @Roles(Role.Expert)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Start a confirmed consultation',
+    description:
+      'Assigned expert only. Transitions CONFIRMED → IN_PROGRESS and sets startedAt. ' +
+      'Start is required before complete.',
+  })
+  @ApiOkResponse({ type: BookingResponseDto })
+  @ApiBadRequestResponse({
+    description: 'Booking is not in CONFIRMED status',
+  })
+  @ApiForbiddenResponse({
+    description: 'Not the assigned expert or missing expert profile',
+  })
+  @ApiNotFoundResponse({ description: 'Booking not found' })
+  startBooking(@Req() req: Request, @Param('id', ParseUUIDPipe) id: string) {
+    const userId = this.requireUserId(req);
+    return this.bookingsService.startBooking(userId, id);
+  }
+
+  @Patch(':id/complete')
+  @Roles(Role.Expert)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Complete an in-progress consultation',
+    description:
+      'Assigned expert only. Transitions IN_PROGRESS → COMPLETED and sets completedAt. ' +
+      'Must call start first; completing from CONFIRMED is not allowed.',
+  })
+  @ApiOkResponse({ type: BookingResponseDto })
+  @ApiBadRequestResponse({
+    description: 'Booking is not in IN_PROGRESS status',
+  })
+  @ApiForbiddenResponse({
+    description: 'Not the assigned expert or missing expert profile',
+  })
+  @ApiNotFoundResponse({ description: 'Booking not found' })
+  completeBooking(@Req() req: Request, @Param('id', ParseUUIDPipe) id: string) {
+    const userId = this.requireUserId(req);
+    return this.bookingsService.completeBooking(userId, id);
   }
 
   @Get(':expertId')

@@ -2,7 +2,7 @@
 
 This document describes the five application roles, session-based RBAC, and user-management API endpoints for GlowScan.
 
-See also: [Web Authentication Guide](auth-web.md) · [Mobile Authentication Guide](auth-mobile.md)
+See also: [Web Authentication Guide](auth-web.md) · [Mobile Authentication Guide](auth-mobile.md) · [Consultation Flow](consultation-flow.md) (discover → book → wallet pay → session → feedback)
 
 ---
 
@@ -93,6 +93,46 @@ List/detail responses include:
 | `as`     | `customer` or `expert` perspective                                                                                                                    |
 
 Response includes `expertName`, `expertSpecialization`, nested `clinic { id, name, address }`, `customerName`, `reason`, `status`, `scheduledAt`, and `feedback { rating, comment }` when present.
+
+### Confirm booking (`PATCH /bookings/:id/confirm`)
+
+Assigned **expert** only. Transitions `PENDING` → `CONFIRMED`. Other statuses return `400`. Confirming another expert’s booking returns `403`. Customers see the updated status (and clinic) on `GET /bookings/me`.
+
+### Cancel booking (`PATCH /bookings/:id/cancel`)
+
+Owning **customer** or assigned **expert**. Body may include optional `reason`.
+
+| Rule            | Detail                                                                                             |
+| --------------- | -------------------------------------------------------------------------------------------------- |
+| Allowed from    | `PENDING`, `CONFIRMED` only                                                                        |
+| Not cancellable | `IN_PROGRESS`, `COMPLETED`, `CANCELLED` → `400`                                                    |
+| Effect          | Status → `CANCELLED`; stores `cancelledAt`, `cancelReason`, `cancelledBy` (`CUSTOMER` \| `EXPERT`) |
+| Slots           | Cancelled bookings leave `ACTIVE` filters, so the slot is bookable again                           |
+
+Unauthorized actor → `403`.
+
+### Start / complete (`PATCH /bookings/:id/start`, `.../complete`)
+
+Assigned **expert** only.
+
+| Endpoint             | Transition                  | Side effects       |
+| -------------------- | --------------------------- | ------------------ |
+| `PATCH .../start`    | `CONFIRMED` → `IN_PROGRESS` | Sets `startedAt`   |
+| `PATCH .../complete` | `IN_PROGRESS` → `COMPLETED` | Sets `completedAt` |
+
+Start is **required** before complete (completing from `CONFIRMED` returns `400`). Completed bookings appear under `GET /bookings/me?tab=past`.
+
+### Feedback (`POST /bookings/:id/feedback`)
+
+Owning **customer** only, when status is `COMPLETED`. Body: `{ rating: 1–5, comment?: string }`.
+
+| Rule           | Detail                                                          |
+| -------------- | --------------------------------------------------------------- |
+| Duplicate      | One feedback per consultation (`409`)                           |
+| Invalid status | PENDING / CANCELLED / etc. → `400`                              |
+| Expert rating  | Recalculated as average of all feedback ratings for that expert |
+
+Also available on `GET /bookings/me`, `GET /bookings/me/:id` as nested `feedback { rating, comment }` when present.
 
 ---
 

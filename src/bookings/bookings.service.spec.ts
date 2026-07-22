@@ -7,7 +7,8 @@ import {
 import { Repository } from 'typeorm';
 import { Role } from '../auth/roles.enum';
 import { ConsultationRequest } from '../consultations/consultation-request.entity';
-import { ConsultationStatus } from '../consultations/enums';
+import { ConsultationStatus, BookingCancelledBy } from '../consultations/enums';
+import { Feedback } from '../consultations/feedback.entity';
 import { Customer } from '../users/customer.entity';
 import { Expert } from '../users/expert.entity';
 import { BookingsService } from './bookings.service';
@@ -63,6 +64,9 @@ const makeConsultation = (
   scheduledAt: new Date(FUTURE_SLOT),
   startedAt: null,
   completedAt: null,
+  cancelledAt: null,
+  cancelReason: null,
+  cancelledBy: null,
   customer: makeCustomer(),
   expert: makeExpert(),
   chatHistory: [],
@@ -84,6 +88,7 @@ describe('BookingsService', () => {
   }) {
     const expertRepo = {
       findOne: jest.fn().mockResolvedValue(options.expert ?? null),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
     } as unknown as Repository<Expert>;
 
     const availabilityRepo = {
@@ -92,6 +97,7 @@ describe('BookingsService', () => {
 
     const consultationRepo = {
       find: jest.fn().mockResolvedValue(options.consultations ?? []),
+      findOne: jest.fn().mockResolvedValue(null),
       findAndCount: jest
         .fn()
         .mockResolvedValue(options.findAndCountResult ?? [[], 0]),
@@ -117,11 +123,33 @@ describe('BookingsService', () => {
         ),
     } as unknown as Repository<Customer>;
 
+    const feedbackRepo = {
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn((data) => ({ id: 'fb-1', ...data })),
+      save: jest.fn((data) =>
+        Promise.resolve({
+          ...data,
+          id: data.id ?? 'fb-1',
+          createdAt: new Date(),
+        }),
+      ),
+      createQueryBuilder: jest.fn(() => {
+        const qb = {
+          innerJoin: jest.fn().mockReturnThis(),
+          select: jest.fn().mockReturnThis(),
+          where: jest.fn().mockReturnThis(),
+          getRawOne: jest.fn().mockResolvedValue({ avg: '5.00' }),
+        };
+        return qb;
+      }),
+    } as unknown as Repository<Feedback>;
+
     const service = new BookingsService(
       expertRepo,
       availabilityRepo,
       consultationRepo,
       customerRepo,
+      feedbackRepo,
     );
 
     return {
@@ -130,6 +158,7 @@ describe('BookingsService', () => {
       availabilityRepo,
       consultationRepo,
       customerRepo,
+      feedbackRepo,
     };
   }
 
@@ -572,6 +601,393 @@ describe('BookingsService', () => {
 
       expect(result.items).toEqual([]);
       expect(result.total).toBe(0);
+    });
+  });
+
+  describe('confirmBooking', () => {
+    it('should transition PENDING to CONFIRMED for the assigned expert', async () => {
+      const expert = makeExpert();
+      const consultation = makeConsultation({
+        status: ConsultationStatus.PENDING,
+        expertId: expert.id,
+        expert,
+      });
+      const { service, consultationRepo } = makeService({ expert });
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+      (consultationRepo.save as jest.Mock).mockImplementation((data) =>
+        Promise.resolve({
+          ...data,
+          createdAt: consultation.createdAt,
+          updatedAt: new Date(),
+        }),
+      );
+
+      const result = await service.confirmBooking(
+        expert.userId,
+        consultation.id,
+      );
+
+      expect(consultationRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: consultation.id,
+          status: ConsultationStatus.CONFIRMED,
+        }),
+      );
+      expect(result.status).toBe(ConsultationStatus.CONFIRMED);
+      expect(result.id).toBe(consultation.id);
+      expect(result.clinic).toEqual({
+        id: 'clinic-1',
+        name: 'GlowScan Clinic',
+        address: '12 Nguyen Hue',
+      });
+    });
+
+    it('should throw ForbiddenException when caller has no expert profile', async () => {
+      const { service } = makeService({ expert: null });
+
+      await expect(
+        service.confirmBooking('user-missing', 'c-1'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should throw NotFoundException when booking does not exist', async () => {
+      const { service, consultationRepo } = makeService({
+        expert: makeExpert(),
+      });
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(null);
+
+      await expect(
+        service.confirmBooking('user-1', 'missing-id'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw ForbiddenException when confirming another expert booking', async () => {
+      const assigned = makeExpert({ id: 'expert-1', userId: 'user-1' });
+      const caller = makeExpert({ id: 'expert-2', userId: 'user-2' });
+      const consultation = makeConsultation({
+        expertId: assigned.id,
+        expert: assigned,
+      });
+      const { service, consultationRepo } = makeService({ expert: caller });
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+
+      await expect(
+        service.confirmBooking(caller.userId, consultation.id),
+      ).rejects.toThrow(ForbiddenException);
+      expect(consultationRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException when status is not PENDING', async () => {
+      const expert = makeExpert();
+      const consultation = makeConsultation({
+        status: ConsultationStatus.CONFIRMED,
+        expertId: expert.id,
+        expert,
+      });
+      const { service, consultationRepo } = makeService({ expert });
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+
+      await expect(
+        service.confirmBooking(expert.userId, consultation.id),
+      ).rejects.toThrow(BadRequestException);
+      expect(consultationRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('cancelBooking', () => {
+    it('should cancel PENDING booking for owning customer', async () => {
+      const customer = makeCustomer();
+      const consultation = makeConsultation({
+        customerId: customer.id,
+        customer,
+        status: ConsultationStatus.PENDING,
+      });
+      const { service, consultationRepo, customerRepo } = makeService({
+        customer,
+        expert: makeExpert(),
+      });
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+      (customerRepo.findOne as jest.Mock).mockResolvedValue(customer);
+
+      const result = await service.cancelBooking(
+        customer.userId,
+        [Role.Customer],
+        consultation.id,
+        { reason: 'Changed plans' },
+      );
+
+      expect(result.status).toBe(ConsultationStatus.CANCELLED);
+      expect(result.cancelReason).toBe('Changed plans');
+      expect(result.cancelledBy).toBe(BookingCancelledBy.CUSTOMER);
+      expect(result.cancelledAt).toBeTruthy();
+    });
+
+    it('should cancel CONFIRMED booking for assigned expert', async () => {
+      const expert = makeExpert();
+      const consultation = makeConsultation({
+        expertId: expert.id,
+        expert,
+        status: ConsultationStatus.CONFIRMED,
+      });
+      const { service, consultationRepo } = makeService({ expert });
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+
+      const result = await service.cancelBooking(
+        expert.userId,
+        [Role.Expert],
+        consultation.id,
+        {},
+      );
+
+      expect(result.status).toBe(ConsultationStatus.CANCELLED);
+      expect(result.cancelledBy).toBe(BookingCancelledBy.EXPERT);
+      expect(result.cancelReason).toBeNull();
+    });
+
+    it('should throw ForbiddenException for unauthorized actor', async () => {
+      const consultation = makeConsultation();
+      const { service, consultationRepo } = makeService({});
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+
+      await expect(
+        service.cancelBooking(
+          'user-other',
+          [Role.Customer, Role.Expert],
+          consultation.id,
+          {},
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should throw BadRequestException when cancelling IN_PROGRESS', async () => {
+      const expert = makeExpert();
+      const consultation = makeConsultation({
+        expertId: expert.id,
+        expert,
+        status: ConsultationStatus.IN_PROGRESS,
+      });
+      const { service, consultationRepo } = makeService({ expert });
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+
+      await expect(
+        service.cancelBooking(
+          expert.userId,
+          [Role.Expert],
+          consultation.id,
+          {},
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('startBooking / completeBooking', () => {
+    it('should start CONFIRMED booking and set startedAt', async () => {
+      const expert = makeExpert();
+      const consultation = makeConsultation({
+        status: ConsultationStatus.CONFIRMED,
+        expertId: expert.id,
+        expert,
+      });
+      const { service, consultationRepo } = makeService({ expert });
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+
+      const result = await service.startBooking(expert.userId, consultation.id);
+
+      expect(result.status).toBe(ConsultationStatus.IN_PROGRESS);
+      expect(result.startedAt).toBeTruthy();
+    });
+
+    it('should complete IN_PROGRESS booking and set completedAt', async () => {
+      const expert = makeExpert();
+      const consultation = makeConsultation({
+        status: ConsultationStatus.IN_PROGRESS,
+        expertId: expert.id,
+        expert,
+        startedAt: new Date(),
+      });
+      const { service, consultationRepo } = makeService({ expert });
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+
+      const result = await service.completeBooking(
+        expert.userId,
+        consultation.id,
+      );
+
+      expect(result.status).toBe(ConsultationStatus.COMPLETED);
+      expect(result.completedAt).toBeTruthy();
+    });
+
+    it('should reject start from PENDING', async () => {
+      const expert = makeExpert();
+      const consultation = makeConsultation({
+        status: ConsultationStatus.PENDING,
+        expertId: expert.id,
+        expert,
+      });
+      const { service, consultationRepo } = makeService({ expert });
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+
+      await expect(
+        service.startBooking(expert.userId, consultation.id),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject complete from CONFIRMED (start required)', async () => {
+      const expert = makeExpert();
+      const consultation = makeConsultation({
+        status: ConsultationStatus.CONFIRMED,
+        expertId: expert.id,
+        expert,
+      });
+      const { service, consultationRepo } = makeService({ expert });
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+
+      await expect(
+        service.completeBooking(expert.userId, consultation.id),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject start by another expert', async () => {
+      const assigned = makeExpert({ id: 'expert-1', userId: 'user-1' });
+      const caller = makeExpert({ id: 'expert-2', userId: 'user-2' });
+      const consultation = makeConsultation({
+        status: ConsultationStatus.CONFIRMED,
+        expertId: assigned.id,
+        expert: assigned,
+      });
+      const { service, consultationRepo } = makeService({ expert: caller });
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+
+      await expect(
+        service.startBooking(caller.userId, consultation.id),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('submitFeedback', () => {
+    it('should create feedback and refresh expert rating', async () => {
+      const customer = makeCustomer();
+      const expert = makeExpert({ rating: 0 });
+      const consultation = makeConsultation({
+        status: ConsultationStatus.COMPLETED,
+        customerId: customer.id,
+        customer,
+        expertId: expert.id,
+        expert,
+        feedback: undefined as never,
+      });
+      const { service, consultationRepo, feedbackRepo, expertRepo } =
+        makeService({ customer, expert });
+      (consultationRepo.findOne as jest.Mock)
+        .mockResolvedValueOnce(consultation)
+        .mockResolvedValueOnce({
+          ...consultation,
+          feedback: {
+            id: 'fb-1',
+            consultationId: consultation.id,
+            rating: 5,
+            comment: 'Great',
+          },
+        });
+
+      const result = await service.submitFeedback(
+        customer.userId,
+        consultation.id,
+        {
+          rating: 5,
+          comment: 'Great',
+        },
+      );
+
+      expect(feedbackRepo.save).toHaveBeenCalled();
+      expect(expertRepo.update).toHaveBeenCalledWith(
+        { id: expert.id },
+        { rating: 5 },
+      );
+      expect(result.feedback).toEqual({ rating: 5, comment: 'Great' });
+    });
+
+    it('should throw ConflictException on duplicate feedback', async () => {
+      const customer = makeCustomer();
+      const consultation = makeConsultation({
+        status: ConsultationStatus.COMPLETED,
+        customerId: customer.id,
+        customer,
+        feedback: {
+          id: 'fb-1',
+          rating: 4,
+          comment: null,
+        } as ConsultationRequest['feedback'],
+      });
+      const { service, consultationRepo } = makeService({ customer });
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+
+      await expect(
+        service.submitFeedback(customer.userId, consultation.id, { rating: 5 }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('should throw BadRequestException when not COMPLETED', async () => {
+      const customer = makeCustomer();
+      const consultation = makeConsultation({
+        status: ConsultationStatus.PENDING,
+        customerId: customer.id,
+        customer,
+      });
+      const { service, consultationRepo } = makeService({ customer });
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+
+      await expect(
+        service.submitFeedback(customer.userId, consultation.id, { rating: 5 }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw ForbiddenException for non-owner', async () => {
+      const consultation = makeConsultation({
+        status: ConsultationStatus.COMPLETED,
+      });
+      const { service, consultationRepo } = makeService({});
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+
+      await expect(
+        service.submitFeedback('other-user', consultation.id, { rating: 5 }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('getMyBooking', () => {
+    it('should return booking for owning customer including feedback', async () => {
+      const customer = makeCustomer();
+      const consultation = makeConsultation({
+        customerId: customer.id,
+        customer,
+        status: ConsultationStatus.COMPLETED,
+        feedback: {
+          id: 'fb-1',
+          rating: 4,
+          comment: 'Nice',
+        } as ConsultationRequest['feedback'],
+      });
+      const { service, consultationRepo } = makeService({ customer });
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+
+      const result = await service.getMyBooking(
+        customer.userId,
+        [Role.Customer],
+        consultation.id,
+      );
+
+      expect(result.feedback).toEqual({ rating: 4, comment: 'Nice' });
+    });
+
+    it('should throw ForbiddenException for unrelated user', async () => {
+      const consultation = makeConsultation();
+      const { service, consultationRepo } = makeService({});
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+
+      await expect(
+        service.getMyBooking('stranger', [Role.Customer], consultation.id),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 });

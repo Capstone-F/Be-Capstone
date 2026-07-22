@@ -1,5 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ConsultationStatus } from '../../consultations/enums';
+import {
+  BookingCancelledBy,
+  ConsultationStatus,
+} from '../../consultations/enums';
 import { ExpertSpecialty } from '../../experts/expert-specialty.enum';
 
 export class BookingClinicSummaryDto {
@@ -64,6 +67,18 @@ export class BookingResponseDto {
 
   @ApiPropertyOptional({ nullable: true })
   completedAt!: Date | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  cancelledAt!: Date | null;
+
+  @ApiPropertyOptional({ example: 'Schedule conflict', nullable: true })
+  cancelReason!: string | null;
+
+  @ApiPropertyOptional({
+    enum: BookingCancelledBy,
+    nullable: true,
+  })
+  cancelledBy!: BookingCancelledBy | null;
 
   @ApiPropertyOptional({ type: BookingFeedbackSummaryDto, nullable: true })
   feedback!: BookingFeedbackSummaryDto | null;

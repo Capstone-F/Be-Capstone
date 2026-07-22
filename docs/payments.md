@@ -4,6 +4,8 @@
 
 The backend integrates the VNPay Sandbox gateway to collect payment for an existing customer order. It uses the `nestjs-vnpay` library (wrapper over `vnpay`).
 
+**Consultations are not paid via VNPay.** Expert booking fees use the customer **Wallet** ledger — see [Consultation Flow](consultation-flow.md).
+
 **Data model:**
 
 - An `Order` (created elsewhere) has one `Payment`

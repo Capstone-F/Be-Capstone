@@ -15,7 +15,8 @@ import {
 } from 'typeorm';
 import { Role } from '../auth/roles.enum';
 import { ConsultationRequest } from '../consultations/consultation-request.entity';
-import { ConsultationStatus } from '../consultations/enums';
+import { BookingCancelledBy, ConsultationStatus } from '../consultations/enums';
+import { Feedback } from '../consultations/feedback.entity';
 import { Customer } from '../users/customer.entity';
 import { Expert } from '../users/expert.entity';
 import { BookingPerspective, BookingRange, BookingTab } from './enums';
@@ -23,6 +24,8 @@ import {
   BookingResponseDto,
   PaginatedBookingsDto,
 } from './dto/booking-response.dto';
+import { CancelBookingDto } from './dto/cancel-booking.dto';
+import { CreateBookingFeedbackDto } from './dto/create-booking-feedback.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { ListBookingsQueryDto } from './dto/list-bookings-query.dto';
 import { ListSlotsQueryDto } from './dto/list-slots-query.dto';
@@ -48,6 +51,20 @@ const ACTIVE_BOOKING_STATUSES = [
   ConsultationStatus.IN_PROGRESS,
 ];
 
+const CANCELLABLE_STATUSES = [
+  ConsultationStatus.PENDING,
+  ConsultationStatus.CONFIRMED,
+];
+
+const BOOKING_DETAIL_RELATIONS = [
+  'customer',
+  'customer.user',
+  'expert',
+  'expert.user',
+  'expert.clinic',
+  'feedback',
+] as const;
+
 @Injectable()
 export class BookingsService {
   constructor(
@@ -59,6 +76,8 @@ export class BookingsService {
     private readonly consultationRepository: Repository<ConsultationRequest>,
     @InjectRepository(Customer)
     private readonly customerRepository: Repository<Customer>,
+    @InjectRepository(Feedback)
+    private readonly feedbackRepository: Repository<Feedback>,
   ) {}
 
   async createBooking(
@@ -90,6 +109,171 @@ export class BookingsService {
     const saved = await this.consultationRepository.save(consultation);
 
     return this.toBookingResponse(saved, customer, expert);
+  }
+
+  async confirmBooking(
+    userId: string,
+    bookingId: string,
+  ): Promise<BookingResponseDto> {
+    const expert = await this.requireExpertByUserId(
+      userId,
+      'Expert profile required to confirm bookings',
+    );
+    const consultation = await this.requireBooking(bookingId);
+    this.assertAssignedExpert(consultation, expert);
+
+    if (consultation.status !== ConsultationStatus.PENDING) {
+      throw new BadRequestException(
+        `Booking can only be confirmed from PENDING (current: ${consultation.status})`,
+      );
+    }
+
+    consultation.status = ConsultationStatus.CONFIRMED;
+    const saved = await this.consultationRepository.save(consultation);
+    return this.toBookingResponseFromSaved(saved, consultation, expert);
+  }
+
+  async cancelBooking(
+    userId: string,
+    roles: Role[],
+    bookingId: string,
+    dto: CancelBookingDto,
+  ): Promise<BookingResponseDto> {
+    const consultation = await this.requireBooking(bookingId);
+    const cancelledBy = await this.resolveCancelActor(
+      userId,
+      roles,
+      consultation,
+    );
+
+    if (!CANCELLABLE_STATUSES.includes(consultation.status)) {
+      throw new BadRequestException(
+        `Booking can only be cancelled from PENDING or CONFIRMED (current: ${consultation.status})`,
+      );
+    }
+
+    consultation.status = ConsultationStatus.CANCELLED;
+    consultation.cancelledAt = new Date();
+    consultation.cancelReason = dto.reason?.trim() || null;
+    consultation.cancelledBy = cancelledBy;
+
+    const saved = await this.consultationRepository.save(consultation);
+    return this.toBookingResponseFromSaved(saved, consultation);
+  }
+
+  async startBooking(
+    userId: string,
+    bookingId: string,
+  ): Promise<BookingResponseDto> {
+    const expert = await this.requireExpertByUserId(
+      userId,
+      'Expert profile required to start bookings',
+    );
+    const consultation = await this.requireBooking(bookingId);
+    this.assertAssignedExpert(consultation, expert);
+
+    if (consultation.status !== ConsultationStatus.CONFIRMED) {
+      throw new BadRequestException(
+        `Booking can only be started from CONFIRMED (current: ${consultation.status})`,
+      );
+    }
+
+    consultation.status = ConsultationStatus.IN_PROGRESS;
+    consultation.startedAt = new Date();
+    const saved = await this.consultationRepository.save(consultation);
+    return this.toBookingResponseFromSaved(saved, consultation, expert);
+  }
+
+  async completeBooking(
+    userId: string,
+    bookingId: string,
+  ): Promise<BookingResponseDto> {
+    const expert = await this.requireExpertByUserId(
+      userId,
+      'Expert profile required to complete bookings',
+    );
+    const consultation = await this.requireBooking(bookingId);
+    this.assertAssignedExpert(consultation, expert);
+
+    if (consultation.status !== ConsultationStatus.IN_PROGRESS) {
+      throw new BadRequestException(
+        `Booking can only be completed from IN_PROGRESS (current: ${consultation.status})`,
+      );
+    }
+
+    consultation.status = ConsultationStatus.COMPLETED;
+    consultation.completedAt = new Date();
+    const saved = await this.consultationRepository.save(consultation);
+    return this.toBookingResponseFromSaved(saved, consultation, expert);
+  }
+
+  async submitFeedback(
+    userId: string,
+    bookingId: string,
+    dto: CreateBookingFeedbackDto,
+  ): Promise<BookingResponseDto> {
+    const consultation = await this.requireBooking(bookingId);
+
+    const customerUserId = consultation.customer?.userId;
+    if (!customerUserId || customerUserId !== userId) {
+      throw new ForbiddenException(
+        'Only the owning customer can submit feedback',
+      );
+    }
+
+    if (consultation.status !== ConsultationStatus.COMPLETED) {
+      throw new BadRequestException(
+        `Feedback can only be submitted for COMPLETED bookings (current: ${consultation.status})`,
+      );
+    }
+
+    if (consultation.feedback) {
+      throw new ConflictException(
+        'Feedback has already been submitted for this booking',
+      );
+    }
+
+    const existing = await this.feedbackRepository.findOne({
+      where: { consultationId: bookingId },
+    });
+    if (existing) {
+      throw new ConflictException(
+        'Feedback has already been submitted for this booking',
+      );
+    }
+
+    const feedback = this.feedbackRepository.create({
+      consultationId: consultation.id,
+      rating: dto.rating,
+      comment: dto.comment?.trim() || null,
+    });
+    await this.feedbackRepository.save(feedback);
+    await this.refreshExpertRating(consultation.expertId);
+
+    const reloaded = await this.requireBooking(bookingId);
+    return this.toBookingResponse(reloaded, reloaded.customer, reloaded.expert);
+  }
+
+  async getMyBooking(
+    userId: string,
+    roles: Role[],
+    bookingId: string,
+  ): Promise<BookingResponseDto> {
+    const consultation = await this.requireBooking(bookingId);
+    const isOwnerCustomer =
+      roles.includes(Role.Customer) && consultation.customer?.userId === userId;
+    const isAssignedExpert =
+      roles.includes(Role.Expert) && consultation.expert?.userId === userId;
+
+    if (!isOwnerCustomer && !isAssignedExpert) {
+      throw new ForbiddenException('You do not have access to this booking');
+    }
+
+    return this.toBookingResponse(
+      consultation,
+      consultation.customer,
+      consultation.expert,
+    );
   }
 
   async listMyBookings(
@@ -437,6 +621,109 @@ export class BookingsService {
     return where;
   }
 
+  private async refreshExpertRating(expertId: string): Promise<void> {
+    const result = await this.feedbackRepository
+      .createQueryBuilder('f')
+      .innerJoin('f.consultation', 'c')
+      .select('AVG(f.rating)', 'avg')
+      .where('c.expertId = :expertId', { expertId })
+      .getRawOne<{ avg: string | null }>();
+
+    const avg =
+      result?.avg != null && result.avg !== ''
+        ? Number(Number(result.avg).toFixed(2))
+        : 0;
+
+    await this.expertRepository.update({ id: expertId }, { rating: avg });
+  }
+
+  private async requireBooking(
+    bookingId: string,
+  ): Promise<ConsultationRequest> {
+    const consultation = await this.consultationRepository.findOne({
+      where: { id: bookingId },
+      relations: [...BOOKING_DETAIL_RELATIONS],
+    });
+    if (!consultation) {
+      throw new NotFoundException(`Booking ${bookingId} not found`);
+    }
+    return consultation;
+  }
+
+  private async requireExpertByUserId(
+    userId: string,
+    message: string,
+  ): Promise<Expert> {
+    const expert = await this.expertRepository.findOne({
+      where: { userId },
+      relations: ['user', 'clinic'],
+    });
+    if (!expert) {
+      throw new ForbiddenException(message);
+    }
+    return expert;
+  }
+
+  private assertAssignedExpert(
+    consultation: ConsultationRequest,
+    expert: Expert,
+  ): void {
+    if (consultation.expertId !== expert.id) {
+      throw new ForbiddenException('You can only manage your own bookings');
+    }
+  }
+
+  private async resolveCancelActor(
+    userId: string,
+    roles: Role[],
+    consultation: ConsultationRequest,
+  ): Promise<BookingCancelledBy> {
+    const hasCustomer = roles.includes(Role.Customer);
+    const hasExpert = roles.includes(Role.Expert);
+
+    if (hasExpert) {
+      const expertUserId =
+        consultation.expert?.userId ??
+        (
+          await this.expertRepository.findOne({
+            where: { id: consultation.expertId },
+          })
+        )?.userId;
+      if (expertUserId === userId) {
+        return BookingCancelledBy.EXPERT;
+      }
+    }
+
+    if (hasCustomer) {
+      const customerUserId =
+        consultation.customer?.userId ??
+        (
+          await this.customerRepository.findOne({
+            where: { id: consultation.customerId },
+          })
+        )?.userId;
+      if (customerUserId === userId) {
+        return BookingCancelledBy.CUSTOMER;
+      }
+    }
+
+    throw new ForbiddenException(
+      'Only the owning customer or assigned expert can cancel this booking',
+    );
+  }
+
+  private toBookingResponseFromSaved(
+    saved: ConsultationRequest,
+    loaded: ConsultationRequest,
+    expertFallback?: Expert | null,
+  ): BookingResponseDto {
+    return this.toBookingResponse(
+      saved,
+      saved.customer ?? loaded.customer,
+      saved.expert ?? loaded.expert ?? expertFallback,
+    );
+  }
+
   private toBookingResponse(
     consultation: ConsultationRequest,
     customer?: Customer | null,
@@ -468,6 +755,9 @@ export class BookingsService {
       scheduledAt: consultation.scheduledAt,
       startedAt: consultation.startedAt,
       completedAt: consultation.completedAt,
+      cancelledAt: consultation.cancelledAt ?? null,
+      cancelReason: consultation.cancelReason ?? null,
+      cancelledBy: consultation.cancelledBy ?? null,
       feedback: consultation.feedback
         ? {
             rating: consultation.feedback.rating,
