@@ -1,5 +1,25 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ConsultationStatus } from '../../consultations/enums';
+import { ExpertSpecialty } from '../../experts/expert-specialty.enum';
+
+export class BookingClinicSummaryDto {
+  @ApiProperty({ example: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ example: 'GlowScan District 1 Clinic' })
+  name!: string;
+
+  @ApiProperty({ example: '12 Nguyen Hue, District 1, Ho Chi Minh City' })
+  address!: string;
+}
+
+export class BookingFeedbackSummaryDto {
+  @ApiProperty({ example: 5 })
+  rating!: number;
+
+  @ApiPropertyOptional({ example: 'Great consultation', nullable: true })
+  comment!: string | null;
+}
 
 export class BookingResponseDto {
   @ApiProperty({ example: 'uuid' })
@@ -13,6 +33,16 @@ export class BookingResponseDto {
 
   @ApiPropertyOptional({ example: 'Dr. Nguyen Van A', nullable: true })
   expertName!: string | null;
+
+  @ApiPropertyOptional({
+    enum: ExpertSpecialty,
+    example: ExpertSpecialty.DERMATOLOGY,
+    nullable: true,
+  })
+  expertSpecialization!: ExpertSpecialty | null;
+
+  @ApiPropertyOptional({ type: BookingClinicSummaryDto, nullable: true })
+  clinic!: BookingClinicSummaryDto | null;
 
   @ApiPropertyOptional({ example: 'Jane Doe', nullable: true })
   customerName!: string | null;
@@ -34,6 +64,9 @@ export class BookingResponseDto {
 
   @ApiPropertyOptional({ nullable: true })
   completedAt!: Date | null;
+
+  @ApiPropertyOptional({ type: BookingFeedbackSummaryDto, nullable: true })
+  feedback!: BookingFeedbackSummaryDto | null;
 
   @ApiProperty()
   createdAt!: Date;

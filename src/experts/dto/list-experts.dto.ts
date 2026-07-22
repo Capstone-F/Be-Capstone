@@ -1,6 +1,14 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsNumber, IsOptional, Max, Min } from 'class-validator';
+import {
+  IsEnum,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsUUID,
+  Max,
+  Min,
+} from 'class-validator';
 import { ExpertSpecialty } from '../expert-specialty.enum';
 
 export class ListExpertsQueryDto {
@@ -12,6 +20,14 @@ export class ListExpertsQueryDto {
   @IsOptional()
   @IsEnum(ExpertSpecialty)
   specialization?: ExpertSpecialty;
+
+  @ApiPropertyOptional({
+    example: 'uuid',
+    description: 'Filter bookable experts belonging to this clinic',
+  })
+  @IsOptional()
+  @IsUUID()
+  clinicId?: string;
 
   @ApiPropertyOptional({ example: 4, minimum: 0, maximum: 5 })
   @IsOptional()

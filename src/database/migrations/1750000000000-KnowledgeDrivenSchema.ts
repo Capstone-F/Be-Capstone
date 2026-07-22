@@ -1117,6 +1117,9 @@ export class KnowledgeDrivenSchema1750000000000 implements MigrationInterface {
     constraintName: string,
     definition: string,
   ): Promise<void> {
+    // Catch undefined_column (42703): CREATE TABLE IF NOT EXISTS is a no-op when
+    // a leftover table already exists with a newer/different shape (e.g. after a
+    // volume reuse). Later migrations reshape to the final schema.
     await queryRunner.query(`
       DO $$ BEGIN
         ALTER TABLE "${table}"
@@ -1124,6 +1127,7 @@ export class KnowledgeDrivenSchema1750000000000 implements MigrationInterface {
         FOREIGN KEY ${definition};
       EXCEPTION
         WHEN duplicate_object THEN NULL;
+        WHEN undefined_column THEN NULL;
       END $$;
     `);
   }
