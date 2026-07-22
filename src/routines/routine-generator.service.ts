@@ -175,6 +175,9 @@ export class RoutineGeneratorService {
         'items',
         'items.productVariant',
         'items.productVariant.product',
+        'items.productVariant.product.category',
+        'items.productVariant.product.productProtocols',
+        'items.productVariant.product.productProtocols.protocol',
         'items.surveyRecommendationItem',
         'items.surveyRecommendationItem.protocol',
         'customerSurvey',
@@ -209,12 +212,13 @@ export class RoutineGeneratorService {
   ): RoutineGenerationProductInput[] {
     const byVariant = new Map<string, RoutineGenerationProductInput>();
     for (const item of items) {
-      const protocol = item.surveyRecommendationItem?.protocol;
+      const protocol = this.resolveRoutineProtocol(item);
       byVariant.set(item.productVariantId, {
         productVariantId: item.productVariantId,
         productName:
           item.productVariant?.product?.name ?? item.productVariantId,
         sku: item.productVariant?.sku ?? '',
+        categoryCode: item.productVariant?.product?.category?.code ?? null,
         protocolId:
           protocol?.id ?? item.surveyRecommendationItem?.protocolId ?? null,
         protocolCode: protocol?.code ?? null,
@@ -224,6 +228,18 @@ export class RoutineGeneratorService {
       });
     }
     return [...byVariant.values()];
+  }
+
+  /**
+   * Prefer a category/step-role protocol linked on the product (cleanser_*, sunscreen_*, …)
+   * so mock/Ollama get HDSD-style instructions; fall back to the survey recommendation protocol.
+   */
+  private resolveRoutineProtocol(item: OrderItem) {
+    const linked = item.productVariant?.product?.productProtocols ?? [];
+    const stepRole = linked
+      .map((pp) => pp.protocol)
+      .find((p) => p && isStepRoleProtocolCode(p.code));
+    return stepRole ?? item.surveyRecommendationItem?.protocol ?? null;
   }
 
   private collectLabelCodes(order: Order): string[] {
@@ -334,4 +350,11 @@ export function compareRoutineSteps(
   const byPeriod = periodRank(a.period) - periodRank(b.period);
   if (byPeriod !== 0) return byPeriod;
   return a.stepOrder - b.stepOrder;
+}
+
+const STEP_ROLE_PROTOCOL_PREFIX =
+  /^(cleanser|toner|serum|moisturizer|sunscreen|treatment)_/i;
+
+function isStepRoleProtocolCode(code: string): boolean {
+  return STEP_ROLE_PROTOCOL_PREFIX.test(code);
 }

@@ -18,11 +18,13 @@ describe('MockLlmRoutineProvider', () => {
           productVariantId: 'v1',
           productName: 'Niacinamide Serum',
           sku: 'SKU-1',
+          categoryCode: 'SERUM',
           protocolId: 'p1',
-          protocolCode: 'niacinamide_general',
-          protocolName: 'Niacinamide',
+          protocolCode: 'serum_niacinamide',
+          protocolName: 'Niacinamide Treatment Serum',
           timeOfUse: TimeOfUse.AM_PM,
-          instructions: 'Apply gently',
+          instructions:
+            'Apply 2–3 drops to clean, dry face. Gently pat until absorbed.',
         },
       ],
     });
@@ -33,9 +35,11 @@ describe('MockLlmRoutineProvider', () => {
       RoutinePeriod.MORNING,
     ]);
     expect(result.title).toContain('OSPW');
+    expect(result.description).toContain('acne treatment');
     for (const step of result.steps) {
       expect(step.amountMl).toBe(2);
-      expect(step.dosageText).toBe('2 drops');
+      expect(step.dosageText).toBe('2–3 drops');
+      expect(step.instructions).toContain('2–3 drops');
       expect(typeof step.waitMinutes).toBe('number');
     }
     const morning = result.steps.find(
@@ -44,27 +48,42 @@ describe('MockLlmRoutineProvider', () => {
     expect(morning?.waitMinutes).toBe(0);
   });
 
-  it('uses cleanser-friendly dosage and wait heuristics', async () => {
+  it('orders by category and uses seeded cleanser/sunscreen detail', async () => {
     const result = await provider.generateRoutine({
       customerProfile: { age: 30, gender: 'FEMALE', skinTypeCode: null },
-      labelCodes: [],
+      labelCodes: ['HIGH_SUN_EXPOSURE'],
       products: [
+        {
+          productVariantId: 'v-spf',
+          productName: 'Anthelios SPF50+',
+          sku: 'SKU-SPF',
+          categoryCode: 'SUNSCREEN',
+          protocolId: 'p-spf',
+          protocolCode: 'sunscreen_daily_spf',
+          protocolName: 'Daily Broad-Spectrum Sunscreen',
+          timeOfUse: TimeOfUse.AM,
+          instructions:
+            'As the final morning step, apply two finger-lengths evenly.',
+        },
         {
           productVariantId: 'v-cleanse',
           productName: 'Gentle Cleanser',
           sku: 'SKU-C',
+          categoryCode: 'CLEANSER',
           protocolId: 'p-c',
-          protocolCode: 'cleanser_gentle',
-          protocolName: 'Cleanser',
+          protocolCode: 'cleanser_gentle_foam',
+          protocolName: 'Gentle Foaming Cleanser',
           timeOfUse: TimeOfUse.AM,
-          instructions: null,
+          instructions:
+            'Wet face, dispense a pea-sized amount, lather, and massage 30–60 seconds.',
         },
         {
           productVariantId: 'v-serum',
           productName: 'Serum',
           sku: 'SKU-S',
+          categoryCode: 'SERUM',
           protocolId: 'p-s',
-          protocolCode: 'niacinamide_general',
+          protocolCode: 'serum_niacinamide',
           protocolName: 'Niacinamide',
           timeOfUse: TimeOfUse.AM,
           instructions: null,
@@ -72,13 +91,24 @@ describe('MockLlmRoutineProvider', () => {
       ],
     });
 
-    const cleanser = result.steps.find(
-      (s) => s.productVariantId === 'v-cleanse',
+    const morning = result.steps.filter(
+      (s) => s.period === RoutinePeriod.MORNING,
     );
-    const serum = result.steps.find((s) => s.productVariantId === 'v-serum');
-    expect(cleanser?.dosageText).toBe('pea-sized');
-    expect(cleanser?.waitMinutes).toBe(0);
-    expect(serum?.dosageText).toBe('2 drops');
-    expect(serum?.waitMinutes).toBe(5);
+    expect(morning.map((s) => s.productVariantId)).toEqual([
+      'v-cleanse',
+      'v-serum',
+      'v-spf',
+    ]);
+
+    const cleanser = morning[0];
+    const serum = morning[1];
+    const spf = morning[2];
+    expect(cleanser.dosageText).toBe('pea-sized');
+    expect(cleanser.waitMinutes).toBe(0);
+    expect(cleanser.instructions).toContain('pea-sized');
+    expect(serum.dosageText).toBe('2–3 drops');
+    expect(serum.waitMinutes).toBe(5);
+    expect(spf.dosageText).toBe('two finger-lengths');
+    expect(spf.instructions).toContain('two finger-lengths');
   });
 });
