@@ -40,9 +40,9 @@ export class PaymentsController {
   @ApiBearerAuth()
   @ApiUnauthorizedResponse({ description: 'Not authenticated' })
   @ApiOperation({
-    summary: 'Create a VNPay payment for a pending order',
+    summary: 'Create a payment for a pending order',
     description:
-      'Creates (or reuses) a Payment for the order and returns the VNPay payment URL to redirect the customer to.',
+      'Creates (or reuses) a Payment for the order and returns a paymentUrl from the active gateway (PAYMENT_PROVIDER). Redirect the customer to paymentUrl.',
   })
   @ApiOkResponse({ type: CheckoutResponseDto })
   checkout(
@@ -71,6 +71,20 @@ export class PaymentsController {
   @ApiExcludeEndpoint()
   async vnpayIpn(@Query() query: ReturnQueryFromVNPay): Promise<unknown> {
     return this.paymentsService.handleIpn(query);
+  }
+
+  @Get('mock/complete')
+  @ApiExcludeEndpoint()
+  async mockComplete(
+    @Query('paymentId') paymentId: string,
+    @Query('txnRef') txnRef: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { redirectUrl } = await this.paymentsService.handleMockComplete(
+      paymentId ?? '',
+      txnRef ?? '',
+    );
+    res.redirect(redirectUrl);
   }
 
   @Get(':id')

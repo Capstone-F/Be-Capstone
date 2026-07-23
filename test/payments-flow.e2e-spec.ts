@@ -18,9 +18,12 @@ import { AppConfigService } from '../src/config/config.service';
 import { OrderStatus } from '../src/commerce/enums';
 import { Order } from '../src/commerce/order.entity';
 import { Customer } from '../src/users/customer.entity';
+import { VnpayPaymentProvider } from '../src/payments/providers/vnpay.payment-provider';
+import { MockPaymentProvider } from '../src/payments/providers/mock.payment-provider';
 import { PaymentsService } from '../src/payments/payments.service';
 import { Payment } from '../src/payments/payment.entity';
 import { PaymentAttempt } from '../src/payments/payment-attempt.entity';
+import { PaymentStatus } from '../src/payments/enums';
 
 const TMN = 'DEMOTMN1';
 const SECRET = 'DEMOSECRET0123456789';
@@ -168,6 +171,7 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
 
     const config = {
       paymentConfig: PAYMENT_CONFIG,
+      paymentProvider: 'vnpay',
       nodeEnv: 'test',
     } as unknown as AppConfigService;
 
@@ -186,12 +190,14 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
         Promise.resolve({ totalDeducted: 0, batches: [] }),
     };
 
+    const gateway = new VnpayPaymentProvider(vnpay);
+
     service = new PaymentsService(
       paymentRepo,
       attemptRepo,
       orderRepo,
       customerRepo,
-      vnpay,
+      gateway,
       config,
       dataSource,
       stockService as never,
@@ -256,5 +262,210 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
     const ref = attempts[attempts.length - 1].vnpTxnRef;
     const res = await service.handleIpn(successCallback(ref, 5000000) as never);
     expect(res.RspCode).toBe('04');
+  });
+});
+
+describe('Mock payment flow (in-memory repos)', () => {
+  let service: PaymentsService;
+  let payments: Payment[];
+  let attempts: PaymentAttempt[];
+  let seq: number;
+  let deductCalls: Array<{
+    variantId: string;
+    qty: number;
+  }>;
+
+  const order = {
+    id: 'order-mock-1',
+    customerId: 'cust-1',
+    status: OrderStatus.PENDING,
+    totalVnd: 50000,
+    delivery: { id: 'del-1' },
+    items: [
+      {
+        id: 'oi-1',
+        productVariantId: 'var-1',
+        quantity: 1,
+      },
+    ],
+  } as Order;
+
+  beforeAll(() => {
+    payments = [];
+    attempts = [];
+    seq = 0;
+    deductCalls = [];
+
+    const paymentRepo = {
+      findOne: ({
+        where,
+      }: {
+        where: { id?: string; orderId?: string; status?: unknown };
+      }) => {
+        if (where.id) {
+          return Promise.resolve(
+            payments.find((p) => p.id === where.id) ?? null,
+          );
+        }
+        return Promise.resolve(
+          payments.find(
+            (p) =>
+              p.orderId === where.orderId &&
+              (p.status === PaymentStatus.PENDING ||
+                p.status === PaymentStatus.PROCESSING),
+          ) ?? null,
+        );
+      },
+      create: (v: Partial<Payment>) => ({ ...v }) as Payment,
+      save: (v: Payment) => {
+        if (!v.id) v.id = `pay-${++seq}`;
+        const idx = payments.findIndex((p) => p.id === v.id);
+        if (idx >= 0) payments[idx] = v;
+        else payments.push(v);
+        return Promise.resolve(v);
+      },
+    } as unknown as Repository<Payment>;
+
+    const attemptRepo = {
+      findOne: ({
+        where,
+        relations,
+      }: {
+        where: { vnpTxnRef?: string; paymentId?: string };
+        relations?: { payment?: boolean };
+      }) => {
+        const a = attempts.find((x) => {
+          if (where.vnpTxnRef && where.paymentId) {
+            return (
+              x.vnpTxnRef === where.vnpTxnRef && x.paymentId === where.paymentId
+            );
+          }
+          if (where.vnpTxnRef) return x.vnpTxnRef === where.vnpTxnRef;
+          return false;
+        });
+        if (a && relations?.payment) {
+          a.payment = payments.find((p) => p.id === a.paymentId) as Payment;
+        }
+        return Promise.resolve(a ?? null);
+      },
+      create: (v: Partial<PaymentAttempt>) => ({ ...v }) as PaymentAttempt,
+      save: (v: PaymentAttempt) => {
+        v.id = `att-${++seq}`;
+        attempts.push(v);
+        return Promise.resolve(v);
+      },
+    } as unknown as Repository<PaymentAttempt>;
+
+    const orderRepo = {
+      findOne: ({
+        where,
+        relations,
+      }: {
+        where: { id: string };
+        relations?: string[];
+      }) => {
+        if (where.id !== order.id) return Promise.resolve(null);
+        if (relations?.includes('items')) {
+          return Promise.resolve(order);
+        }
+        return Promise.resolve(order);
+      },
+    } as unknown as Repository<Order>;
+
+    const customerRepo = {
+      findOne: () => Promise.resolve({ id: 'cust-1', userId: 'user-1' }),
+    } as unknown as Repository<Customer>;
+
+    const dataSource = {
+      transaction: (cb: (m: EntityManager) => Promise<unknown>) =>
+        cb({
+          update: (
+            entity: unknown,
+            criteria: { id: string; status?: string },
+            values: Record<string, unknown>,
+          ) => {
+            if (entity === PaymentAttempt) {
+              const a = attempts.find(
+                (x) => x.id === criteria.id && x.status === criteria.status,
+              );
+              if (!a) return Promise.resolve({ affected: 0 });
+              Object.assign(a, values);
+              return Promise.resolve({ affected: 1 });
+            }
+            if (entity === Order) {
+              if (
+                order.id === criteria.id &&
+                order.status === criteria.status
+              ) {
+                Object.assign(order, values);
+                return Promise.resolve({ affected: 1 });
+              }
+              return Promise.resolve({ affected: 0 });
+            }
+            const p = payments.find((x) => x.id === criteria.id);
+            if (p) Object.assign(p, values);
+            return Promise.resolve({ affected: p ? 1 : 0 });
+          },
+          findOne: (entity: unknown, opts: { where: { id: string } }) => {
+            if (entity === Payment) {
+              return Promise.resolve(
+                payments.find((p) => p.id === opts.where.id) ?? null,
+              );
+            }
+            return Promise.resolve(null);
+          },
+        } as unknown as EntityManager),
+    } as unknown as DataSource;
+
+    const config = {
+      paymentConfig: {
+        ...PAYMENT_CONFIG,
+        returnUrl: 'http://localhost:3000/payments/vnpay/return',
+      },
+      paymentProvider: 'mock',
+      port: 3000,
+      nodeEnv: 'test',
+    } as unknown as AppConfigService;
+
+    const gateway = new MockPaymentProvider(config);
+
+    const stockService = {
+      deductByVariantId: (variantId: string, qty: number) => {
+        deductCalls.push({ variantId, qty });
+        return Promise.resolve({ totalDeducted: qty, batches: [] });
+      },
+    };
+
+    service = new PaymentsService(
+      paymentRepo,
+      attemptRepo,
+      orderRepo,
+      customerRepo,
+      gateway,
+      config,
+      dataSource,
+      stockService as never,
+    );
+  });
+
+  it('checkout returns mock complete URL then complete marks PAID and deducts stock', async () => {
+    const checkout = await service.checkout(
+      'user-1',
+      { orderId: 'order-mock-1' },
+      '127.0.0.1',
+    );
+    expect(checkout.paymentUrl).toContain('/payments/mock/complete');
+    expect(checkout.paymentUrl).toContain(`paymentId=${checkout.paymentId}`);
+
+    const url = new URL(checkout.paymentUrl);
+    const { redirectUrl } = await service.handleMockComplete(
+      url.searchParams.get('paymentId')!,
+      url.searchParams.get('txnRef')!,
+    );
+
+    expect(redirectUrl).toContain('status=success');
+    expect(payments[0].status).toBe('PAID');
+    expect(order.status).toBe(OrderStatus.PAID);
+    expect(deductCalls).toEqual([{ variantId: 'var-1', qty: 1 }]);
   });
 });
