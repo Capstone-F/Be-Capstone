@@ -4,7 +4,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
-import { VnpayService } from 'nestjs-vnpay';
 import {
   InpOrderAlreadyConfirmed,
   IpnFailChecksum,
@@ -19,7 +18,13 @@ import { Customer } from '../users/customer.entity';
 import { PaymentsService } from './payments.service';
 import { Payment } from './payment.entity';
 import { PaymentAttempt } from './payment-attempt.entity';
-import { PaymentAttemptStatus, PaymentClient, PaymentStatus } from './enums';
+import {
+  PaymentAttemptStatus,
+  PaymentClient,
+  PaymentProvider,
+  PaymentStatus,
+} from './enums';
+import { PaymentGateway } from './providers/payment-provider.types';
 
 const PAYMENT_CONFIG = {
   tmnCode: 'TMN',
@@ -33,9 +38,10 @@ const PAYMENT_CONFIG = {
 
 type Mocked<T> = { [K in keyof T]: jest.Mock };
 
-const makeConfig = () =>
+const makeConfig = (provider = 'vnpay') =>
   ({
     paymentConfig: PAYMENT_CONFIG,
+    paymentProvider: provider,
     nodeEnv: 'test',
   }) as unknown as AppConfigService;
 
@@ -48,9 +54,7 @@ describe('PaymentsService', () => {
   >;
   let orderRepo: Mocked<Pick<Repository<Order>, 'findOne'>>;
   let customerRepo: Mocked<Pick<Repository<Customer>, 'findOne'>>;
-  let vnpay: Mocked<
-    Pick<VnpayService, 'buildPaymentUrl' | 'verifyReturnUrl' | 'verifyIpnCall'>
-  >;
+  let gateway: jest.Mocked<PaymentGateway>;
   let dataSource: { transaction: jest.Mock };
   let stockService: { deductByVariantId: jest.Mock };
   let service: PaymentsService;
@@ -60,10 +64,11 @@ describe('PaymentsService', () => {
     attemptRepo = { findOne: jest.fn(), create: jest.fn(), save: jest.fn() };
     orderRepo = { findOne: jest.fn() };
     customerRepo = { findOne: jest.fn() };
-    vnpay = {
-      buildPaymentUrl: jest.fn(),
-      verifyReturnUrl: jest.fn(),
-      verifyIpnCall: jest.fn(),
+    gateway = {
+      code: PaymentProvider.VNPAY,
+      createCheckout: jest.fn(),
+      verifyReturn: jest.fn(),
+      verifyIpn: jest.fn(),
     };
     dataSource = { transaction: jest.fn() };
     stockService = { deductByVariantId: jest.fn().mockResolvedValue({}) };
@@ -73,7 +78,7 @@ describe('PaymentsService', () => {
       attemptRepo as unknown as Repository<PaymentAttempt>,
       orderRepo as unknown as Repository<Order>,
       customerRepo as unknown as Repository<Customer>,
-      vnpay as unknown as VnpayService,
+      gateway,
       makeConfig(),
       dataSource as unknown as DataSource,
       stockService as never,
@@ -81,7 +86,7 @@ describe('PaymentsService', () => {
   });
 
   describe('checkout', () => {
-    it('creates a payment + attempt and returns the built VNPay URL', async () => {
+    it('creates a payment + attempt and returns the gateway payment URL', async () => {
       customerRepo.findOne.mockResolvedValue({
         id: 'cust-1',
         userId: 'user-1',
@@ -100,7 +105,9 @@ describe('PaymentsService', () => {
       );
       attemptRepo.create.mockImplementation((v) => v);
       attemptRepo.save.mockImplementation((v) => Promise.resolve(v));
-      vnpay.buildPaymentUrl.mockReturnValue('https://vnpay/pay?x=1');
+      gateway.createCheckout.mockResolvedValue({
+        paymentUrl: 'https://vnpay/pay?x=1',
+      });
 
       const result = await service.checkout(
         'user-1',
@@ -112,13 +119,15 @@ describe('PaymentsService', () => {
         paymentId: 'pay-1',
         paymentUrl: 'https://vnpay/pay?x=1',
       });
-      const built = vnpay.buildPaymentUrl.mock.calls[0][0];
-      expect(built.vnp_Amount).toBe(199000);
-      expect(built.vnp_ReturnUrl).toBe(PAYMENT_CONFIG.returnUrl);
-      // Attempt saved with a vnpTxnRef and PENDING status.
+      const input = gateway.createCheckout.mock.calls[0][0];
+      expect(input.amountVnd).toBe('199000');
+      expect(input.returnUrl).toBe(PAYMENT_CONFIG.returnUrl);
+      expect(input.paymentId).toBe('pay-1');
       const savedAttempt = attemptRepo.save.mock.calls[0][0];
       expect(savedAttempt.vnpTxnRef).toEqual(expect.any(String));
       expect(savedAttempt.status).toBe(PaymentAttemptStatus.PENDING);
+      const createdPayment = paymentRepo.create.mock.calls[0][0];
+      expect(createdPayment.provider).toBe(PaymentProvider.VNPAY);
     });
 
     it('uses the mobile return URL when client=mobile', async () => {
@@ -137,7 +146,7 @@ describe('PaymentsService', () => {
       );
       attemptRepo.create.mockImplementation((v) => v);
       attemptRepo.save.mockImplementation((v) => Promise.resolve(v));
-      vnpay.buildPaymentUrl.mockReturnValue('url');
+      gateway.createCheckout.mockResolvedValue({ paymentUrl: 'url' });
 
       await service.checkout(
         'user-1',
@@ -215,12 +224,13 @@ describe('PaymentsService', () => {
       );
       attemptRepo.create.mockImplementation((v) => v);
       attemptRepo.save.mockImplementation((v) => Promise.resolve(v));
-      vnpay.buildPaymentUrl.mockReturnValue('https://vnpay/pay?x=1');
+      gateway.createCheckout.mockResolvedValue({
+        paymentUrl: 'https://vnpay/pay?x=1',
+      });
 
       await service.checkout('user-1', { orderId: 'order-1' }, '127.0.0.1');
 
-      const built = vnpay.buildPaymentUrl.mock.calls[0][0];
-      expect(built.vnp_Amount).toBe(210000);
+      expect(gateway.createCheckout.mock.calls[0][0].amountVnd).toBe('210000');
     });
 
     it('throws NotFound when the order is missing', async () => {
@@ -235,10 +245,10 @@ describe('PaymentsService', () => {
 
   describe('handleReturn (read-only)', () => {
     it('redirects to the stored client URL with paymentId, without mutating', async () => {
-      vnpay.verifyReturnUrl.mockResolvedValue({
-        isVerified: true,
-        isSuccess: true,
-        vnp_TxnRef: 'ref-1',
+      gateway.verifyReturn.mockResolvedValue({
+        ok: true,
+        success: true,
+        txnRef: 'ref-1',
       });
       attemptRepo.findOne.mockResolvedValue({
         paymentId: 'pay-1',
@@ -250,16 +260,15 @@ describe('PaymentsService', () => {
       expect(redirectUrl).toContain('http://web/return');
       expect(redirectUrl).toContain('paymentId=pay-1');
       expect(redirectUrl).toContain('status=success');
-      // No writes happened.
       expect(attemptRepo.save).not.toHaveBeenCalled();
       expect(dataSource.transaction).not.toHaveBeenCalled();
     });
 
     it('falls back to the default client URL on an unverified return', async () => {
-      vnpay.verifyReturnUrl.mockResolvedValue({
-        isVerified: false,
-        isSuccess: false,
-        vnp_TxnRef: 'ref-x',
+      gateway.verifyReturn.mockResolvedValue({
+        ok: false,
+        success: false,
+        txnRef: 'ref-x',
       });
       attemptRepo.findOne.mockResolvedValue(null);
 
@@ -294,7 +303,11 @@ describe('PaymentsService', () => {
     });
 
     it('returns FailChecksum and does not touch the DB on bad signature', async () => {
-      vnpay.verifyIpnCall.mockResolvedValue({ isVerified: false });
+      gateway.verifyIpn.mockResolvedValue({
+        ok: false,
+        success: false,
+        txnRef: '',
+      });
 
       const res = await service.handleIpn({} as never);
 
@@ -304,10 +317,10 @@ describe('PaymentsService', () => {
     });
 
     it('returns OrderNotFound for an unknown txnRef', async () => {
-      vnpay.verifyIpnCall.mockResolvedValue({
-        isVerified: true,
-        isSuccess: true,
-        vnp_TxnRef: 'nope',
+      gateway.verifyIpn.mockResolvedValue({
+        ok: true,
+        success: true,
+        txnRef: 'nope',
       });
       attemptRepo.findOne.mockResolvedValue(null);
 
@@ -316,11 +329,11 @@ describe('PaymentsService', () => {
     });
 
     it('returns InvalidAmount when amounts differ', async () => {
-      vnpay.verifyIpnCall.mockResolvedValue({
-        isVerified: true,
-        isSuccess: true,
-        vnp_TxnRef: 'ref-1',
-        vnp_Amount: 500,
+      gateway.verifyIpn.mockResolvedValue({
+        ok: true,
+        success: true,
+        txnRef: 'ref-1',
+        amountVnd: '500',
       });
       attemptRepo.findOne.mockResolvedValue({
         id: 'att-1',
@@ -333,14 +346,14 @@ describe('PaymentsService', () => {
     });
 
     it('marks attempt + payment paid on a successful first IPN', async () => {
-      vnpay.verifyIpnCall.mockResolvedValue({
-        isVerified: true,
-        isSuccess: true,
-        vnp_TxnRef: 'ref-1',
-        vnp_Amount: 199000,
-        vnp_ResponseCode: '00',
-        vnp_TransactionNo: '12345',
-        vnp_BankCode: 'NCB',
+      gateway.verifyIpn.mockResolvedValue({
+        ok: true,
+        success: true,
+        txnRef: 'ref-1',
+        amountVnd: '199000',
+        responseCode: '00',
+        providerTransactionId: '12345',
+        bankCode: 'NCB',
       });
       attemptRepo.findOne.mockResolvedValue({
         id: 'att-1',
@@ -349,9 +362,9 @@ describe('PaymentsService', () => {
       });
       runTransaction();
       managerUpdate
-        .mockResolvedValueOnce({ affected: 1 }) // attempt PENDING -> SUCCESS
-        .mockResolvedValueOnce({ affected: 1 }) // payment -> PAID
-        .mockResolvedValueOnce({ affected: 1 }); // order -> PAID
+        .mockResolvedValueOnce({ affected: 1 })
+        .mockResolvedValueOnce({ affected: 1 })
+        .mockResolvedValueOnce({ affected: 1 });
 
       const res = await service.handleIpn({} as never);
 
@@ -365,12 +378,12 @@ describe('PaymentsService', () => {
     });
 
     it('is idempotent: a duplicate IPN affects 0 rows and returns AlreadyConfirmed', async () => {
-      vnpay.verifyIpnCall.mockResolvedValue({
-        isVerified: true,
-        isSuccess: true,
-        vnp_TxnRef: 'ref-1',
-        vnp_Amount: 199000,
-        vnp_ResponseCode: '00',
+      gateway.verifyIpn.mockResolvedValue({
+        ok: true,
+        success: true,
+        txnRef: 'ref-1',
+        amountVnd: '199000',
+        responseCode: '00',
       });
       attemptRepo.findOne.mockResolvedValue({
         id: 'att-1',
@@ -378,13 +391,115 @@ describe('PaymentsService', () => {
         amountVnd: '199000',
       });
       runTransaction();
-      managerUpdate.mockResolvedValueOnce({ affected: 0 }); // already terminal
+      managerUpdate.mockResolvedValueOnce({ affected: 0 });
 
       const res = await service.handleIpn({} as never);
 
       expect(res).toBe(InpOrderAlreadyConfirmed);
-      // Only the conditional attempt update ran — payment was never updated again.
       expect(managerUpdate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('handleMockComplete', () => {
+    let managerUpdate: jest.Mock;
+
+    beforeEach(() => {
+      gateway.code = PaymentProvider.MOCK;
+      Object.defineProperty(gateway, 'code', {
+        value: PaymentProvider.MOCK,
+        writable: true,
+      });
+      service = new PaymentsService(
+        paymentRepo as unknown as Repository<Payment>,
+        attemptRepo as unknown as Repository<PaymentAttempt>,
+        orderRepo as unknown as Repository<Order>,
+        customerRepo as unknown as Repository<Customer>,
+        { ...gateway, code: PaymentProvider.MOCK },
+        makeConfig('mock'),
+        dataSource as unknown as DataSource,
+        stockService as never,
+      );
+      managerUpdate = jest.fn();
+      dataSource.transaction.mockImplementation(
+        async (cb: (m: unknown) => Promise<unknown>) =>
+          cb({
+            update: managerUpdate,
+            findOne: jest.fn().mockResolvedValue({
+              id: 'pay-1',
+              orderId: 'order-1',
+            }),
+          }),
+      );
+      orderRepo.findOne.mockResolvedValue({
+        id: 'order-1',
+        items: [{ id: 'oi-1', productVariantId: 'var-1', quantity: 2 }],
+      });
+      paymentRepo.findOne.mockResolvedValue({
+        id: 'pay-1',
+        orderId: 'order-1',
+      });
+    });
+
+    it('finalizes payment, deducts stock, and redirects to client', async () => {
+      attemptRepo.findOne.mockResolvedValue({
+        id: 'att-1',
+        paymentId: 'pay-1',
+        amountVnd: '199000',
+        payment: { clientReturnUrl: 'http://web/return' },
+      });
+      managerUpdate
+        .mockResolvedValueOnce({ affected: 1 })
+        .mockResolvedValueOnce({ affected: 1 })
+        .mockResolvedValueOnce({ affected: 1 });
+
+      const { redirectUrl } = await service.handleMockComplete(
+        'pay-1',
+        'ref-1',
+      );
+
+      expect(redirectUrl).toContain('status=success');
+      expect(redirectUrl).toContain('paymentId=pay-1');
+      expect(stockService.deductByVariantId).toHaveBeenCalledWith(
+        'var-1',
+        2,
+        expect.stringContaining('pay-1'),
+        'oi-1',
+      );
+    });
+
+    it('is idempotent on duplicate mock complete', async () => {
+      attemptRepo.findOne.mockResolvedValue({
+        id: 'att-1',
+        paymentId: 'pay-1',
+        amountVnd: '199000',
+        payment: { clientReturnUrl: 'http://web/return' },
+      });
+      managerUpdate.mockResolvedValueOnce({ affected: 0 });
+
+      const { redirectUrl } = await service.handleMockComplete(
+        'pay-1',
+        'ref-1',
+      );
+
+      expect(redirectUrl).toContain('status=success');
+      expect(stockService.deductByVariantId).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFound when mock provider is not active', async () => {
+      service = new PaymentsService(
+        paymentRepo as unknown as Repository<Payment>,
+        attemptRepo as unknown as Repository<PaymentAttempt>,
+        orderRepo as unknown as Repository<Order>,
+        customerRepo as unknown as Repository<Customer>,
+        { ...gateway, code: PaymentProvider.VNPAY },
+        makeConfig('vnpay'),
+        dataSource as unknown as DataSource,
+        stockService as never,
+      );
+
+      await expect(
+        service.handleMockComplete('pay-1', 'ref-1'),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 

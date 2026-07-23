@@ -12,6 +12,9 @@ import { Payment } from './payment.entity';
 import { PaymentAttempt } from './payment-attempt.entity';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
+import { MockPaymentProvider } from './providers/mock.payment-provider';
+import { PAYMENT_GATEWAY } from './providers/payment-provider.types';
+import { VnpayPaymentProvider } from './providers/vnpay.payment-provider';
 
 @Module({
   imports: [
@@ -35,6 +38,28 @@ import { PaymentsService } from './payments.service';
     }),
   ],
   controllers: [PaymentsController],
-  providers: [PaymentsService, SessionGuard],
+  providers: [
+    PaymentsService,
+    SessionGuard,
+    MockPaymentProvider,
+    VnpayPaymentProvider,
+    {
+      provide: PAYMENT_GATEWAY,
+      inject: [AppConfigService, MockPaymentProvider, VnpayPaymentProvider],
+      useFactory: (
+        config: AppConfigService,
+        mock: MockPaymentProvider,
+        vnpay: VnpayPaymentProvider,
+      ) => {
+        switch (config.paymentProvider) {
+          case 'mock':
+            return mock;
+          case 'vnpay':
+          default:
+            return vnpay;
+        }
+      },
+    },
+  ],
 })
 export class PaymentsModule {}

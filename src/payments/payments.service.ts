@@ -2,13 +2,13 @@ import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
-import { VnpayService } from 'nestjs-vnpay';
 import {
   InpOrderAlreadyConfirmed,
   IpnFailChecksum,
@@ -16,8 +16,6 @@ import {
   IpnOrderNotFound,
   IpnSuccess,
   IpnUnknownError,
-  ProductCode,
-  VnpLocale,
 } from 'vnpay';
 import type { IpnResponse, ReturnQueryFromVNPay } from 'vnpay';
 import { AppConfigService } from '../config/config.service';
@@ -36,6 +34,17 @@ import {
   PaymentProvider,
   PaymentStatus,
 } from './enums';
+import {
+  PAYMENT_GATEWAY,
+  type PaymentGateway,
+  type ProviderVerifyResult,
+} from './providers/payment-provider.types';
+
+type FinalizeOutcome =
+  | { kind: 'applied'; success: boolean }
+  | { kind: 'duplicate' }
+  | { kind: 'not_found' }
+  | { kind: 'amount_mismatch' };
 
 @Injectable()
 export class PaymentsService {
@@ -50,13 +59,14 @@ export class PaymentsService {
     private readonly orderRepo: Repository<Order>,
     @InjectRepository(Customer)
     private readonly customerRepo: Repository<Customer>,
-    private readonly vnpay: VnpayService,
+    @Inject(PAYMENT_GATEWAY)
+    private readonly gateway: PaymentGateway,
     private readonly config: AppConfigService,
     private readonly dataSource: DataSource,
     private readonly stockService: StockService,
   ) {}
 
-  /** Create (or reuse) a Payment for a PENDING order and return a VNPay payment URL. */
+  /** Create (or reuse) a Payment for a PENDING order and return a gateway payment URL. */
   async checkout(
     userId: string,
     dto: CheckoutDto,
@@ -104,12 +114,13 @@ export class PaymentsService {
     if (payment) {
       payment.clientReturnUrl = clientReturnUrl;
       payment.amountVnd = amountVnd;
+      payment.provider = this.gateway.code;
       payment = await this.paymentRepo.save(payment);
     } else {
       payment = await this.paymentRepo.save(
         this.paymentRepo.create({
           orderId: order.id,
-          provider: PaymentProvider.VNPAY,
+          provider: this.gateway.code,
           status: PaymentStatus.PENDING,
           amountVnd,
           clientReturnUrl,
@@ -117,28 +128,28 @@ export class PaymentsService {
       );
     }
 
-    const vnpTxnRef = randomUUID().replace(/-/g, '');
+    // Opaque provider txn ref (column name remains vnpTxnRef for schema stability).
+    const txnRef = randomUUID().replace(/-/g, '');
     await this.attemptRepo.save(
       this.attemptRepo.create({
         paymentId: payment.id,
-        vnpTxnRef,
+        vnpTxnRef: txnRef,
         status: PaymentAttemptStatus.PENDING,
         amountVnd,
       }),
     );
 
-    const paymentUrl = this.vnpay.buildPaymentUrl({
-      vnp_Amount: Number(amountVnd),
-      vnp_IpAddr: ipAddr,
-      vnp_TxnRef: vnpTxnRef,
-      vnp_OrderInfo: `Payment for order ${order.id}`,
-      vnp_OrderType: ProductCode.Other,
-      vnp_ReturnUrl: paymentConfig.returnUrl,
-      vnp_Locale: VnpLocale.VN,
+    const { paymentUrl } = await this.gateway.createCheckout({
+      amountVnd,
+      txnRef,
+      orderId: order.id,
+      ipAddr,
+      returnUrl: paymentConfig.returnUrl,
+      paymentId: payment.id,
     });
 
     this.logger.log(
-      `Checkout created payment=${payment.id} order=${order.id} txnRef=${vnpTxnRef} amount=${amountVnd}`,
+      `Checkout created payment=${payment.id} order=${order.id} provider=${this.gateway.code} txnRef=${txnRef} amount=${amountVnd}`,
     );
 
     return { paymentId: payment.id, paymentUrl };
@@ -151,10 +162,12 @@ export class PaymentsService {
   async handleReturn(
     query: ReturnQueryFromVNPay,
   ): Promise<{ redirectUrl: string }> {
-    const verify = await this.vnpay.verifyReturnUrl(query);
+    const verify = await this.gateway.verifyReturn(
+      query as unknown as Record<string, unknown>,
+    );
 
     const attempt = await this.attemptRepo.findOne({
-      where: { vnpTxnRef: String(verify.vnp_TxnRef) },
+      where: { vnpTxnRef: verify.txnRef },
       relations: { payment: true },
     });
 
@@ -162,15 +175,15 @@ export class PaymentsService {
     const base =
       attempt?.payment?.clientReturnUrl ??
       this.config.paymentConfig.clientReturnUrl;
-    const status = !verify.isVerified
+    const status = !verify.ok
       ? 'invalid'
-      : verify.isSuccess
+      : verify.success
         ? 'success'
         : 'failed';
 
-    if (!verify.isVerified) {
+    if (!verify.ok) {
       this.logger.warn(
-        `Return signature verification failed for txnRef=${String(verify.vnp_TxnRef)}`,
+        `Return signature verification failed for txnRef=${verify.txnRef}`,
       );
     }
 
@@ -189,92 +202,33 @@ export class PaymentsService {
    */
   async handleIpn(query: ReturnQueryFromVNPay): Promise<IpnResponse> {
     try {
-      const verify = await this.vnpay.verifyIpnCall(query);
-      if (!verify.isVerified) {
+      const verify = await this.gateway.verifyIpn(
+        query as unknown as Record<string, unknown>,
+      );
+      if (!verify.ok) {
         this.logger.warn('IPN checksum verification failed');
         return IpnFailChecksum;
       }
 
-      const txnRef = String(verify.vnp_TxnRef);
-      const attempt = await this.attemptRepo.findOne({
-        where: { vnpTxnRef: txnRef },
+      const outcome = await this.finalizeAttemptFromProviderResult(verify, {
+        rawIpn: query,
       });
-      if (!attempt) {
-        this.logger.warn(`IPN for unknown txnRef=${txnRef}`);
+
+      if (outcome.kind === 'not_found') {
+        this.logger.warn(`IPN for unknown txnRef=${verify.txnRef}`);
         return IpnOrderNotFound;
       }
-
-      if (Number(verify.vnp_Amount) !== Number(attempt.amountVnd)) {
-        this.logger.warn(
-          `IPN amount mismatch txnRef=${txnRef} expected=${attempt.amountVnd} got=${String(verify.vnp_Amount)}`,
-        );
+      if (outcome.kind === 'amount_mismatch') {
         return IpnInvalidAmount;
       }
-
-      const success = verify.isSuccess;
-      const now = new Date();
-
-      const result = await this.dataSource.transaction(async (manager) => {
-        // Conditional update — only the PENDING → terminal transition wins,
-        // so a duplicate/concurrent IPN affects 0 rows and is reported as already-confirmed.
-        const updated = await manager.update(
-          PaymentAttempt,
-          { id: attempt.id, status: PaymentAttemptStatus.PENDING },
-          {
-            status: success
-              ? PaymentAttemptStatus.SUCCESS
-              : PaymentAttemptStatus.FAILED,
-            responseCode: String(verify.vnp_ResponseCode),
-            providerTransactionId:
-              verify.vnp_TransactionNo != null
-                ? String(verify.vnp_TransactionNo)
-                : null,
-            bankCode: verify.vnp_BankCode ?? null,
-            paidAt: success ? now : null,
-            rawIpn: query,
-          },
-        );
-
-        if (!updated.affected) {
-          this.logger.log(
-            `IPN duplicate for txnRef=${txnRef} — already confirmed`,
-          );
-          return InpOrderAlreadyConfirmed;
-        }
-
-        await manager.update(
-          Payment,
-          { id: attempt.paymentId },
-          {
-            status: success ? PaymentStatus.PAID : PaymentStatus.FAILED,
-            paidAt: success ? now : null,
-          },
-        );
-
-        if (success) {
-          const payment = await manager.findOne(Payment, {
-            where: { id: attempt.paymentId },
-          });
-          if (payment) {
-            await manager.update(
-              Order,
-              { id: payment.orderId, status: OrderStatus.PENDING },
-              { status: OrderStatus.PAID },
-            );
-          }
-        }
-
-        this.logger.log(
-          `IPN processed txnRef=${txnRef} success=${success} responseCode=${String(verify.vnp_ResponseCode)}`,
-        );
-        return IpnSuccess;
-      });
-
-      if (success && result.RspCode === IpnSuccess.RspCode) {
-        await this.deductStockForPaidPayment(attempt.paymentId);
+      if (outcome.kind === 'duplicate') {
+        return InpOrderAlreadyConfirmed;
       }
 
-      return result;
+      this.logger.log(
+        `IPN processed txnRef=${verify.txnRef} success=${outcome.success} responseCode=${verify.responseCode ?? ''}`,
+      );
+      return IpnSuccess;
     } catch (error) {
       this.logger.error(
         `IPN processing error: ${error instanceof Error ? error.message : String(error)}`,
@@ -282,6 +236,156 @@ export class PaymentsService {
       );
       return IpnUnknownError;
     }
+  }
+
+  /**
+   * Mock gateway complete: finalize payment then redirect to the client landing URL.
+   * Only valid when PAYMENT_PROVIDER=mock.
+   */
+  async handleMockComplete(
+    paymentId: string,
+    txnRef: string,
+  ): Promise<{ redirectUrl: string }> {
+    if (this.config.paymentProvider !== 'mock') {
+      throw new NotFoundException('Mock payment complete is not enabled');
+    }
+    if (this.gateway.code !== PaymentProvider.MOCK) {
+      throw new NotFoundException('Mock payment complete is not enabled');
+    }
+
+    const attempt = await this.attemptRepo.findOne({
+      where: { vnpTxnRef: txnRef, paymentId },
+      relations: { payment: true },
+    });
+
+    const base =
+      attempt?.payment?.clientReturnUrl ??
+      this.config.paymentConfig.clientReturnUrl;
+
+    if (!attempt) {
+      this.logger.warn(
+        `Mock complete for unknown paymentId=${paymentId} txnRef=${txnRef}`,
+      );
+      return {
+        redirectUrl: this.buildClientRedirect(base, paymentId, 'failed'),
+      };
+    }
+
+    const verify: ProviderVerifyResult = {
+      ok: true,
+      success: true,
+      txnRef,
+      amountVnd: attempt.amountVnd,
+      responseCode: '00',
+      providerTransactionId: `mock-${txnRef}`,
+      bankCode: 'MOCK',
+      raw: { paymentId, txnRef },
+    };
+
+    const outcome = await this.finalizeAttemptFromProviderResult(verify, {
+      rawIpn: verify.raw,
+    });
+
+    const status =
+      outcome.kind === 'applied' && outcome.success
+        ? 'success'
+        : outcome.kind === 'duplicate'
+          ? 'success'
+          : 'failed';
+
+    return {
+      redirectUrl: this.buildClientRedirect(base, paymentId, status),
+    };
+  }
+
+  /**
+   * Shared idempotent finalize used by VNPay IPN and mock complete.
+   * On first successful apply: payment PAID, order PAID, then stock deduct.
+   */
+  private async finalizeAttemptFromProviderResult(
+    verify: ProviderVerifyResult,
+    options: { rawIpn?: unknown } = {},
+  ): Promise<FinalizeOutcome> {
+    const attempt = await this.attemptRepo.findOne({
+      where: { vnpTxnRef: verify.txnRef },
+    });
+    if (!attempt) {
+      return { kind: 'not_found' };
+    }
+
+    if (
+      verify.amountVnd != null &&
+      Number(verify.amountVnd) !== Number(attempt.amountVnd)
+    ) {
+      this.logger.warn(
+        `Amount mismatch txnRef=${verify.txnRef} expected=${attempt.amountVnd} got=${verify.amountVnd}`,
+      );
+      return { kind: 'amount_mismatch' };
+    }
+
+    const success = verify.success;
+    const now = new Date();
+
+    const applied = await this.dataSource.transaction(async (manager) => {
+      const updated = await manager.update(
+        PaymentAttempt,
+        { id: attempt.id, status: PaymentAttemptStatus.PENDING },
+        {
+          status: success
+            ? PaymentAttemptStatus.SUCCESS
+            : PaymentAttemptStatus.FAILED,
+          responseCode: verify.responseCode ?? null,
+          providerTransactionId: verify.providerTransactionId ?? null,
+          bankCode: verify.bankCode ?? null,
+          paidAt: success ? now : null,
+          // jsonb unknown + TypeORM: null is rejected; only set a concrete object
+          ...(options.rawIpn != null
+            ? { rawIpn: options.rawIpn as Record<string, unknown> }
+            : {}),
+        },
+      );
+
+      if (!updated.affected) {
+        this.logger.log(
+          `Finalize duplicate for txnRef=${verify.txnRef} — already confirmed`,
+        );
+        return false;
+      }
+
+      await manager.update(
+        Payment,
+        { id: attempt.paymentId },
+        {
+          status: success ? PaymentStatus.PAID : PaymentStatus.FAILED,
+          paidAt: success ? now : null,
+        },
+      );
+
+      if (success) {
+        const payment = await manager.findOne(Payment, {
+          where: { id: attempt.paymentId },
+        });
+        if (payment) {
+          await manager.update(
+            Order,
+            { id: payment.orderId, status: OrderStatus.PENDING },
+            { status: OrderStatus.PAID },
+          );
+        }
+      }
+
+      return true;
+    });
+
+    if (!applied) {
+      return { kind: 'duplicate' };
+    }
+
+    if (success) {
+      await this.deductStockForPaidPayment(attempt.paymentId);
+    }
+
+    return { kind: 'applied', success };
   }
 
   private async deductStockForPaidPayment(paymentId: string): Promise<void> {

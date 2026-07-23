@@ -163,6 +163,12 @@ export const ENV_DEFINITIONS = {
       'TTL in seconds for mobile OAuth state entries stored in Redis ' +
       '(POST /auth/login mobile flow).',
   },
+  PAYMENT_PROVIDER: {
+    required: false,
+    defaultValue: 'vnpay',
+    description:
+      'Active payment gateway for order checkout (vnpay | mock). Client checkout/status APIs stay the same; mock completes via GET /payments/mock/complete.',
+  },
   LLM_PROVIDER: {
     required: false,
     defaultValue: 'mock',
@@ -220,6 +226,7 @@ export type AppEnv = {
   MOBILE_REDIRECT_URIS: string[];
   MOBILE_AUTH_CODE_TTL_SECONDS: number;
   MOBILE_OAUTH_STATE_TTL_SECONDS: number;
+  PAYMENT_PROVIDER: string;
   LLM_PROVIDER: string;
   OLLAMA_BASE_URL: string;
   OLLAMA_MODEL: string;
@@ -383,6 +390,18 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
       'MOBILE_OAUTH_STATE_TTL_SECONDS',
       ENV_DEFINITIONS.MOBILE_OAUTH_STATE_TTL_SECONDS.defaultValue,
     ),
+    PAYMENT_PROVIDER: (() => {
+      const value = (
+        raw.PAYMENT_PROVIDER?.trim() ||
+        ENV_DEFINITIONS.PAYMENT_PROVIDER.defaultValue
+      ).toLowerCase();
+      if (value !== 'vnpay' && value !== 'mock') {
+        throw new Error(
+          `Invalid PAYMENT_PROVIDER "${value}". Expected "vnpay" or "mock".`,
+        );
+      }
+      return value;
+    })(),
     LLM_PROVIDER:
       raw.LLM_PROVIDER?.trim() || ENV_DEFINITIONS.LLM_PROVIDER.defaultValue,
     OLLAMA_BASE_URL: (

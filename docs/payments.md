@@ -1,63 +1,111 @@
-# VNPay Payment Integration (Sandbox)
+# Payment Integration Guide
 
-## Overview
+Order checkout uses a **payment gateway abstraction**. Clients always call the same APIs; the active gateway is selected by `PAYMENT_PROVIDER` (`vnpay` | `mock`). PayOS can be added later behind the same interface without changing client routes.
 
-The backend integrates the VNPay Sandbox gateway to collect payment for an existing customer order. It uses the `nestjs-vnpay` library (wrapper over `vnpay`).
+**Consultations are not paid here.** Expert booking fees use the customer **Wallet** ledger — see [Consultation Flow](consultation-flow.md).
 
-**Consultations are not paid via VNPay.** Expert booking fees use the customer **Wallet** ledger — see [Consultation Flow](consultation-flow.md).
+**Client contract (unchanged):**
 
-**Data model:**
+| Method | Path                 | Auth    | Response                    |
+| ------ | -------------------- | ------- | --------------------------- |
+| `POST` | `/payments/checkout` | Session | `{ paymentId, paymentUrl }` |
+| `GET`  | `/payments/:id`      | Session | Authoritative status        |
 
-- An `Order` (created elsewhere) has one `Payment`
+---
+
+## Provider selection
+
+| Env                | Values          | Default |
+| ------------------ | --------------- | ------- |
+| `PAYMENT_PROVIDER` | `vnpay`, `mock` | `vnpay` |
+
+| Provider | Checkout `paymentUrl`                     | Status mutation                                        |
+| -------- | ----------------------------------------- | ------------------------------------------------------ |
+| `vnpay`  | VNPay hosted page                         | `GET /payments/vnpay/ipn` (return is read-only)        |
+| `mock`   | Backend `GET /payments/mock/complete?...` | That complete route finalizes then redirects to client |
+
+Architecture is ready for a future `PayOSPaymentProvider` (same `PaymentGateway` interface + factory case) without changing checkout/status shapes.
+
+---
+
+## Data model
+
+- An `Order` has one `Payment`
 - A `Payment` has many `PaymentAttempt`s (one per gateway interaction or retry)
-- Writing a ledger `Transaction` on confirmation is intentionally deferred to future wallet/accounting work
+- `PaymentAttempt.vnpTxnRef` stores the opaque provider txn ref (name kept for schema stability)
+- Ledger `Transaction` on confirmation is deferred to future wallet/accounting work
 
-## Flow
+On **successful** finalize (any provider): payment → `PAID`, order → `PAID`, stock deducted. Duplicate callbacks are idempotent (no second stock deduct).
 
-1. Frontend calls `POST /payments/checkout` with `{ orderId, client? }` (client is `web` or `mobile`, default `web`). Requires an authenticated session (cookie `sid`).
+---
 
-2. Backend loads the PENDING order, verifies it belongs to the caller, **requires shipping to be attached** (`Delivery` row), creates a `Payment` (plus first `PaymentAttempt` with a unique `vnpTxnRef`) for `order.totalVnd` (products − discount + shipping), and returns `{ paymentId, paymentUrl }`. Checkout returns `400` if the order has no shipping selection.
+## VNPay flow (`PAYMENT_PROVIDER=vnpay`)
 
-3. Frontend redirects the browser to `paymentUrl` (VNPay's hosted page).
+1. `POST /payments/checkout` with `{ orderId, client? }` (`web` \| `mobile`). Requires shipping on the order.
+2. Redirect the browser to `paymentUrl` (VNPay).
+3. VNPay → `GET /payments/vnpay/return` → 302 to client `?paymentId=&status=` (**no mutation**).
+4. VNPay → `GET /payments/vnpay/ipn` → verify + idempotent status update (sole VNPay mutator).
+5. Poll `GET /payments/:id` for authoritative status.
 
-4. After payment, VNPay redirects the browser to the backend `GET /payments/vnpay/return`. The backend verifies the signature and 302-redirects the user to the client landing URL (web page or mobile deep link) with `?paymentId=...`. This endpoint is READ-ONLY — it does NOT change payment status.
+### VNPay endpoints
 
-5. Separately, VNPay calls `GET /payments/vnpay/ipn` server-to-server. This endpoint verifies the signature, checks the amount, updates the `PaymentAttempt` + `Payment` status idempotently, and responds with VNPay's required RspCode JSON. This is the ONLY place status is updated.
+| Method | Path                   | Auth    | Purpose                       |
+| ------ | ---------------------- | ------- | ----------------------------- |
+| POST   | /payments/checkout     | Session | Create payment + VNPay URL    |
+| GET    | /payments/:id          | Session | Status                        |
+| GET    | /payments/vnpay/return | Public  | Verify + redirect (read-only) |
+| GET    | /payments/vnpay/ipn    | Public  | Idempotent status update      |
 
-6. The frontend polls `GET /payments/:id` for the authoritative, IPN-confirmed status (the return redirect params are only a hint; the browser return often arrives before the IPN, so status may still be PENDING briefly).
+### Idempotency
 
-## Endpoints
+IPN is keyed by txn ref. Duplicate IPNs return VNPay’s “already confirmed” code and make no further changes. Amount mismatches / bad checksums are rejected.
 
-| Method | Path                   | Auth           | Purpose                                                              |
-| ------ | ---------------------- | -------------- | -------------------------------------------------------------------- |
-| POST   | /payments/checkout     | Session cookie | Create payment for order total (incl. shipping) and return VNPay URL |
-| GET    | /payments/:id          | Session cookie | Authoritative payment status                                         |
-| GET    | /payments/vnpay/return | Public         | Verify signature and redirect browser to client (no mutation)        |
-| GET    | /payments/vnpay/ipn    | Public         | Verify signature and update status idempotently (server-to-server)   |
+### VNPay environment variables
 
-## Idempotency
+| Name                  | Purpose                        | Default (Sandbox)                           |
+| --------------------- | ------------------------------ | ------------------------------------------- |
+| VNP_TMN_CODE          | Merchant terminal code         | (from VNPay)                                |
+| VNP_HASH_SECRET       | Hash secret                    | (from VNPay)                                |
+| VNP_URL               | Gateway host                   | https://sandbox.vnpayment.vn                |
+| VNP_RETURN_URL        | Backend return URL             | http://localhost:3000/payments/vnpay/return |
+| VNP_IPN_URL           | Portal IPN URL (informational) | (none)                                      |
+| VNP_CLIENT_RETURN_URL | Web landing after return/mock  | FRONTEND_URL + /vnpay_return                |
+| VNP_MOBILE_RETURN_URL | Mobile deep link landing       | glowscan://vnpay-return                     |
 
-The IPN is keyed by `vnpTxnRef`. Duplicate IPNs are safe — once an attempt reaches a terminal status (SUCCESS or FAILED), the handler returns VNPay's "already confirmed" code and makes no further changes. The amount is validated against the stored attempt amount; a mismatch or bad checksum is rejected.
+---
 
-## Environment Variables
+## Mock flow (`PAYMENT_PROVIDER=mock`)
 
-| Name                  | Purpose                                                         | Default (Sandbox)                           |
-| --------------------- | --------------------------------------------------------------- | ------------------------------------------- |
-| VNP_TMN_CODE          | Merchant terminal code                                          | (from VNPay)                                |
-| VNP_HASH_SECRET       | Hash secret for signing and verifying                           | (from VNPay)                                |
-| VNP_URL               | VNPay gateway host                                              | https://sandbox.vnpayment.vn                |
-| VNP_RETURN_URL        | Backend return endpoint sent as vnp_ReturnUrl                   | http://localhost:3000/payments/vnpay/return |
-| VNP_IPN_URL           | IPN URL registered in the VNPay merchant portal (informational) | (none)                                      |
-| VNP_CLIENT_RETURN_URL | Web landing URL the return endpoint redirects to                | FRONTEND_URL + /vnpay_return                |
-| VNP_MOBILE_RETURN_URL | Mobile deep link landing                                        | glowscan://vnpay-return                     |
+For local/dev and automated tests — **no real gateway**.
 
-## Local Testing
+```
+POST /payments/checkout
+        │
+        ▼
+paymentUrl = {API}/payments/mock/complete?paymentId=&txnRef=
+        │
+        ▼  (browser or test client follows URL)
+GET /payments/mock/complete
+        │  finalize: attempt SUCCESS, payment PAID, order PAID, stock deduct
+        ▼
+302 → VNP_CLIENT_RETURN_URL (or mobile) ?paymentId=&status=success
+        │
+        ▼
+GET /payments/:id  → PAID
+```
 
-- Start infra with `docker compose up -d`; run the API on the host with `npm run start:dev`.
-- Seed data includes a PENDING order to test against.
-- The IPN is a server-to-server call from VNPay, so it needs a publicly reachable URL — use a tunnel like ngrok in development and register that URL (plus path `/payments/vnpay/ipn`) in the VNPay merchant portal.
-- Pay with a VNPay sandbox test card (e.g., NCB bank test card from VNPay's sandbox docs).
+`VNP_RETURN_URL` is still used to derive the public API origin (and optional `/api` prefix) for the mock complete URL.
 
-## Production Notes
+When `PAYMENT_PROVIDER` is not `mock`, `GET /payments/mock/complete` returns **404**.
 
-In production the app mounts a global `/api` prefix, so `VNP_RETURN_URL` and the IPN URL registered in the portal must include `/api` (e.g., `https://host/api/payments/vnpay/return`).
+---
+
+## Local testing
+
+- Start infra with `docker compose up -d`; run the API with `npm run start:dev`.
+- **Mock:** set `PAYMENT_PROVIDER=mock`, checkout, open `paymentUrl`, then poll status.
+- **VNPay sandbox:** set `PAYMENT_PROVIDER=vnpay`, use a tunnel for IPN, register `/payments/vnpay/ipn` in the merchant portal.
+
+## Production notes
+
+In production the app mounts a global `/api` prefix, so `VNP_RETURN_URL` and the IPN URL registered in the portal must include `/api` (e.g. `https://host/api/payments/vnpay/return`). Prefer `PAYMENT_PROVIDER=vnpay` (or PayOS when implemented) in production — not `mock`.

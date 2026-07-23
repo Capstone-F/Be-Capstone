@@ -106,6 +106,11 @@ export class AppConfigService {
     };
   }
 
+  /** Active order-payment gateway (vnpay | mock). */
+  get paymentProvider(): string {
+    return this.env.PAYMENT_PROVIDER;
+  }
+
   /** Whitelisted mobile deep-link redirect URIs (exact match). */
   get mobileRedirectUris(): string[] {
     return this.env.MOBILE_REDIRECT_URIS;
