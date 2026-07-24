@@ -912,6 +912,20 @@ GET   /routines/me                     ← list / refresh routines
 - Staff delivery `PATCH` — see ecommerce gaps.
 - Replacing VNPay / catalog browse flows.
 
+### 10.5 Seeded demo cases (profile → survey → products → routine)
+
+These five answer sets are covered by `src/database/seeds/seed.ts` (products, `product_protocols`, stock batches + `product_instances`). After `npm run seed`, each case should yield non-empty `GET /recommendations/latest` products and support `POST /routines/generate` after a paid SURVEY order.
+
+| #   | Persona                 | Base profile                      | Survey labels (CORE + L2)                                                                                                                                                          | Expected protocol themes                        | Key SKUs                                                    |
+| --- | ----------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | ----------------------------------------------------------- |
+| 1   | Acne / oily             | DOB ~2001, `FEMALE`, no allergies | Concern `ACNE`; goals `ACNE_TREATMENT`,`OIL_CONTROL`; lifestyle `HEAVY_MAKEUP`; L2 `BLACKHEADS`,`ENLARGED_PORES`; tolerance `INTERMEDIATE`                                         | Acne treatment, BHA, niacinamide, cleanser      | Effaclar Duo, Some By Mi toner, TO Niacinamide, CeraVe foam |
+| 2   | Pigment + sun           | DOB ~1993, `FEMALE`               | Concern `HYPERPIGMENTATION`; goals `REDUCE_PIGMENTATION`,`EVEN_SKIN_TONE`; lifestyle `HIGH_SUN_EXPOSURE`; L2 `MELASMA`,`POST_INFLAMMATORY_HYPERPIGMENTATION`; tolerance `BEGINNER` | Azelaic, niacinamide serum, daily SPF           | Effaclar Duo, TO Niacinamide, Anthelios                     |
+| 3   | Dehydrated / barrier    | DOB ~1998, `MALE`                 | Concern `DEHYDRATED_SKIN`; goals `HYDRATION`,`BARRIER_REPAIR`; lifestyle `AIR_CONDITIONED_ENVIRONMENT`; sensitivity `BARRIER_DAMAGE`                                               | HA, ceramide, moisturizer, gentle cleanser, SPF | CeraVe cream/foam, Anthelios                                |
+| 4   | Anti-aging              | DOB ~1984, `FEMALE`               | Concern `WRINKLES`; goals `ANTI_AGING`,`REDUCE_WRINKLES`; lifestyle `HIGH_STRESS`; tolerance `ADVANCED`                                                                            | Retinol + niacinamide                           | TO Retinol 0.3%, TO Niacinamide, CeraVe foam                |
+| 5   | Redness / rosacea-prone | DOB ~1996, `FEMALE`               | Concern `REDNESS`; goals `REDUCE_REDNESS`; lifestyle `HIGH_STRESS`; sensitivity `REDNESS`,`ROSACEA`                                                                                | Barrier/ceramide, calming moisturizer, azelaic  | Toleriane Sensitive, CeraVe cream/foam, Effaclar Duo        |
+
+**Why seed stock matters:** recommendation mapping drops variants with `remainingQuantity ≤ 0`. Seed creates `SEED-<SKU>` batches with 20 `ON_RACK` instances per catalog SKU.
+
 ---
 
 ## Quick reference — what to build vs reuse

@@ -21,7 +21,7 @@ const CATEGORY_STEP_RANK: Record<string, number> = {
 /**
  * Deterministic mock provider for development and tests.
  * Builds ordered morning/evening steps from purchased products using
- * protocol timeOfUse, seeded instructions, and category/protocol heuristics.
+ * protocol timeOfUse and category heuristics. Step copy is Vietnamese-first.
  */
 @Injectable()
 export class MockLlmRoutineProvider implements LlmRoutineProvider {
@@ -57,16 +57,16 @@ export class MockLlmRoutineProvider implements LlmRoutineProvider {
     this.renumber(evening);
 
     const skinHint = input.customerProfile.skinTypeCode
-      ? ` for ${input.customerProfile.skinTypeCode} skin`
+      ? ` cho da ${input.customerProfile.skinTypeCode}`
       : '';
     const concernHint = this.concernHint(input.labelCodes);
 
     return Promise.resolve({
-      title: `Personalized routine${skinHint}`,
+      title: `Quy trình chăm sóc da cá nhân hóa${skinHint}`,
       description:
-        `Seeded mock routine based on your purchased survey products` +
-        (concernHint ? ` (focus: ${concernHint})` : '') +
-        '. Step instructions come from ingredient protocols when available.',
+        `Quy trình mẫu dựa trên sản phẩm bạn đã mua từ khảo sát` +
+        (concernHint ? ` (tập trung: ${concernHint})` : '') +
+        '. Hướng dẫn từng bước bằng tiếng Việt.',
       steps: [...morning, ...evening],
     });
   }
@@ -104,22 +104,19 @@ export class MockLlmRoutineProvider implements LlmRoutineProvider {
   }
 
   private resolveInstructions(product: RoutineGenerationProductInput): string {
-    const seeded = product.instructions?.trim();
-    if (seeded) {
-      return seeded;
-    }
+    // App is Vietnamese-first: always emit VI step copy (do not pass through EN seed HDSD).
     const role = this.resolveRole(product);
     const fallbacks: Record<string, string> = {
-      CLEANSER: `Wet face, work a pea-sized amount of ${product.productName} into a lather, massage 30–60 seconds, rinse, and pat dry.`,
-      TONER: `After cleansing, apply ${product.productName} with hands or a cotton pad. Avoid the eye area and wait before the next step.`,
-      SERUM: `Apply 2–3 drops of ${product.productName} to clean skin and pat until absorbed.`,
-      TREATMENT: `Apply a thin layer of ${product.productName} to affected areas. Moisturize after if skin feels dry.`,
-      MOISTURIZER: `Massage a pea-sized amount of ${product.productName} over face and neck until absorbed.`,
-      SUNSCREEN: `As the last morning step, apply two finger-lengths of ${product.productName} evenly. Reapply if outdoors.`,
+      CLEANSER: `Làm ướt mặt, lấy một lượng ${product.productName} bằng hạt đậu tạo bọt, massage 30-60 giây, rửa sạch và thấm khô.`,
+      TONER: `Sau khi làm sạch, thoa ${product.productName} bằng tay hoặc bông cotton. Tránh vùng mắt và chờ trước bước tiếp theo.`,
+      SERUM: `Sử dụng 2-3 giọt ${product.productName} lên da sạch và vỗ nhẹ đến khi thấm.`,
+      TREATMENT: `Thoa một lớp mỏng ${product.productName} lên vùng cần điều trị. Dưỡng ẩm sau nếu da khô.`,
+      MOISTURIZER: `Massage một lượng ${product.productName} bằng hạt đậu lên mặt và cổ đến khi thấm.`,
+      SUNSCREEN: `Ở bước buổi sáng cuối cùng, thoa đều ${product.productName} lượng bằng hai đốt ngón tay. Thoa lại nếu ra ngoài trời.`,
     };
     return (
       fallbacks[role] ??
-      `Apply ${product.productName} as directed for ${product.protocolName ?? 'your skin concerns'}.`
+      `Sử dụng ${product.productName} theo hướng dẫn phù hợp với ${product.protocolName ?? 'nhu cầu da của bạn'}.`
     );
   }
 
@@ -130,19 +127,19 @@ export class MockLlmRoutineProvider implements LlmRoutineProvider {
     const role = this.resolveRole(product);
     switch (role) {
       case 'CLEANSER':
-        return { amountMl: 2, dosageText: 'pea-sized' };
+        return { amountMl: 2, dosageText: 'bằng hạt đậu' };
       case 'TONER':
-        return { amountMl: 3, dosageText: '2–3 drops / cotton pad' };
+        return { amountMl: 3, dosageText: '2-3 giọt / bông cotton' };
       case 'SERUM':
-        return { amountMl: 2, dosageText: '2–3 drops' };
+        return { amountMl: 2, dosageText: '2-3 giọt' };
       case 'TREATMENT':
-        return { amountMl: 1, dosageText: 'thin layer' };
+        return { amountMl: 1, dosageText: 'lớp mỏng' };
       case 'MOISTURIZER':
-        return { amountMl: 2, dosageText: 'pea-sized' };
+        return { amountMl: 2, dosageText: 'bằng hạt đậu' };
       case 'SUNSCREEN':
-        return { amountMl: 2, dosageText: 'two finger-lengths' };
+        return { amountMl: 2, dosageText: 'hai đốt ngón tay' };
       default:
-        return { amountMl: 2, dosageText: '2 drops' };
+        return { amountMl: 2, dosageText: '2 giọt' };
     }
   }
 
