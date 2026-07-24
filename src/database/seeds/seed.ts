@@ -20,7 +20,14 @@ import { Product } from '../../products/product.entity';
 import { ProductVariant } from '../../products/product-variant.entity';
 import { ProductIngredient } from '../../products/product-ingredient.entity';
 import { ProductProtocol } from '../../products/product-protocol.entity';
-import { ShelfLifeUnit } from '../../stock/enums';
+import {
+  ShelfLifeUnit,
+  ProductInstanceStatus,
+  StockMovementType,
+} from '../../stock/enums';
+import { StockBatch } from '../../stock/stock-batch.entity';
+import { ProductInstance } from '../../stock/product-instance.entity';
+import { StockMovement } from '../../stock/stock-movement.entity';
 import {
   Question,
   QuestionAskWhen,
@@ -997,6 +1004,38 @@ const PRODUCTS: ProductSeed[] = [
       { ingredientName: 'Azelaic Acid', concentrationPct: 10 },
     ],
   },
+  {
+    name: 'The Ordinary Retinol 0.3% in Squalane',
+    brandName: 'The Ordinary',
+    categoryCode: 'TREATMENT',
+    description: 'Retinol treatment serum for fine lines and anti-aging',
+    sku: 'TO-RETINOL-0.3-30ML',
+    volume: '30ml',
+    packaging: 'Dropper bottle',
+    priceVnd: 220000,
+    ingredients: [
+      {
+        ingredientName: 'Retinol',
+        concentrationPct: 0.3,
+        isKeyIngredient: true,
+      },
+    ],
+  },
+  {
+    name: 'La Roche-Posay Toleriane Sensitive Fluid',
+    brandName: 'La Roche-Posay',
+    categoryCode: 'MOISTURIZER',
+    description:
+      'Fragrance-free calming moisturizer for redness-prone sensitive skin',
+    sku: 'LRP-TOLERIANE-SENSITIVE-40ML',
+    volume: '40ml',
+    packaging: 'Tube',
+    priceVnd: 390000,
+    ingredients: [
+      { ingredientName: 'Ceramide', isKeyIngredient: true },
+      { ingredientName: 'Niacinamide', concentrationPct: 2 },
+    ],
+  },
 ];
 
 const DELIVERY_PROVIDERS = [
@@ -1113,6 +1152,15 @@ const PRODUCT_PROTOCOL_MAPPINGS: Array<{
   { sku: 'LRP-EFFAC-DUO-40ML', protocolCode: 'treatment_acne_spot' },
   { sku: 'LRP-EFFAC-DUO-40ML', protocolCode: 'benzoyl_acne' },
   { sku: 'LRP-EFFAC-DUO-40ML', protocolCode: 'azelaic_pigmentation' },
+  // Retinol anti-aging
+  { sku: 'TO-RETINOL-0.3-30ML', protocolCode: 'retinol_0.3_anti_aging' },
+  // Calming / redness-prone moisturizer
+  {
+    sku: 'LRP-TOLERIANE-SENSITIVE-40ML',
+    protocolCode: 'moisturizer_barrier',
+  },
+  { sku: 'LRP-TOLERIANE-SENSITIVE-40ML', protocolCode: 'ceramide_barrier' },
+  { sku: 'LRP-TOLERIANE-SENSITIVE-40ML', protocolCode: 'niacinamide_general' },
 ];
 
 const SURVEY_QUESTIONS: Array<{
@@ -1264,6 +1312,11 @@ const PROTOCOL_LABEL_MAPPINGS: Array<{
   },
   {
     protocolCode: 'retinol_0.3_anti_aging',
+    labelCode: 'REDUCE_WRINKLES',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'retinol_0.3_anti_aging',
     labelCode: 'PREGNANCY',
     matchType: LabelMatchType.EXCLUDED,
   },
@@ -1278,8 +1331,33 @@ const PROTOCOL_LABEL_MAPPINGS: Array<{
     matchType: LabelMatchType.OPTIONAL,
   },
   {
+    protocolCode: 'azelaic_pigmentation',
+    labelCode: 'REDNESS',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'azelaic_pigmentation',
+    labelCode: 'REDUCE_REDNESS',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
     protocolCode: 'ceramide_barrier',
     labelCode: 'BARRIER_REPAIR',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'ceramide_barrier',
+    labelCode: 'BARRIER_DAMAGE',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'ceramide_barrier',
+    labelCode: 'REDUCE_REDNESS',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'ceramide_barrier',
+    labelCode: 'ROSACEA',
     matchType: LabelMatchType.OPTIONAL,
   },
   {
@@ -1297,6 +1375,31 @@ const PROTOCOL_LABEL_MAPPINGS: Array<{
     labelCode: 'ANTI_AGING',
     matchType: LabelMatchType.OPTIONAL,
   },
+  {
+    protocolCode: 'niacinamide_general',
+    labelCode: 'BRIGHTENING',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'niacinamide_general',
+    labelCode: 'EVEN_SKIN_TONE',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'glycolic_exfoliation',
+    labelCode: 'IMPROVE_SKIN_TEXTURE',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'glycolic_exfoliation',
+    labelCode: 'ROUGH_TEXTURE',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'benzoyl_acne',
+    labelCode: 'ACNE_TREATMENT',
+    matchType: LabelMatchType.OPTIONAL,
+  },
   // Step-role protocols (drive clearer routine HDSD)
   {
     protocolCode: 'cleanser_gentle_foam',
@@ -1306,6 +1409,11 @@ const PROTOCOL_LABEL_MAPPINGS: Array<{
   {
     protocolCode: 'cleanser_gentle_foam',
     labelCode: 'OIL_CONTROL',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'cleanser_gentle_foam',
+    labelCode: 'REDUCE_REDNESS',
     matchType: LabelMatchType.OPTIONAL,
   },
   {
@@ -1319,6 +1427,11 @@ const PROTOCOL_LABEL_MAPPINGS: Array<{
     matchType: LabelMatchType.OPTIONAL,
   },
   {
+    protocolCode: 'toner_exfoliating',
+    labelCode: 'MINIMIZE_PORES',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
     protocolCode: 'serum_niacinamide',
     labelCode: 'ACNE_TREATMENT',
     matchType: LabelMatchType.OPTIONAL,
@@ -1326,6 +1439,11 @@ const PROTOCOL_LABEL_MAPPINGS: Array<{
   {
     protocolCode: 'serum_niacinamide',
     labelCode: 'EVEN_SKIN_TONE',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'serum_niacinamide',
+    labelCode: 'BRIGHTENING',
     matchType: LabelMatchType.OPTIONAL,
   },
   {
@@ -1339,6 +1457,16 @@ const PROTOCOL_LABEL_MAPPINGS: Array<{
     matchType: LabelMatchType.OPTIONAL,
   },
   {
+    protocolCode: 'moisturizer_barrier',
+    labelCode: 'REDUCE_REDNESS',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'moisturizer_barrier',
+    labelCode: 'ROSACEA',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
     protocolCode: 'sunscreen_daily_spf',
     labelCode: 'HIGH_SUN_EXPOSURE',
     matchType: LabelMatchType.OPTIONAL,
@@ -1349,11 +1477,24 @@ const PROTOCOL_LABEL_MAPPINGS: Array<{
     matchType: LabelMatchType.OPTIONAL,
   },
   {
+    protocolCode: 'sunscreen_daily_spf',
+    labelCode: 'REDUCE_PIGMENTATION',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
     protocolCode: 'treatment_acne_spot',
     labelCode: 'ACNE_TREATMENT',
     matchType: LabelMatchType.OPTIONAL,
   },
 ];
+
+/** Seed stock so recommendation stock filter (remainingQuantity > 0) passes. */
+const SEED_STOCK_QTY = 20;
+const SEED_STOCK_BATCHES: Array<{ sku: string; batchCode: string }> =
+  PRODUCTS.map((p) => ({
+    sku: p.sku,
+    batchCode: `SEED-${p.sku}`,
+  }));
 
 const PROTOCOL_CONFLICTS: Array<{
   protocolCode: string;
@@ -2068,6 +2209,70 @@ async function seed(): Promise<void> {
           protocolId: protocol.id,
         }),
       );
+    }
+  }
+
+  // Ensure every seeded SKU has sellable stock (recommendation stock filter).
+  const stockBatchRepo = AppDataSource.getRepository(StockBatch);
+  const productInstanceRepo = AppDataSource.getRepository(ProductInstance);
+  const stockMovementRepo = AppDataSource.getRepository(StockMovement);
+  const manufacturingDate = new Date('2026-01-01');
+  const expirationDate = new Date('2028-01-01');
+
+  for (const stockSeed of SEED_STOCK_BATCHES) {
+    const variant = await productVariantRepo.findOneBy({ sku: stockSeed.sku });
+    if (!variant) continue;
+
+    let batch = await stockBatchRepo.findOneBy({
+      productVariantId: variant.id,
+      batchCode: stockSeed.batchCode,
+    });
+    if (!batch) {
+      batch = await stockBatchRepo.save(
+        stockBatchRepo.create({
+          productVariantId: variant.id,
+          batchCode: stockSeed.batchCode,
+          initialQuantity: SEED_STOCK_QTY,
+          remainingQuantity: SEED_STOCK_QTY,
+          manufacturingDate,
+          expirationDate,
+        }),
+      );
+      await stockMovementRepo.save(
+        stockMovementRepo.create({
+          batchId: batch.id,
+          type: StockMovementType.IMPORT,
+          quantity: SEED_STOCK_QTY,
+          note: 'Seed initial stock',
+        }),
+      );
+      const instances = Array.from({ length: SEED_STOCK_QTY }, () =>
+        productInstanceRepo.create({
+          stockBatchId: batch!.id,
+          status: ProductInstanceStatus.ON_RACK,
+        }),
+      );
+      await productInstanceRepo.save(instances);
+    } else if (batch.remainingQuantity <= 0) {
+      batch.remainingQuantity = SEED_STOCK_QTY;
+      batch.initialQuantity = Math.max(batch.initialQuantity, SEED_STOCK_QTY);
+      await stockBatchRepo.save(batch);
+      const onRack = await productInstanceRepo.count({
+        where: {
+          stockBatchId: batch.id,
+          status: ProductInstanceStatus.ON_RACK,
+        },
+      });
+      if (onRack < SEED_STOCK_QTY) {
+        const toCreate = SEED_STOCK_QTY - onRack;
+        const instances = Array.from({ length: toCreate }, () =>
+          productInstanceRepo.create({
+            stockBatchId: batch!.id,
+            status: ProductInstanceStatus.ON_RACK,
+          }),
+        );
+        await productInstanceRepo.save(instances);
+      }
     }
   }
 

@@ -35,11 +35,14 @@ describe('MockLlmRoutineProvider', () => {
       RoutinePeriod.MORNING,
     ]);
     expect(result.title).toContain('OSPW');
+    expect(result.title).toContain('Quy trình chăm sóc da');
+    expect(result.description).toContain('tiếng Việt');
     expect(result.description).toContain('acne treatment');
     for (const step of result.steps) {
       expect(step.amountMl).toBe(2);
-      expect(step.dosageText).toBe('2–3 drops');
-      expect(step.instructions).toContain('2–3 drops');
+      expect(step.dosageText).toBe('2-3 giọt');
+      expect(step.instructions).toContain('2-3 giọt');
+      expect(step.instructions).toContain('Niacinamide Serum');
       expect(typeof step.waitMinutes).toBe('number');
     }
     const morning = result.steps.find(
@@ -48,7 +51,7 @@ describe('MockLlmRoutineProvider', () => {
     expect(morning?.waitMinutes).toBe(0);
   });
 
-  it('orders by category and uses seeded cleanser/sunscreen detail', async () => {
+  it('orders by category and uses Vietnamese cleanser/sunscreen detail', async () => {
     const result = await provider.generateRoutine({
       customerProfile: { age: 30, gender: 'FEMALE', skinTypeCode: null },
       labelCodes: ['HIGH_SUN_EXPOSURE'],
@@ -103,12 +106,12 @@ describe('MockLlmRoutineProvider', () => {
     const cleanser = morning[0];
     const serum = morning[1];
     const spf = morning[2];
-    expect(cleanser.dosageText).toBe('pea-sized');
+    expect(cleanser.dosageText).toBe('bằng hạt đậu');
     expect(cleanser.waitMinutes).toBe(0);
-    expect(cleanser.instructions).toContain('pea-sized');
-    expect(serum.dosageText).toBe('2–3 drops');
+    expect(cleanser.instructions).toContain('bằng hạt đậu');
+    expect(serum.dosageText).toBe('2-3 giọt');
     expect(serum.waitMinutes).toBe(5);
-    expect(spf.dosageText).toBe('two finger-lengths');
-    expect(spf.instructions).toContain('two finger-lengths');
+    expect(spf.dosageText).toBe('hai đốt ngón tay');
+    expect(spf.instructions).toContain('hai đốt ngón tay');
   });
 });
