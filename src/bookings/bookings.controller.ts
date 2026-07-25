@@ -54,7 +54,7 @@ export class BookingsController {
   constructor(private readonly bookingsService: BookingsService) {}
 
   @Post()
-  @Roles(Role.Customer)
+  @Roles(Role.Customer, Role.AppAdmin, Role.ClinicManager)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Create a consultation request',
