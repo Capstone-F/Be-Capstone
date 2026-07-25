@@ -4,6 +4,8 @@ import { AuthModule } from '../auth/auth.module';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
 import { CartModule } from '../cart/cart.module';
+import { DeliveryProvider } from '../delivery/delivery-provider.entity';
+import { DeliveryModule } from '../delivery/delivery.module';
 import { ProductVariant } from '../products/product-variant.entity';
 import { RecommendationsModule } from '../recommendations/recommendations.module';
 import { Customer } from '../users/customer.entity';
@@ -24,10 +26,12 @@ import { Transaction } from './transaction.entity';
       CommerceSetting,
       ProductVariant,
       Customer,
+      DeliveryProvider,
     ]),
     CartModule,
     RecommendationsModule,
     AuthModule,
+    DeliveryModule,
   ],
   controllers: [OrdersController, CommerceSettingsController],
   providers: [OrdersService, SessionGuard, RolesGuard],

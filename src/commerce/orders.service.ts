@@ -7,6 +7,11 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, FindOptionsWhere, In, Repository } from 'typeorm';
 import { CartService } from '../cart/cart.service';
+import { DeliveryProvider } from '../delivery/delivery-provider.entity';
+import { Delivery } from '../delivery/delivery.entity';
+import { DeliveryService } from '../delivery/delivery.service';
+import { DeliveryStatus, DeliveryType } from '../delivery/enums';
+import { GHN_PROVIDER_CODE } from '../delivery/ghn.constants';
 import { ProductVariant } from '../products/product-variant.entity';
 import { RecommendationService } from '../recommendations/recommendation.service';
 import { Customer } from '../users/customer.entity';
@@ -15,6 +20,7 @@ import {
   ComboDiscountSettingDto,
   UpdateComboDiscountDto,
 } from './dto/commerce-setting.dto';
+import { CreateOrderDto } from './dto/create-order.dto';
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
 import { OrderResponseDto, PaginatedOrdersDto } from './dto/order-response.dto';
 import {
@@ -39,12 +45,18 @@ export class OrdersService {
     private readonly settingRepository: Repository<CommerceSetting>,
     @InjectRepository(Customer)
     private readonly customerRepository: Repository<Customer>,
+    @InjectRepository(DeliveryProvider)
+    private readonly deliveryProviderRepository: Repository<DeliveryProvider>,
     private readonly cartService: CartService,
     private readonly recommendationService: RecommendationService,
+    private readonly deliveryService: DeliveryService,
     private readonly dataSource: DataSource,
   ) {}
 
-  async createFromCart(userId: string): Promise<OrderResponseDto> {
+  async createFromCart(
+    userId: string,
+    dto: CreateOrderDto,
+  ): Promise<OrderResponseDto> {
     const customer = await this.requireCustomer(userId);
     const cart = await this.cartService.getCartByCustomerId(customer.id);
 
@@ -124,8 +136,30 @@ export class OrdersService {
       const variant = variantById.get(item.productVariantId)!;
       return sum + variant.priceVnd * item.quantity;
     }, 0);
-    const shippingFeeVnd = 0;
-    const totalVnd = Math.max(0, subtotalVnd - discountVnd + shippingFeeVnd);
+
+    // providerId is NOT NULL with RESTRICT — fail loudly here rather than inside
+    // the transaction if the GHN provider row was never seeded.
+    const provider = await this.deliveryProviderRepository.findOneBy({
+      code: GHN_PROVIDER_CODE,
+      isActive: true,
+    });
+    if (!provider) {
+      throw new BadRequestException(
+        'GHN delivery provider is not configured — run the seed',
+      );
+    }
+
+    // Network call to GHN, deliberately outside the transaction below.
+    const shippingFeeVnd = await this.deliveryService.quoteFee(
+      dto.shippingAddress,
+      cart.items.map((item) => ({
+        weightGram: variantById.get(item.productVariantId)!.weightGram,
+        quantity: item.quantity,
+      })),
+    );
+
+    // Shipping is added after the discount floor, so a 100% discount still ships.
+    const totalVnd = Math.max(0, subtotalVnd - discountVnd) + shippingFeeVnd;
 
     const order = await this.dataSource.transaction(async (manager) => {
       const created = await manager.save(
@@ -157,6 +191,25 @@ export class OrdersService {
               recommendationItemByVariant.get(item.productVariantId) ?? null,
           }),
         ),
+      );
+
+      const address = dto.shippingAddress;
+      await manager.save(
+        manager.create(Delivery, {
+          orderId: created.id,
+          providerId: provider.id,
+          type: DeliveryType.STANDARD,
+          status: DeliveryStatus.PENDING,
+          recipientName: address.recipientName,
+          recipientPhone: address.recipientPhone,
+          provinceId: address.provinceId,
+          districtId: address.districtId,
+          wardCode: address.wardCode,
+          streetAddress: address.streetAddress,
+          // Human-readable snapshot for display/labels; GHN reads the structured columns.
+          shippingAddress: `${address.recipientName} (${address.recipientPhone}) — ${address.streetAddress}`,
+          shippingFeeVnd,
+        }),
       );
 
       return created;

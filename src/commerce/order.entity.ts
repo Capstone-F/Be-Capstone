@@ -73,6 +73,7 @@ export class Order {
   })
   discountType: OrderDiscountType | null;
 
+  /** GHN shipping fee quoted at order creation. Included in totalVnd. */
   @Column({ type: 'int', default: 0 })
   shippingFeeVnd: number;
 

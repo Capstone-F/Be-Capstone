@@ -46,16 +46,10 @@ export class OrderResponseDto {
   @ApiPropertyOptional({ enum: OrderDiscountType, nullable: true })
   discountType!: OrderDiscountType | null;
 
-  @ApiProperty({
-    description: 'Shipping fee locked when delivery is attached; 0 until then',
-    example: 30000,
-  })
+  @ApiProperty({ description: 'GHN shipping fee, included in totalVnd.' })
   shippingFeeVnd!: number;
 
-  @ApiProperty({
-    description:
-      'Payable amount: max(0, subtotalVnd − discountVnd + shippingFeeVnd)',
-  })
+  @ApiProperty({ description: 'subtotalVnd - discountVnd + shippingFeeVnd.' })
   totalVnd!: number;
 
   @ApiProperty({ type: [OrderItemResponseDto] })

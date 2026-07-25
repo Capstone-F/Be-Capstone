@@ -7,6 +7,7 @@ import { Order } from '../commerce/order.entity';
 import { Customer } from '../users/customer.entity';
 import { AuthModule } from '../auth/auth.module';
 import { SessionGuard } from '../auth/guards/session.guard';
+import { DeliveryModule } from '../delivery/delivery.module';
 import { StockModule } from '../stock/stock.module';
 import { Payment } from './payment.entity';
 import { PaymentAttempt } from './payment-attempt.entity';
@@ -21,6 +22,7 @@ import { VnpayPaymentProvider } from './providers/vnpay.payment-provider';
     TypeOrmModule.forFeature([Payment, PaymentAttempt, Order, Customer]),
     AuthModule,
     StockModule,
+    DeliveryModule,
     VnpayModule.registerAsync({
       inject: [AppConfigService],
       useFactory: (config: AppConfigService) => {

@@ -173,23 +173,38 @@ export const ENV_DEFINITIONS = {
     required: false,
     defaultValue: 'mock',
     description:
-      'LLM provider for routine generation (mock | ollama | openai | gemini). mock and ollama are implemented.',
+      'LLM provider for routine generation (mock | openai | gemini). Only mock is implemented.',
   },
-  OLLAMA_BASE_URL: {
+  GHN_TOKEN: {
     required: false,
-    defaultValue: 'http://host.docker.internal:11434',
+    description: 'GHN API token, sent as the Token header on every GHN call.',
+  },
+  GHN_SHOP_ID: {
+    required: false,
+    description: 'GHN shop id, sent as the ShopId header on every GHN call.',
+  },
+  GHN_BASE_URL: {
+    required: false,
+    defaultValue: 'https://dev-online-gateway.ghn.vn',
     description:
-      'Ollama API base URL. Use http://host.docker.internal:11434 when the API runs in Docker and Ollama on the host; use http://localhost:11434 when both run on the host.',
+      'GHN gateway host. Sandbox: https://dev-online-gateway.ghn.vn; production: https://online-gateway.ghn.vn.',
   },
-  OLLAMA_MODEL: {
+  GHN_FROM_DISTRICT_ID: {
     required: false,
-    defaultValue: 'gpt-oss:120b-cloud',
-    description: 'Ollama model tag used for routine generation.',
+    defaultValue: '0',
+    description:
+      'Pickup district id of the warehouse registered on the GHN shop (pairs with GHN_SHOP_ID).',
   },
-  OLLAMA_TIMEOUT_MS: {
+  GHN_FROM_WARD_CODE: {
     required: false,
-    defaultValue: '120000',
-    description: 'Timeout in milliseconds for Ollama chat requests.',
+    description:
+      'Pickup ward code of the warehouse registered on the GHN shop (pairs with GHN_SHOP_ID).',
+  },
+  GHN_WEBHOOK_SECRET: {
+    required: false,
+    description:
+      'Shared secret embedded in the GHN webhook URL path. GHN does not sign callbacks, ' +
+      'so this path segment is the only authentication gate on the webhook.',
   },
 } as const satisfies Record<string, EnvDefinition>;
 
@@ -231,6 +246,12 @@ export type AppEnv = {
   OLLAMA_BASE_URL: string;
   OLLAMA_MODEL: string;
   OLLAMA_TIMEOUT_MS: number;
+  GHN_TOKEN: string;
+  GHN_SHOP_ID: string;
+  GHN_BASE_URL: string;
+  GHN_FROM_DISTRICT_ID: number;
+  GHN_FROM_WARD_CODE: string;
+  GHN_WEBHOOK_SECRET: string;
 };
 
 export function getMissingRequiredEnv(
@@ -281,6 +302,25 @@ function parsePositiveInt(
   if (Number.isNaN(parsed) || parsed <= 0) {
     throw new Error(
       `Invalid ${varName} value "${raw}". Must be a positive integer.`,
+    );
+  }
+  return parsed;
+}
+
+/**
+ * Like parsePositiveInt but allows 0, which GHN_FROM_DISTRICT_ID uses to mean
+ * "not configured" (a real GHN district id is always > 0).
+ */
+function parseNonNegativeInt(
+  value: string | undefined,
+  varName: string,
+  defaultValue: string,
+): number {
+  const raw = value?.trim() || defaultValue;
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isNaN(parsed) || parsed < 0) {
+    throw new Error(
+      `Invalid ${varName} value "${raw}". Must be a non-negative integer.`,
     );
   }
   return parsed;
@@ -415,5 +455,17 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
       'OLLAMA_TIMEOUT_MS',
       ENV_DEFINITIONS.OLLAMA_TIMEOUT_MS.defaultValue,
     ),
+    GHN_TOKEN: raw.GHN_TOKEN?.trim() || '',
+    GHN_SHOP_ID: raw.GHN_SHOP_ID?.trim() || '',
+    GHN_BASE_URL: (
+      raw.GHN_BASE_URL?.trim() || ENV_DEFINITIONS.GHN_BASE_URL.defaultValue
+    ).replace(/\/+$/, ''),
+    GHN_FROM_DISTRICT_ID: parseNonNegativeInt(
+      raw.GHN_FROM_DISTRICT_ID,
+      'GHN_FROM_DISTRICT_ID',
+      ENV_DEFINITIONS.GHN_FROM_DISTRICT_ID.defaultValue,
+    ),
+    GHN_FROM_WARD_CODE: raw.GHN_FROM_WARD_CODE?.trim() || '',
+    GHN_WEBHOOK_SECRET: raw.GHN_WEBHOOK_SECRET?.trim() || '',
   };
 }

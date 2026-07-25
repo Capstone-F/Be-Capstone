@@ -57,6 +57,7 @@ describe('PaymentsService', () => {
   let gateway: jest.Mocked<PaymentGateway>;
   let dataSource: { transaction: jest.Mock };
   let stockService: { deductByVariantId: jest.Mock };
+  let deliveryService: { createGhnOrderForPaidOrder: jest.Mock };
   let service: PaymentsService;
 
   beforeEach(() => {
@@ -72,6 +73,9 @@ describe('PaymentsService', () => {
     };
     dataSource = { transaction: jest.fn() };
     stockService = { deductByVariantId: jest.fn().mockResolvedValue({}) };
+    deliveryService = {
+      createGhnOrderForPaidOrder: jest.fn().mockResolvedValue(undefined),
+    };
 
     service = new PaymentsService(
       paymentRepo as unknown as Repository<Payment>,
@@ -82,6 +86,7 @@ describe('PaymentsService', () => {
       makeConfig(),
       dataSource as unknown as DataSource,
       stockService as never,
+      deliveryService as never,
     );
   });
 
@@ -397,6 +402,67 @@ describe('PaymentsService', () => {
 
       expect(res).toBe(InpOrderAlreadyConfirmed);
       expect(managerUpdate).toHaveBeenCalledTimes(1);
+      // The idempotency gate must also stop the side effects.
+      expect(stockService.deductByVariantId).not.toHaveBeenCalled();
+      expect(deliveryService.createGhnOrderForPaidOrder).not.toHaveBeenCalled();
+    });
+
+    it('hands the paid order to GHN after a successful IPN', async () => {
+      vnpay.verifyIpnCall.mockResolvedValue({
+        isVerified: true,
+        isSuccess: true,
+        vnp_TxnRef: 'ref-1',
+        vnp_Amount: 199000,
+        vnp_ResponseCode: '00',
+      });
+      attemptRepo.findOne.mockResolvedValue({
+        id: 'att-1',
+        paymentId: 'pay-1',
+        amountVnd: '199000',
+      });
+      paymentRepo.findOne.mockResolvedValue({
+        id: 'pay-1',
+        orderId: 'order-1',
+      });
+      orderRepo.findOne.mockResolvedValue({ id: 'order-1', items: [] });
+      runTransaction();
+      managerUpdate.mockResolvedValue({ affected: 1 });
+
+      const res = await service.handleIpn({} as never);
+
+      expect(res).toBe(IpnSuccess);
+      expect(deliveryService.createGhnOrderForPaidOrder).toHaveBeenCalledWith(
+        'order-1',
+      );
+    });
+
+    it('still acks the IPN when GHN order creation fails', async () => {
+      vnpay.verifyIpnCall.mockResolvedValue({
+        isVerified: true,
+        isSuccess: true,
+        vnp_TxnRef: 'ref-1',
+        vnp_Amount: 199000,
+        vnp_ResponseCode: '00',
+      });
+      attemptRepo.findOne.mockResolvedValue({
+        id: 'att-1',
+        paymentId: 'pay-1',
+        amountVnd: '199000',
+      });
+      paymentRepo.findOne.mockResolvedValue({
+        id: 'pay-1',
+        orderId: 'order-1',
+      });
+      orderRepo.findOne.mockResolvedValue({ id: 'order-1', items: [] });
+      runTransaction();
+      managerUpdate.mockResolvedValue({ affected: 1 });
+      deliveryService.createGhnOrderForPaidOrder.mockRejectedValue(
+        new Error('GHN down'),
+      );
+
+      // A GHN outage must not turn a confirmed payment into IpnUnknownError,
+      // which would make VNPay retry an already-settled payment.
+      await expect(service.handleIpn({} as never)).resolves.toBe(IpnSuccess);
     });
   });
 
