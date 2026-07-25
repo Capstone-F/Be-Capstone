@@ -173,7 +173,23 @@ export const ENV_DEFINITIONS = {
     required: false,
     defaultValue: 'mock',
     description:
-      'LLM provider for routine generation (mock | openai | gemini). Only mock is implemented.',
+      'LLM provider for routine generation (mock | ollama | openai | gemini). mock and ollama are implemented.',
+  },
+  OLLAMA_BASE_URL: {
+    required: false,
+    defaultValue: 'http://host.docker.internal:11434',
+    description:
+      'Ollama API base URL. Use http://host.docker.internal:11434 when the API runs in Docker and Ollama on the host; use http://localhost:11434 when both run on the host.',
+  },
+  OLLAMA_MODEL: {
+    required: false,
+    defaultValue: 'gpt-oss:120b-cloud',
+    description: 'Ollama model tag used for routine generation.',
+  },
+  OLLAMA_TIMEOUT_MS: {
+    required: false,
+    defaultValue: '120000',
+    description: 'Timeout in milliseconds for Ollama chat requests.',
   },
   GHN_TOKEN: {
     required: false,

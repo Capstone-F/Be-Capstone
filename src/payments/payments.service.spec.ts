@@ -408,12 +408,12 @@ describe('PaymentsService', () => {
     });
 
     it('hands the paid order to GHN after a successful IPN', async () => {
-      vnpay.verifyIpnCall.mockResolvedValue({
-        isVerified: true,
-        isSuccess: true,
-        vnp_TxnRef: 'ref-1',
-        vnp_Amount: 199000,
-        vnp_ResponseCode: '00',
+      gateway.verifyIpn.mockResolvedValue({
+        ok: true,
+        success: true,
+        txnRef: 'ref-1',
+        amountVnd: '199000',
+        responseCode: '00',
       });
       attemptRepo.findOne.mockResolvedValue({
         id: 'att-1',
@@ -437,12 +437,12 @@ describe('PaymentsService', () => {
     });
 
     it('still acks the IPN when GHN order creation fails', async () => {
-      vnpay.verifyIpnCall.mockResolvedValue({
-        isVerified: true,
-        isSuccess: true,
-        vnp_TxnRef: 'ref-1',
-        vnp_Amount: 199000,
-        vnp_ResponseCode: '00',
+      gateway.verifyIpn.mockResolvedValue({
+        ok: true,
+        success: true,
+        txnRef: 'ref-1',
+        amountVnd: '199000',
+        responseCode: '00',
       });
       attemptRepo.findOne.mockResolvedValue({
         id: 'att-1',

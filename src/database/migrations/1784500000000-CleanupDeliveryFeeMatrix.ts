@@ -6,8 +6,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * live from GHN and stored on `deliveries.shippingFeeVnd`, not looked up from a
  * provider/type matrix. `delivery_providers` stays — GHN is still recorded as a provider.
  */
-export class CleanupDeliveryFeeMatrix1783900000000 implements MigrationInterface {
-  name = 'CleanupDeliveryFeeMatrix1783900000000';
+export class CleanupDeliveryFeeMatrix1784500000000 implements MigrationInterface {
+  name = 'CleanupDeliveryFeeMatrix1784500000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`DROP TABLE IF EXISTS "delivery_fees"`);
