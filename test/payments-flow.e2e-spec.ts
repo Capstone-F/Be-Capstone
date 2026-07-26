@@ -193,6 +193,11 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
       createGhnOrderForPaidOrder: () => Promise.resolve(),
     };
 
+    const walletService = {
+      getOrCreateWallet: () => Promise.resolve({ id: 'w-1' }),
+      creditWithManager: () => Promise.resolve({ id: 'tx-topup' }),
+    };
+
     const gateway = new VnpayPaymentProvider(vnpay);
 
     service = new PaymentsService(
@@ -205,6 +210,7 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
       dataSource,
       stockService as never,
       deliveryService as never,
+      walletService as never,
     );
   });
 
@@ -443,6 +449,11 @@ describe('Mock payment flow (in-memory repos)', () => {
       createGhnOrderForPaidOrder: () => Promise.resolve(),
     };
 
+    const walletService = {
+      getOrCreateWallet: () => Promise.resolve({ id: 'w-1' }),
+      creditWithManager: () => Promise.resolve({ id: 'tx-topup' }),
+    };
+
     service = new PaymentsService(
       paymentRepo,
       attemptRepo,
@@ -453,6 +464,7 @@ describe('Mock payment flow (in-memory repos)', () => {
       dataSource,
       stockService as never,
       deliveryService as never,
+      walletService as never,
     );
   });
 

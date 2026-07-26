@@ -11,6 +11,7 @@ import {
 } from 'typeorm';
 import { Customer } from '../users/customer.entity';
 import { Expert } from '../users/expert.entity';
+import { Treatment } from '../treatments/treatment.entity';
 import { BookingCancelledBy, ConsultationStatus } from './enums';
 import { ChatHistory } from './chat-history.entity';
 import { Feedback } from './feedback.entity';
@@ -65,6 +66,24 @@ export class ConsultationRequest {
     nullable: true,
   })
   cancelledBy: BookingCancelledBy | null;
+
+  /** Linked paid treatment when this booking is a free follow-up (tái khám). */
+  @Column({ type: 'uuid', nullable: true })
+  treatmentId: string | null;
+
+  @ManyToOne(() => Treatment, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'treatmentId' })
+  treatment: Treatment | null;
+
+  /** Amount debited from wallet (0 when follow-up waived). Null until pay step. */
+  @Column({ type: 'bigint', nullable: true })
+  feeChargedVnd: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  paidTransactionId: string | null;
+
+  @Column({ default: false })
+  isFollowUp: boolean;
 
   @OneToMany(() => ChatHistory, (chat) => chat.consultation)
   chatHistory: ChatHistory[];

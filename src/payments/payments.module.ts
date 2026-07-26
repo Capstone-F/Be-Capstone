@@ -1,14 +1,16 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { VnpayModule } from 'nestjs-vnpay';
 import { HashAlgorithm, ignoreLogger } from 'vnpay';
 import { AppConfigService } from '../config/config.service';
 import { Order } from '../commerce/order.entity';
+import { Transaction } from '../commerce/transaction.entity';
 import { Customer } from '../users/customer.entity';
 import { AuthModule } from '../auth/auth.module';
 import { SessionGuard } from '../auth/guards/session.guard';
 import { DeliveryModule } from '../delivery/delivery.module';
 import { StockModule } from '../stock/stock.module';
+import { WalletModule } from '../wallet/wallet.module';
 import { Payment } from './payment.entity';
 import { PaymentAttempt } from './payment-attempt.entity';
 import { PaymentsController } from './payments.controller';
@@ -19,10 +21,17 @@ import { VnpayPaymentProvider } from './providers/vnpay.payment-provider';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Payment, PaymentAttempt, Order, Customer]),
+    TypeOrmModule.forFeature([
+      Payment,
+      PaymentAttempt,
+      Order,
+      Customer,
+      Transaction,
+    ]),
     AuthModule,
     StockModule,
     DeliveryModule,
+    forwardRef(() => WalletModule),
     VnpayModule.registerAsync({
       inject: [AppConfigService],
       useFactory: (config: AppConfigService) => {
@@ -63,5 +72,6 @@ import { VnpayPaymentProvider } from './providers/vnpay.payment-provider';
       },
     },
   ],
+  exports: [PaymentsService],
 })
 export class PaymentsModule {}

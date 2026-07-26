@@ -6,6 +6,7 @@ import { SurveyRecommendation } from '../recommendations/survey-recommendation.e
 import { Label } from '../survey/label.entity';
 import { SurveyModule } from '../survey/survey.module';
 import { AdminCustomersController } from './admin-customers.controller';
+import { AdminUsersController } from './admin-users.controller';
 import { CustomerAllergy } from './customer-allergy.entity';
 import { Customer } from './customer.entity';
 import { CustomerSkinTypeDetails } from './customer-skin-type-details.entity';
@@ -33,7 +34,11 @@ import { UsersService } from './users.service';
     forwardRef(() => AuthModule),
     forwardRef(() => SurveyModule),
   ],
-  controllers: [UsersController, AdminCustomersController],
+  controllers: [
+    UsersController,
+    AdminCustomersController,
+    AdminUsersController,
+  ],
   providers: [UsersService],
   exports: [UsersService, TypeOrmModule],
 })

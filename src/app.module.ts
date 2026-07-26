@@ -29,6 +29,7 @@ import { RedisModule } from './redis/redis.module';
 import { RecommendationsModule } from './recommendations/recommendations.module';
 import { CartModule } from './cart/cart.module';
 import { LlmModule } from './llm/llm.module';
+import { WalletModule } from './wallet/wallet.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { LlmModule } from './llm/llm.module';
     DeliveryModule,
     RuleEngineModule,
     LlmModule,
+    WalletModule,
     PaymentsModule,
     AuthModule,
     RedisModule,

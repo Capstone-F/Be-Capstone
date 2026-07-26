@@ -67,6 +67,10 @@ const makeConsultation = (
   cancelledAt: null,
   cancelReason: null,
   cancelledBy: null,
+  treatmentId: null,
+  feeChargedVnd: null,
+  paidTransactionId: null,
+  isFollowUp: false,
   customer: makeCustomer(),
   expert: makeExpert(),
   chatHistory: [],
@@ -144,12 +148,32 @@ describe('BookingsService', () => {
       }),
     } as unknown as Repository<Feedback>;
 
+    const treatmentRepo = {
+      findOne: jest.fn().mockResolvedValue(null),
+      createQueryBuilder: jest.fn(() => {
+        const qb = {
+          where: jest.fn().mockReturnThis(),
+          andWhere: jest.fn().mockReturnThis(),
+          orderBy: jest.fn().mockReturnThis(),
+          getOne: jest.fn().mockResolvedValue(null),
+        };
+        return qb;
+      }),
+    };
+
+    const walletService = {
+      debit: jest.fn().mockResolvedValue({ id: 'tx-1' }),
+      credit: jest.fn().mockResolvedValue({ id: 'tx-refund-1' }),
+    };
+
     const service = new BookingsService(
       expertRepo,
       availabilityRepo,
       consultationRepo,
       customerRepo,
       feedbackRepo,
+      treatmentRepo as never,
+      walletService as never,
     );
 
     return {
@@ -159,6 +183,8 @@ describe('BookingsService', () => {
       consultationRepo,
       customerRepo,
       feedbackRepo,
+      treatmentRepo,
+      walletService,
     };
   }
 
@@ -611,6 +637,8 @@ describe('BookingsService', () => {
         status: ConsultationStatus.PENDING,
         expertId: expert.id,
         expert,
+        paidTransactionId: 'tx-1',
+        feeChargedVnd: '300000',
       });
       const { service, consultationRepo } = makeService({ expert });
       (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
@@ -640,6 +668,23 @@ describe('BookingsService', () => {
         name: 'GlowScan Clinic',
         address: '12 Nguyen Hue',
       });
+    });
+
+    it('should reject confirm when booking is unpaid', async () => {
+      const expert = makeExpert();
+      const consultation = makeConsultation({
+        status: ConsultationStatus.PENDING,
+        expertId: expert.id,
+        expert,
+        isFollowUp: false,
+        paidTransactionId: null,
+      });
+      const { service, consultationRepo } = makeService({ expert });
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+
+      await expect(
+        service.confirmBooking(expert.userId, consultation.id),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('should throw ForbiddenException when caller has no expert profile', async () => {

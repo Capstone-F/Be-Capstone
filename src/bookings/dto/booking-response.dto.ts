@@ -80,6 +80,27 @@ export class BookingResponseDto {
   })
   cancelledBy!: BookingCancelledBy | null;
 
+  @ApiPropertyOptional({ nullable: true })
+  treatmentId!: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'Fee charged in VND (0 when follow-up waived). Null until paid.',
+    nullable: true,
+  })
+  feeChargedVnd!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  paidTransactionId!: string | null;
+
+  @ApiProperty()
+  isFollowUp!: boolean;
+
+  @ApiPropertyOptional({
+    description: 'True when fee is waived or wallet payment completed',
+  })
+  isPaid!: boolean;
+
   @ApiPropertyOptional({ type: BookingFeedbackSummaryDto, nullable: true })
   feedback!: BookingFeedbackSummaryDto | null;
 

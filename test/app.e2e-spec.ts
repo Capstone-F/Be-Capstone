@@ -104,6 +104,16 @@ const TEST_CONFIG: Record<string, unknown> = {
   mobileRedirectUris: ['glowscan://auth/callback'],
   mobileAuthCodeTtlSeconds: 120,
   mobileOauthStateTtlSeconds: 600,
+  paymentProvider: 'mock',
+  paymentConfig: {
+    tmnCode: 'E2ETMN01',
+    hashSecret: 'e2e-hash-secret',
+    vnpayHost: 'https://sandbox.vnpayment.vn',
+    returnUrl: 'http://localhost:3000/payments/vnpay/return',
+    ipnUrl: 'http://localhost:3000/payments/vnpay/ipn',
+    clientReturnUrl: 'http://localhost:3000/vnpay_return',
+    mobileReturnUrl: 'glowscan://vnpay-return',
+  },
   getMissingRequiredKeys: () => [],
 };
 
@@ -2775,6 +2785,9 @@ describe('BE Capstone API (e2e)', () => {
               reason: 'Please confirm',
               status: ConsultationStatus.PENDING,
               scheduledAt: new Date('2030-03-01T09:00:00.000Z'),
+              feeChargedVnd: '300000',
+              paidTransactionId: '00000000-0000-4000-8000-0000000000aa',
+              isFollowUp: false,
             }),
           );
 
@@ -2792,6 +2805,7 @@ describe('BE Capstone API (e2e)', () => {
 
         expect(body.id).toBe(consultation.id);
         expect(body.status).toBe(ConsultationStatus.CONFIRMED);
+        expect(body.isPaid).toBe(true);
         expect(body.clinic).toMatchObject({
           id: clinic.id,
           name: clinic.name,
@@ -2808,6 +2822,68 @@ describe('BE Capstone API (e2e)', () => {
           .expect(200);
         expect(list.body.items[0].status).toBe(ConsultationStatus.CONFIRMED);
         expect(list.body.items[0].clinic.id).toBe(clinic.id);
+      });
+
+      it('should return 400 when confirming unpaid PENDING booking', async () => {
+        const clinic = await seedClinic('Confirm Unpaid Clinic');
+        const expertUser = await seedUser({
+          keycloakSub: 'kc-booking-confirm-unpaid-expert',
+          email: 'confirm-unpaid-expert@example.com',
+          name: 'Confirm Unpaid Expert',
+          roles: [Role.Expert],
+          clinicId: clinic.id,
+        });
+        const expert = await dataSource.getRepository(Expert).save(
+          dataSource.getRepository(Expert).create({
+            userId: expertUser.id,
+            clinicId: clinic.id,
+            specialization: ExpertSpecialty.DERMATOLOGY,
+            licenseNumber: 'LIC-CONFIRM-UNPAID',
+            bio: 'Unpaid confirm',
+            rating: 4.5,
+            consultationFee: 300000,
+            sessionLengthHours: 1,
+            isActive: true,
+          }),
+        );
+        const customerUser = await seedUser({
+          keycloakSub: 'kc-booking-confirm-unpaid-customer',
+          email: 'confirm-unpaid-customer@example.com',
+          name: 'Confirm Unpaid Customer',
+          roles: [Role.Customer],
+        });
+        const customer = await dataSource
+          .getRepository(Customer)
+          .save(
+            dataSource
+              .getRepository(Customer)
+              .create({ userId: customerUser.id }),
+          );
+        const consultation = await dataSource
+          .getRepository(ConsultationRequest)
+          .save(
+            dataSource.getRepository(ConsultationRequest).create({
+              customerId: customer.id,
+              expertId: expert.id,
+              reason: 'Unpaid',
+              status: ConsultationStatus.PENDING,
+              scheduledAt: new Date('2030-03-01T10:00:00.000Z'),
+            }),
+          );
+
+        const expertSid = await performMockLogin({
+          userId: expertUser.id,
+          keycloakSub: expertUser.keycloakSub,
+          roles: [Role.Expert],
+          clinicId: clinic.id,
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .patch(`/bookings/${consultation.id}/confirm`)
+          .set('Cookie', expertSid)
+          .expect(400);
+
+        expect(body.message).toMatch(/paid|follow-up/i);
       });
 
       it('should return 403 when another expert confirms the booking', async () => {

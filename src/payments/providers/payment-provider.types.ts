@@ -6,7 +6,10 @@ export interface CreateCheckoutInput {
   amountVnd: string;
   /** Opaque provider txn ref (persisted as PaymentAttempt.vnpTxnRef). */
   txnRef: string;
+  /** Ecommerce order id, or a synthetic ref for wallet top-up. */
   orderId: string;
+  /** Human-readable order info for gateway display. */
+  orderInfo?: string;
   ipAddr: string;
   /** Backend return URL for real gateways (e.g. VNPay vnp_ReturnUrl). */
   returnUrl: string;

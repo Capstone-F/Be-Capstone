@@ -9,6 +9,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Clinic } from '../clinics/clinic.entity';
+import { ConsultationRequest } from '../consultations/consultation-request.entity';
 import { Customer } from '../users/customer.entity';
 import { Expert } from '../users/expert.entity';
 import { TreatmentStatus } from './enums';
@@ -60,6 +61,26 @@ export class Treatment {
 
   @Column({ type: 'date', nullable: true })
   endDate: Date | null;
+
+  /** Sum of phase prices; set when plan is ready for payment / paid. */
+  @Column({ type: 'bigint', nullable: true })
+  totalPriceVnd: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  paidAt: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  paidTransactionId: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  sourceConsultationId: string | null;
+
+  @ManyToOne(() => ConsultationRequest, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'sourceConsultationId' })
+  sourceConsultation: ConsultationRequest | null;
 
   @OneToMany(() => TreatmentPhase, (phase) => phase.treatment)
   phases: TreatmentPhase[];

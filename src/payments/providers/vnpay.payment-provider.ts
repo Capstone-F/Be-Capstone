@@ -20,7 +20,7 @@ export class VnpayPaymentProvider implements PaymentGateway {
       vnp_Amount: Number(input.amountVnd),
       vnp_IpAddr: input.ipAddr,
       vnp_TxnRef: input.txnRef,
-      vnp_OrderInfo: `Payment for order ${input.orderId}`,
+      vnp_OrderInfo: input.orderInfo ?? `Payment for order ${input.orderId}`,
       vnp_OrderType: ProductCode.Other,
       vnp_ReturnUrl: input.returnUrl,
       vnp_Locale: VnpLocale.VN,

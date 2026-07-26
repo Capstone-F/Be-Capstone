@@ -29,7 +29,7 @@ See also: [User Management & RBAC](users.md) (experts, clinics, booking notes) �
 2. [Base URL & auth](#2-base-url--auth)
 3. [Customer flow](#3-customer-flow)
 4. [Expert flow](#4-expert-flow)
-5. [Wallet payment (target)](#5-wallet-payment-target)
+5. [Wallet payment](#5-wallet-payment-)
 6. [Cancel & refund rules](#6-cancel--refund-rules)
 7. [Status machine](#7-status-machine)
 8. [Endpoint checklist](#8-endpoint-checklist)
@@ -46,7 +46,7 @@ See also: [User Management & RBAC](users.md) (experts, clinics, booking notes) �
 │ clinic /    │   │ GET /bookings│   │ booking     │   │ (debit fee)      │
 │ expert      │   │ /:expertId   │   │ PENDING     │   │                  │
 └─────────────┘   └──────────────┘   └─────────────┘   └────────┬─────────┘
-  ✅ Ready          ✅ Ready           ✅ Ready                   │ ❌ Missing
+  ✅ Ready          ✅ Ready           ✅ Ready                   │ ✅ Ready
                                                                   ▼
 ┌─────────────┐   ┌──────────────┐   ┌─────────────┐   ┌──────────────────┐
 │ Feedback    │◀──│ Complete     │◀──│ Start       │◀──│ Expert confirm   │
@@ -55,20 +55,21 @@ See also: [User Management & RBAC](users.md) (experts, clinics, booking notes) �
   ✅ Ready          ✅ Ready           ✅ Ready           ✅ Ready
 
 Optional branch (before start):
-  PENDING | CONFIRMED ──▶ CANCELLED  (+ wallet refund when paid) ✅ cancel / ❌ refund
+  PENDING | CONFIRMED ──▶ CANCELLED  (+ wallet refund when paid) ✅ cancel / ✅ refund
 ```
 
 **Target happy path:**
 
 1. Customer discovers clinics / bookable experts (fee + rating + specialty).
 2. Customer loads available slots for an expert and creates a `PENDING` booking.
-3. Customer pays the expert’s `consultationFee` from **Wallet** (ledger `CONSULTATION_PAYMENT`) — **do not** call `/payments/checkout` (VNPay / order).
-4. Assigned expert confirms → `CONFIRMED` (appears in Upcoming for both sides).
-5. Optional: customer or expert cancels from `PENDING` / `CONFIRMED` → `CANCELLED`; if already paid, refund wallet (`REFUND`) — cancel status ✅, refund ❌.
+3. Customer tops up wallet (`POST /wallet/top-up` via `PAYMENT_PROVIDER`) then pays `consultationFee` with `POST /bookings/:id/pay` (ledger `CONSULTATION_PAYMENT`). Follow-up bookings during an ACTIVE paid treatment date window skip the fee (`isFollowUp`).
+4. Assigned expert confirms → `CONFIRMED` (requires paid or free follow-up).
+5. Optional: customer or expert cancels from `PENDING` / `CONFIRMED` → `CANCELLED`; if `feeChargedVnd > 0`, wallet is refunded (`REFUND`).
 6. Expert starts → `IN_PROGRESS`, then completes → `COMPLETED`.
 7. Customer submits feedback (`Feedback` 1:1); expert aggregate `rating` is recalculated.
+8. After session, expert may create a multi-phase treatment plan — see [treatment-plan-flow.md](treatment-plan-flow.md).
 
-> **Do not use** ecommerce payment for consultations: `POST /payments/checkout` requires an `orderId` and VNPay. Consultation money moves only via **Wallet**.
+> **Do not use** ecommerce `POST /payments/checkout` for consultations. Top-up uses the same gateway with purpose `WALLET_TOPUP`; consultation/plan debits use **Wallet**.
 
 ---
 
@@ -134,13 +135,21 @@ Returns hourly-stepped slots spanning `sessionLengthHours`. Slots overlapping **
 
 Response: `BookingResponseDto` with `status: PENDING`, nested `clinic`, expert name / specialization.
 
-Creates a **`ConsultationRequest`** row. **Does not debit wallet today** (see [§5](#5-wallet-payment-target)).
+Creates a **`ConsultationRequest`** row. If the customer has an ACTIVE paid treatment with this expert and today is within `[startDate, endDate]`, the booking is marked `isFollowUp` and fee is waived.
 
-### 3.4 Pay with wallet ❌ (required for Doc2 money flow)
+### 3.4 Pay with wallet ✅
 
-Not implemented. Target: debit `Wallet.balanceVnd` by `expert.consultationFee` and write a `Transaction` with `type = CONSULTATION_PAYMENT`, `consultationId` set. See [§5](#5-wallet-payment-target).
+| Method | Path                | Auth     | Notes                                                   |
+| ------ | ------------------- | -------- | ------------------------------------------------------- |
+| GET    | `/wallet/me`        | Customer | Balance                                                 |
+| POST   | `/wallet/top-up`    | Customer | Gateway top-up (`PAYMENT_PROVIDER`)                     |
+| POST   | `/bookings/:id/pay` | Customer | Debit `consultationFee` (no-op debit when `isFollowUp`) |
 
-Until then, clients can still exercise confirm → session → feedback without payment.
+Expert `PATCH /bookings/:id/confirm` requires payment completed or follow-up waiver.
+
+Prep context for experts: `GET /customers/:id/consultation-context` (profile + survey history).
+
+Treatment plans after consultation: [treatment-plan-flow.md](treatment-plan-flow.md).
 
 ### 3.5 Track bookings ✅
 
@@ -158,9 +167,9 @@ Until then, clients can still exercise confirm → session → feedback without 
 | `as`            | `customer` \| `expert` when the user has both roles                                                                                                |
 | `page`, `limit` | Pagination                                                                                                                                         |
 
-Response includes `clinic { id, name, address }`, `feedback { rating, comment }` when present, cancel metadata when cancelled.
+Response includes `clinic { id, name, address }`, payment fields (`isPaid`, `isFollowUp`, `feeChargedVnd`), `feedback { rating, comment }` when present, cancel metadata when cancelled.
 
-### 3.6 Cancel (optional) ✅ status / ❌ refund
+### 3.6 Cancel (optional) ✅ status / ✅ refund
 
 | Method  | Path                   | Auth                                   | Body          |
 | ------- | ---------------------- | -------------------------------------- | ------------- |
@@ -168,7 +177,7 @@ Response includes `clinic { id, name, address }`, `feedback { rating, comment }`
 
 Allowed from **`PENDING` or `CONFIRMED` only** (`IN_PROGRESS` → `400`). Sets `CANCELLED`, `cancelledAt`, `cancelReason`, `cancelledBy` (`CUSTOMER` \| `EXPERT`). Slot becomes free again.
 
-Wallet refund on cancel: **missing** — see [§6](#6-cancel--refund-rules).
+When `feeChargedVnd > 0` and a pay transaction exists, wallet is credited with `REFUND`.
 
 ### 3.7 Leave rating after complete ✅
 
@@ -197,13 +206,11 @@ Use `tab=upcoming` for pending confirms / upcoming sessions; `tab=past` for comp
 | ------- | ----------------------- | --------------- | ----------------------- |
 | `PATCH` | `/bookings/:id/confirm` | Assigned expert | `PENDING` → `CONFIRMED` |
 
-Other statuses → `400`. Another expert’s booking → `403`.
+Requires wallet payment completed **or** free follow-up (`isFollowUp`). Other statuses → `400`. Another expert’s booking → `403`.
 
-**Product note:** When wallet pay exists, product may require payment **before** confirm is allowed (or confirm only after `CONSULTATION_PAYMENT` is `COMPLETED`). That gate is **not** in code yet.
+### 4.3 Cancel ✅ / refund ✅
 
-### 4.3 Cancel ✅ / refund ❌
-
-Same `PATCH /bookings/:id/cancel` as customer (assigned expert). Same status rules. Refund still missing.
+Same `PATCH /bookings/:id/cancel` as customer (assigned expert). Refunds wallet when a fee was charged.
 
 ### 4.4 Start & complete session ✅
 
@@ -216,48 +223,41 @@ Same `PATCH /bookings/:id/cancel` as customer (assigned expert). Same status rul
 
 ---
 
-## 5. Wallet payment (target)
+## 5. Wallet payment ✅
 
-### Why not VNPay here?
+### Why not VNPay for consultation debit?
 
-| Ecommerce (`Payment`)                              | Consultation (Wallet)                  |
-| -------------------------------------------------- | -------------------------------------- |
-| `POST /payments/checkout` + `orderId`              | Debit `wallets.balanceVnd`             |
-| External provider redirect / IPN                   | In-app balance                         |
-| `TransactionType.PRODUCT_PURCHASE` (future ledger) | `TransactionType.CONSULTATION_PAYMENT` |
+| Ecommerce (`Payment`)                                                 | Consultation / plan (Wallet)                      |
+| --------------------------------------------------------------------- | ------------------------------------------------- |
+| `POST /payments/checkout` + `orderId`                                 | Debit `wallets.balanceVnd`                        |
+| External provider redirect / IPN for **orders** and **wallet top-up** | In-app balance after top-up                       |
+| `TransactionType.PRODUCT_PURCHASE`                                    | `CONSULTATION_PAYMENT` / `TREATMENT_PLAN_PAYMENT` |
 
-Schema already supports the consultation path:
+### APIs
 
-- `Wallet` (`users/wallet.entity.ts`) — `balanceVnd`, `userId`
-- `Transaction` — `consultationId`, types `CONSULTATION_PAYMENT`, `REFUND`, `ESCROW_RELEASE`, …
+| Method | Path                | Auth            | Behavior                                                                             |
+| ------ | ------------------- | --------------- | ------------------------------------------------------------------------------------ |
+| `GET`  | `/wallet/me`        | Customer        | Balance + active flag                                                                |
+| `POST` | `/wallet/top-up`    | Customer        | Gateway payment (`PAYMENT_PROVIDER`), purpose `WALLET_TOPUP`                         |
+| `POST` | `/bookings/:id/pay` | Owning customer | Debit `consultationFee`; create `CONSULTATION_PAYMENT`; skip debit when `isFollowUp` |
 
-### Suggested APIs (❌ Missing — for FE / BE alignment)
+**Amount source:** `Expert.consultationFee` at pay time (stored as `feeChargedVnd`). Confirm is blocked until paid (or follow-up).
 
-| Method | Path (proposal)     | Auth            | Behavior                                                                                                                          |
-| ------ | ------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `GET`  | `/wallets/me`       | Customer        | Balance + active flag                                                                                                             |
-| `POST` | `/bookings/:id/pay` | Owning customer | Debit `consultationFee`; create `Transaction` (`CONSULTATION_PAYMENT`, `COMPLETED`); fail if insufficient balance or already paid |
-| `POST` | `/wallets/top-up`   | Customer        | Out of scope for v1 — or admin/seed only                                                                                          |
-
-**Amount source:** `Expert.consultationFee` at pay time (snapshot onto `Transaction.amountVnd`). Do not invent a second fee on `ConsultationRequest` unless product requires historical fee lock — if so, add `feeVnd` on create/pay.
-
-**Idempotency:** one successful `CONSULTATION_PAYMENT` per `consultationId` (unique or status check → `409`).
-
-**When to pay:** after `POST /bookings` while `PENDING` (recommended), before expert confirm. Optionally block `confirm` until paid.
+Treatment package payment: see [treatment-plan-flow.md](treatment-plan-flow.md).
 
 ---
 
 ## 6. Cancel & refund rules
 
-| Booking status | Cancel allowed? | Slot freed? | Wallet                            |
-| -------------- | --------------- | ----------- | --------------------------------- |
-| `PENDING`      | ✅              | ✅          | Refund if paid ❌ not implemented |
-| `CONFIRMED`    | ✅              | ✅          | Refund if paid ❌ not implemented |
-| `IN_PROGRESS`  | ❌ `400`        | —           | —                                 |
-| `COMPLETED`    | ❌              | —           | No refund                         |
-| `CANCELLED`    | ❌              | —           | —                                 |
+| Booking status | Cancel allowed? | Slot freed? | Wallet                        |
+| -------------- | --------------- | ----------- | ----------------------------- |
+| `PENDING`      | yes             | yes         | Refund if `feeChargedVnd > 0` |
+| `CONFIRMED`    | yes             | yes         | Refund if `feeChargedVnd > 0` |
+| `IN_PROGRESS`  | no (`400`)      | —           | —                             |
+| `COMPLETED`    | no              | —           | No refund                     |
+| `CANCELLED`    | no              | —           | —                             |
 
-**Target refund (❌):** on successful cancel of a paid booking, credit wallet and write `Transaction` with `type = REFUND`, link `consultationId`, mark original payment `REFUNDED` if modeled that way.
+On successful cancel of a paid booking, wallet is credited with `TransactionType.REFUND` linked to `consultationId`.
 
 ---
 
@@ -316,18 +316,19 @@ Schema already supports the consultation path:
 
 ### Wallet / ledger
 
-| Method                 | Path                                | Actor    | Status |
-| ---------------------- | ----------------------------------- | -------- | ------ |
-| `GET`                  | `/wallets/me`                       | Customer | ❌     |
-| `POST`                 | `/bookings/:id/pay` (or equivalent) | Customer | ❌     |
-| Cancel → wallet refund | —                                   | System   | ❌     |
+| Method                 | Path                | Actor    | Status |
+| ---------------------- | ------------------- | -------- | ------ |
+| `GET`                  | `/wallet/me`        | Customer | ✅     |
+| `POST`                 | `/wallet/top-up`    | Customer | ✅     |
+| `POST`                 | `/bookings/:id/pay` | Customer | ✅     |
+| Cancel → wallet refund | —                   | System   | ✅     |
 
 ### Explicitly out of scope for consultations
 
-| Method | Path                 | Why                    |
-| ------ | -------------------- | ---------------------- |
-| `POST` | `/payments/checkout` | Order / VNPay only     |
-| `GET`  | `/payments/vnpay/*`  | Ecommerce IPN / return |
+| Method                | Path                 | Why                                                      |
+| --------------------- | -------------------- | -------------------------------------------------------- |
+| `POST`                | `/payments/checkout` | Product orders only (top-up uses purpose `WALLET_TOPUP`) |
+| Video / chat realtime | —                    | Future                                                   |
 
 ---
 
@@ -340,28 +341,25 @@ Customer ──< ConsultationRequest >── Expert ── Clinic
                      ▼
                   Feedback
                      │
-Wallet (user)     Transaction.consultationId
-  balanceVnd  ◀── CONSULTATION_PAYMENT / REFUND   (target writes)
+Wallet (user)     Transaction.consultationId / treatmentId
+  balanceVnd  ◀── CONSULTATION_PAYMENT / TREATMENT_PLAN_PAYMENT / WALLET_TOPUP / REFUND
 ```
 
-| Entity                | Role in this flow                                                                           |
-| --------------------- | ------------------------------------------------------------------------------------------- |
-| `ConsultationRequest` | Booking row: status, schedule, cancel meta, start/complete timestamps                       |
-| `Feedback`            | Customer rating/comment after `COMPLETED`; unique `consultationId`                          |
-| `Expert`              | `consultationFee`, aggregate `rating`, `sessionLengthHours`, required `clinicId`            |
-| `Wallet`              | Customer balance for consultation pay/refund (**schema ready, APIs missing**)               |
-| `Transaction`         | Ledger with `consultationId` + `CONSULTATION_PAYMENT` / `REFUND` (**schema ready, unused**) |
-| `Payment`             | **Ecommerce only** — do not attach to consultations                                         |
+| Entity                | Role in this flow                                                                        |
+| --------------------- | ---------------------------------------------------------------------------------------- |
+| `ConsultationRequest` | Booking row: status, schedule, cancel meta, `feeChargedVnd`, `isFollowUp`, `treatmentId` |
+| `Feedback`            | Customer rating/comment after `COMPLETED`; unique `consultationId`                       |
+| `Expert`              | `consultationFee`, aggregate `rating`, `sessionLengthHours`, required `clinicId`         |
+| `Wallet`              | Customer balance for top-up, consultation pay, plan pay, refund                          |
+| `Transaction`         | Ledger with `consultationId` / `treatmentId`                                             |
+| `Payment`             | Ecommerce orders **and** wallet top-up (`purpose`)                                       |
+| `Treatment`           | Multi-phase package — see [treatment-plan-flow.md](treatment-plan-flow.md)               |
 
 ---
 
 ## 10. Remaining gaps & roadmap
 
-1. **Wallet balance APIs** — read balance; seed/top-up strategy for demo.
-2. **`POST /bookings/:id/pay`** — debit fee, write `CONSULTATION_PAYMENT`, idempotent.
-3. **Optional fee snapshot** on `ConsultationRequest` at pay/create time.
-4. **Gate confirm** (or list “awaiting payment”) until paid — product decision.
-5. **Cancel refund** — credit wallet + `REFUND` transaction when a paid booking is cancelled from `PENDING` / `CONFIRMED`.
-6. **Notifications** (push/email on confirm / cancel) — out of scope for current API.
-
-**Usable today without wallet:** discover → book → confirm → (cancel) → start → complete → feedback. Wire wallet before charging real customers.
+1. **Realtime video/chat** during consultation — future.
+2. **Notifications** (push/email on confirm / cancel / plan paid).
+3. **Routine edit policy after phase activate** — MVP allows edit; stricter locking TBD.
+4. Expert payout / escrow release from consultation and plan fees.
