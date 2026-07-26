@@ -10,8 +10,9 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Order } from '../commerce/order.entity';
+import { User } from '../users/user.entity';
 import { PaymentAttempt } from './payment-attempt.entity';
-import { PaymentProvider, PaymentStatus } from './enums';
+import { PaymentProvider, PaymentPurpose, PaymentStatus } from './enums';
 
 @Entity('payments')
 export class Payment {
@@ -19,12 +20,28 @@ export class Payment {
   id: string;
 
   @Index('idx_payments_order')
-  @Column({ type: 'uuid' })
-  orderId: string;
+  @Column({ type: 'uuid', nullable: true })
+  orderId: string | null;
 
-  @ManyToOne(() => Order, { onDelete: 'RESTRICT' })
+  @ManyToOne(() => Order, { onDelete: 'RESTRICT', nullable: true })
   @JoinColumn({ name: 'orderId' })
-  order: Order;
+  order: Order | null;
+
+  @Index('idx_payments_purpose')
+  @Column({
+    type: 'varchar',
+    enum: PaymentPurpose,
+    default: PaymentPurpose.ORDER,
+  })
+  purpose: PaymentPurpose;
+
+  @Index('idx_payments_user')
+  @Column({ type: 'uuid', nullable: true })
+  userId: string | null;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'userId' })
+  user: User | null;
 
   @Column({
     type: 'varchar',

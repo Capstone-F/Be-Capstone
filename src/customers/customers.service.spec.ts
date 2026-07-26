@@ -1,10 +1,13 @@
 import { BadRequestException } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
+import { ConsultationRequest } from '../consultations/consultation-request.entity';
 import { CustomerSurvey } from '../survey/customer-survey.entity';
 import { Label } from '../survey/label.entity';
 import { LabelCategory } from '../survey/label-category.entity';
+import { Treatment } from '../treatments/treatment.entity';
 import { CustomerAllergy } from '../users/customer-allergy.entity';
 import { Customer } from '../users/customer.entity';
+import { Expert } from '../users/expert.entity';
 import { Gender } from '../users/gender.enum';
 import { CustomersService } from './customers.service';
 
@@ -38,8 +41,24 @@ describe('CustomersService', () => {
   let customerSurveyRepository: Repository<CustomerSurvey>;
   let labelRepository: Repository<Label>;
   let labelCategoryRepository: Repository<LabelCategory>;
+  let expertRepository: Repository<Expert>;
+  let consultationRepository: Repository<ConsultationRequest>;
+  let treatmentRepository: Repository<Treatment>;
   let dataSource: DataSource;
   let service: CustomersService;
+
+  const buildService = (ds: DataSource = dataSource) =>
+    new CustomersService(
+      customerRepository,
+      customerAllergyRepository,
+      customerSurveyRepository,
+      labelRepository,
+      labelCategoryRepository,
+      expertRepository,
+      consultationRepository,
+      treatmentRepository,
+      ds,
+    );
 
   beforeEach(() => {
     customerRepository = makeRepo<Customer>();
@@ -47,16 +66,12 @@ describe('CustomersService', () => {
     customerSurveyRepository = makeRepo<CustomerSurvey>();
     labelRepository = makeRepo<Label>();
     labelCategoryRepository = makeRepo<LabelCategory>();
+    expertRepository = makeRepo<Expert>();
+    consultationRepository = makeRepo<ConsultationRequest>();
+    treatmentRepository = makeRepo<Treatment>();
     dataSource = makeDataSource();
 
-    service = new CustomersService(
-      customerRepository,
-      customerAllergyRepository,
-      customerSurveyRepository,
-      labelRepository,
-      labelCategoryRepository,
-      dataSource,
-    );
+    service = buildService();
   });
 
   afterEach(() => jest.clearAllMocks());
@@ -263,14 +278,7 @@ describe('CustomersService', () => {
       );
       dataSource = makeDataSource(transaction);
 
-      service = new CustomersService(
-        customerRepository,
-        customerAllergyRepository,
-        customerSurveyRepository,
-        labelRepository,
-        labelCategoryRepository,
-        dataSource,
-      );
+      service = buildService(dataSource);
 
       jest
         .spyOn(customerRepository, 'findOne')
@@ -320,14 +328,7 @@ describe('CustomersService', () => {
       );
       dataSource = makeDataSource(transaction);
 
-      service = new CustomersService(
-        customerRepository,
-        customerAllergyRepository,
-        customerSurveyRepository,
-        labelRepository,
-        labelCategoryRepository,
-        dataSource,
-      );
+      service = buildService(dataSource);
 
       jest
         .spyOn(customerRepository, 'findOne')

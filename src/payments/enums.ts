@@ -23,3 +23,9 @@ export enum PaymentClient {
   WEB = 'web',
   MOBILE = 'mobile',
 }
+
+/** Distinguishes ecommerce order checkout from wallet top-up. */
+export enum PaymentPurpose {
+  ORDER = 'ORDER',
+  WALLET_TOPUP = 'WALLET_TOPUP',
+}

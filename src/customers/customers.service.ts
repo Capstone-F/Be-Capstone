@@ -1,11 +1,19 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
+import { ConsultationRequest } from '../consultations/consultation-request.entity';
 import { CustomerSurvey } from '../survey/customer-survey.entity';
 import { Label } from '../survey/label.entity';
 import { LabelCategory } from '../survey/label-category.entity';
+import { Treatment } from '../treatments/treatment.entity';
 import { CustomerAllergy } from '../users/customer-allergy.entity';
 import { Customer } from '../users/customer.entity';
+import { Expert } from '../users/expert.entity';
 import {
   AllergyLabelDto,
   BaumannScoresDto,
@@ -31,6 +39,12 @@ export class CustomersService {
     private readonly labelRepository: Repository<Label>,
     @InjectRepository(LabelCategory)
     private readonly labelCategoryRepository: Repository<LabelCategory>,
+    @InjectRepository(Expert)
+    private readonly expertRepository: Repository<Expert>,
+    @InjectRepository(ConsultationRequest)
+    private readonly consultationRepository: Repository<ConsultationRequest>,
+    @InjectRepository(Treatment)
+    private readonly treatmentRepository: Repository<Treatment>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -48,6 +62,55 @@ export class CustomersService {
         allergies: [],
         surveyHistory: [],
       };
+    }
+
+    const [allergies, surveyHistory] = await Promise.all([
+      this.loadAllergies(customer.id),
+      this.loadSurveyHistory(customer.id),
+    ]);
+
+    return {
+      customer: this.toCustomerDto(customer),
+      allergies,
+      surveyHistory,
+    };
+  }
+
+  /**
+   * Expert prep context: profile + surveys for a customer they have a booking
+   * or treatment relationship with.
+   */
+  async getConsultationContext(
+    expertUserId: string,
+    customerId: string,
+  ): Promise<CustomerProfileResponseDto> {
+    const expert = await this.expertRepository.findOne({
+      where: { userId: expertUserId },
+    });
+    if (!expert) {
+      throw new ForbiddenException('Expert profile required');
+    }
+
+    const customer = await this.customerRepository.findOne({
+      where: { id: customerId },
+      relations: ['skinTypeDetails', 'skinTypeDetails.skinType', 'user'],
+    });
+    if (!customer) {
+      throw new NotFoundException(`Customer ${customerId} not found`);
+    }
+
+    const [hasBooking, hasTreatment] = await Promise.all([
+      this.consultationRepository.exists({
+        where: { customerId, expertId: expert.id },
+      }),
+      this.treatmentRepository.exists({
+        where: { customerId, expertId: expert.id },
+      }),
+    ]);
+    if (!hasBooking && !hasTreatment) {
+      throw new ForbiddenException(
+        'No booking or treatment relationship with this customer',
+      );
     }
 
     const [allergies, surveyHistory] = await Promise.all([

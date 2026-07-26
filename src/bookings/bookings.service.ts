@@ -14,11 +14,15 @@ import {
   Repository,
 } from 'typeorm';
 import { Role } from '../auth/roles.enum';
+import { TransactionType } from '../commerce/enums';
 import { ConsultationRequest } from '../consultations/consultation-request.entity';
 import { BookingCancelledBy, ConsultationStatus } from '../consultations/enums';
 import { Feedback } from '../consultations/feedback.entity';
+import { TreatmentStatus } from '../treatments/enums';
+import { Treatment } from '../treatments/treatment.entity';
 import { Customer } from '../users/customer.entity';
 import { Expert } from '../users/expert.entity';
+import { WalletService } from '../wallet/wallet.service';
 import { BookingPerspective, BookingRange, BookingTab } from './enums';
 import {
   BookingResponseDto,
@@ -78,6 +82,9 @@ export class BookingsService {
     private readonly customerRepository: Repository<Customer>,
     @InjectRepository(Feedback)
     private readonly feedbackRepository: Repository<Feedback>,
+    @InjectRepository(Treatment)
+    private readonly treatmentRepository: Repository<Treatment>,
+    private readonly walletService: WalletService,
   ) {}
 
   async createBooking(
@@ -98,6 +105,10 @@ export class BookingsService {
     await this.assertSlotIsBookable(expert, scheduledAt);
 
     const customer = await this.getOrCreateCustomerByUserId(userId);
+    const followUp = await this.findActivePaidTreatmentForFollowUp(
+      customer.id,
+      expert.id,
+    );
 
     const consultation = this.consultationRepository.create({
       customerId: customer.id,
@@ -105,10 +116,61 @@ export class BookingsService {
       reason: dto.reason?.trim() ?? null,
       status: ConsultationStatus.PENDING,
       scheduledAt,
+      isFollowUp: !!followUp,
+      treatmentId: followUp?.id ?? null,
+      feeChargedVnd: followUp ? '0' : null,
+      paidTransactionId: null,
     });
     const saved = await this.consultationRepository.save(consultation);
 
     return this.toBookingResponse(saved, customer, expert);
+  }
+
+  async payBooking(
+    userId: string,
+    bookingId: string,
+  ): Promise<BookingResponseDto> {
+    const consultation = await this.requireBooking(bookingId);
+    const customerUserId = consultation.customer?.userId;
+    if (!customerUserId || customerUserId !== userId) {
+      throw new ForbiddenException('Only the owning customer can pay');
+    }
+    if (consultation.status !== ConsultationStatus.PENDING) {
+      throw new BadRequestException(
+        `Booking can only be paid while PENDING (current: ${consultation.status})`,
+      );
+    }
+    if (this.isBookingPaid(consultation)) {
+      throw new BadRequestException('Booking is already paid');
+    }
+    if (consultation.isFollowUp) {
+      consultation.feeChargedVnd = '0';
+      const saved = await this.consultationRepository.save(consultation);
+      return this.toBookingResponseFromSaved(saved, consultation);
+    }
+
+    const expert =
+      consultation.expert ??
+      (await this.expertRepository.findOneOrFail({
+        where: { id: consultation.expertId },
+      }));
+    const fee = Math.round(Number(expert.consultationFee));
+    if (!Number.isFinite(fee) || fee <= 0) {
+      throw new BadRequestException('Expert consultation fee is not payable');
+    }
+
+    const tx = await this.walletService.debit({
+      type: TransactionType.CONSULTATION_PAYMENT,
+      amountVnd: fee,
+      userId,
+      consultationId: consultation.id,
+      note: `Consultation fee for booking ${consultation.id}`,
+    });
+
+    consultation.feeChargedVnd = String(fee);
+    consultation.paidTransactionId = tx.id;
+    const saved = await this.consultationRepository.save(consultation);
+    return this.toBookingResponseFromSaved(saved, consultation, expert);
   }
 
   async confirmBooking(
@@ -125,6 +187,11 @@ export class BookingsService {
     if (consultation.status !== ConsultationStatus.PENDING) {
       throw new BadRequestException(
         `Booking can only be confirmed from PENDING (current: ${consultation.status})`,
+      );
+    }
+    if (!this.isBookingPaid(consultation)) {
+      throw new BadRequestException(
+        'Booking must be paid (or free follow-up) before confirm',
       );
     }
 
@@ -150,6 +217,21 @@ export class BookingsService {
       throw new BadRequestException(
         `Booking can only be cancelled from PENDING or CONFIRMED (current: ${consultation.status})`,
       );
+    }
+
+    const feeCharged = Number(consultation.feeChargedVnd ?? 0);
+    if (
+      consultation.paidTransactionId &&
+      feeCharged > 0 &&
+      consultation.customer?.userId
+    ) {
+      await this.walletService.credit({
+        type: TransactionType.REFUND,
+        amountVnd: feeCharged,
+        userId: consultation.customer.userId,
+        consultationId: consultation.id,
+        note: `Refund consultation fee for booking ${consultation.id}`,
+      });
     }
 
     consultation.status = ConsultationStatus.CANCELLED;
@@ -758,6 +840,11 @@ export class BookingsService {
       cancelledAt: consultation.cancelledAt ?? null,
       cancelReason: consultation.cancelReason ?? null,
       cancelledBy: consultation.cancelledBy ?? null,
+      treatmentId: consultation.treatmentId ?? null,
+      feeChargedVnd: consultation.feeChargedVnd ?? null,
+      paidTransactionId: consultation.paidTransactionId ?? null,
+      isFollowUp: consultation.isFollowUp ?? false,
+      isPaid: this.isBookingPaid(consultation),
       feedback: consultation.feedback
         ? {
             rating: consultation.feedback.rating,
@@ -767,6 +854,35 @@ export class BookingsService {
       createdAt: consultation.createdAt,
       updatedAt: consultation.updatedAt,
     };
+  }
+
+  private isBookingPaid(consultation: ConsultationRequest): boolean {
+    if (consultation.isFollowUp) {
+      return true;
+    }
+    return (
+      consultation.paidTransactionId != null &&
+      Number(consultation.feeChargedVnd ?? 0) > 0
+    );
+  }
+
+  private async findActivePaidTreatmentForFollowUp(
+    customerId: string,
+    expertId: string,
+  ): Promise<Treatment | null> {
+    const today = this.formatDateOnly(this.todayUtc());
+    return this.treatmentRepository
+      .createQueryBuilder('t')
+      .where('t.customerId = :customerId', { customerId })
+      .andWhere('t.expertId = :expertId', { expertId })
+      .andWhere('t.status = :status', { status: TreatmentStatus.ACTIVE })
+      .andWhere('t.paidAt IS NOT NULL')
+      .andWhere('t.startDate IS NOT NULL')
+      .andWhere('t.endDate IS NOT NULL')
+      .andWhere('t.startDate <= :today', { today })
+      .andWhere('t.endDate >= :today')
+      .orderBy('t.paidAt', 'DESC')
+      .getOne();
   }
 
   private async loadBookedWindows(

@@ -77,6 +77,11 @@ describe('PaymentsService', () => {
       createGhnOrderForPaidOrder: jest.fn().mockResolvedValue(undefined),
     };
 
+    const walletService = {
+      getOrCreateWallet: jest.fn().mockResolvedValue({ id: 'w-1' }),
+      creditWithManager: jest.fn().mockResolvedValue({ id: 'tx-topup' }),
+    };
+
     service = new PaymentsService(
       paymentRepo as unknown as Repository<Payment>,
       attemptRepo as unknown as Repository<PaymentAttempt>,
@@ -87,6 +92,7 @@ describe('PaymentsService', () => {
       dataSource as unknown as DataSource,
       stockService as never,
       deliveryService as never,
+      walletService as never,
     );
   });
 
@@ -293,6 +299,7 @@ describe('PaymentsService', () => {
             findOne: jest.fn().mockResolvedValue({
               id: 'pay-1',
               orderId: 'order-1',
+              purpose: 'ORDER',
             }),
           }),
       );
@@ -304,6 +311,7 @@ describe('PaymentsService', () => {
       paymentRepo.findOne.mockResolvedValue({
         id: 'pay-1',
         orderId: 'order-1',
+        purpose: 'ORDER',
       });
     });
 
@@ -484,6 +492,11 @@ describe('PaymentsService', () => {
         makeConfig('mock'),
         dataSource as unknown as DataSource,
         stockService as never,
+        deliveryService as never,
+        {
+          getOrCreateWallet: jest.fn(),
+          creditWithManager: jest.fn(),
+        } as never,
       );
       managerUpdate = jest.fn();
       dataSource.transaction.mockImplementation(
@@ -493,6 +506,7 @@ describe('PaymentsService', () => {
             findOne: jest.fn().mockResolvedValue({
               id: 'pay-1',
               orderId: 'order-1',
+              purpose: 'ORDER',
             }),
           }),
       );
@@ -503,6 +517,7 @@ describe('PaymentsService', () => {
       paymentRepo.findOne.mockResolvedValue({
         id: 'pay-1',
         orderId: 'order-1',
+        purpose: 'ORDER',
       });
     });
 
@@ -561,6 +576,11 @@ describe('PaymentsService', () => {
         makeConfig('vnpay'),
         dataSource as unknown as DataSource,
         stockService as never,
+        deliveryService as never,
+        {
+          getOrCreateWallet: jest.fn(),
+          creditWithManager: jest.fn(),
+        } as never,
       );
 
       await expect(
@@ -574,6 +594,7 @@ describe('PaymentsService', () => {
       paymentRepo.findOne.mockResolvedValue({
         id: 'pay-1',
         orderId: 'order-1',
+        purpose: 'ORDER',
         status: PaymentStatus.PAID,
         provider: 'VNPAY',
         amountVnd: '199000',
@@ -585,11 +606,13 @@ describe('PaymentsService', () => {
       const res = await service.getStatus('user-1', 'pay-1');
       expect(res.id).toBe('pay-1');
       expect(res.status).toBe(PaymentStatus.PAID);
+      expect(res.purpose).toBe('ORDER');
     });
 
     it('forbids a non-owner', async () => {
       paymentRepo.findOne.mockResolvedValue({
         id: 'pay-1',
+        purpose: 'ORDER',
         order: { customerId: 'someone-else' },
       });
       customerRepo.findOne.mockResolvedValue({ id: 'cust-1' });

@@ -135,6 +135,25 @@ export class BookingsController {
     return this.bookingsService.submitFeedback(userId, id, body);
   }
 
+  @Post(':id/pay')
+  @Roles(Role.Customer)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Pay consultation fee from wallet',
+    description:
+      'Debits Expert.consultationFee from the customer wallet. Free follow-up bookings (isFollowUp) skip debit. Required before expert confirm.',
+  })
+  @ApiOkResponse({ type: BookingResponseDto })
+  @ApiBadRequestResponse({
+    description: 'Already paid, not PENDING, or insufficient balance',
+  })
+  @ApiForbiddenResponse({ description: 'Not the owning customer' })
+  @ApiNotFoundResponse({ description: 'Booking not found' })
+  payBooking(@Req() req: Request, @Param('id', ParseUUIDPipe) id: string) {
+    const userId = this.requireUserId(req);
+    return this.bookingsService.payBooking(userId, id);
+  }
+
   @Patch(':id/confirm')
   @Roles(Role.Expert)
   @HttpCode(HttpStatus.OK)

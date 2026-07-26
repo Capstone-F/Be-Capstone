@@ -6,6 +6,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
@@ -20,10 +21,12 @@ import {
 import type { IpnResponse, ReturnQueryFromVNPay } from 'vnpay';
 import { AppConfigService } from '../config/config.service';
 import { Order } from '../commerce/order.entity';
-import { OrderStatus } from '../commerce/enums';
+import { OrderStatus, TransactionType } from '../commerce/enums';
 import { DeliveryService } from '../delivery/delivery.service';
 import { StockService } from '../stock/stock.service';
 import { Customer } from '../users/customer.entity';
+import { WalletService } from '../wallet/wallet.service';
+import { WalletTopUpDto } from '../wallet/dto/wallet-top-up.dto';
 import { CheckoutDto } from './dto/checkout.dto';
 import { CheckoutResponseDto } from './dto/checkout-response.dto';
 import { PaymentStatusDto } from './dto/payment-status.dto';
@@ -33,6 +36,7 @@ import {
   PaymentAttemptStatus,
   PaymentClient,
   PaymentProvider,
+  PaymentPurpose,
   PaymentStatus,
 } from './enums';
 import {
@@ -66,6 +70,8 @@ export class PaymentsService {
     private readonly dataSource: DataSource,
     private readonly stockService: StockService,
     private readonly deliveryService: DeliveryService,
+    @Inject(forwardRef(() => WalletService))
+    private readonly walletService: WalletService,
   ) {}
 
   /** Create (or reuse) a Payment for a PENDING order and return a gateway payment URL. */
@@ -106,10 +112,10 @@ export class PaymentsService {
 
     const amountVnd = String(order.totalVnd);
 
-    // Reuse an in-flight payment for this order; otherwise open a new one.
     let payment = await this.paymentRepo.findOne({
       where: {
         orderId: order.id,
+        purpose: PaymentPurpose.ORDER,
         status: In([PaymentStatus.PENDING, PaymentStatus.PROCESSING]),
       },
     });
@@ -117,11 +123,14 @@ export class PaymentsService {
       payment.clientReturnUrl = clientReturnUrl;
       payment.amountVnd = amountVnd;
       payment.provider = this.gateway.code;
+      payment.userId = userId;
       payment = await this.paymentRepo.save(payment);
     } else {
       payment = await this.paymentRepo.save(
         this.paymentRepo.create({
           orderId: order.id,
+          purpose: PaymentPurpose.ORDER,
+          userId,
           provider: this.gateway.code,
           status: PaymentStatus.PENDING,
           amountVnd,
@@ -130,37 +139,52 @@ export class PaymentsService {
       );
     }
 
-    // Opaque provider txn ref (column name remains vnpTxnRef for schema stability).
-    const txnRef = randomUUID().replace(/-/g, '');
-    await this.attemptRepo.save(
-      this.attemptRepo.create({
-        paymentId: payment.id,
-        vnpTxnRef: txnRef,
-        status: PaymentAttemptStatus.PENDING,
+    return this.createAttemptAndCheckoutUrl({
+      payment,
+      amountVnd,
+      ipAddr,
+      orderInfo: `Payment for order ${order.id}`,
+      gatewayOrderId: order.id,
+    });
+  }
+
+  /** Create a wallet top-up Payment and return a gateway payment URL. */
+  async topUpWallet(
+    userId: string,
+    dto: WalletTopUpDto,
+    ipAddr: string,
+  ): Promise<CheckoutResponseDto> {
+    await this.walletService.getOrCreateWallet(userId);
+
+    const { paymentConfig } = this.config;
+    const clientReturnUrl: string =
+      dto.client === PaymentClient.MOBILE
+        ? paymentConfig.mobileReturnUrl
+        : paymentConfig.clientReturnUrl;
+
+    const amountVnd = String(dto.amountVnd);
+
+    const payment = await this.paymentRepo.save(
+      this.paymentRepo.create({
+        orderId: null,
+        purpose: PaymentPurpose.WALLET_TOPUP,
+        userId,
+        provider: this.gateway.code,
+        status: PaymentStatus.PENDING,
         amountVnd,
+        clientReturnUrl,
       }),
     );
 
-    const { paymentUrl } = await this.gateway.createCheckout({
+    return this.createAttemptAndCheckoutUrl({
+      payment,
       amountVnd,
-      txnRef,
-      orderId: order.id,
       ipAddr,
-      returnUrl: paymentConfig.returnUrl,
-      paymentId: payment.id,
+      orderInfo: `Wallet top-up ${payment.id}`,
+      gatewayOrderId: payment.id,
     });
-
-    this.logger.log(
-      `Checkout created payment=${payment.id} order=${order.id} provider=${this.gateway.code} txnRef=${txnRef} amount=${amountVnd}`,
-    );
-
-    return { paymentId: payment.id, paymentUrl };
   }
 
-  /**
-   * Handle the browser return from VNPay. Verifies the signature and returns the
-   * client landing URL to 302 to. READ-ONLY — never mutates payment state.
-   */
   async handleReturn(
     query: ReturnQueryFromVNPay,
   ): Promise<{ redirectUrl: string }> {
@@ -173,7 +197,6 @@ export class PaymentsService {
       relations: { payment: true },
     });
 
-    // Only ever redirect to a stored/allowlisted target — never a value from the query.
     const base =
       attempt?.payment?.clientReturnUrl ??
       this.config.paymentConfig.clientReturnUrl;
@@ -198,10 +221,6 @@ export class PaymentsService {
     };
   }
 
-  /**
-   * Handle the server-to-server IPN from VNPay. Verifies signature + amount and
-   * updates attempt/payment status idempotently. Returns VNPay's RspCode response.
-   */
   async handleIpn(query: ReturnQueryFromVNPay): Promise<IpnResponse> {
     try {
       const verify = await this.gateway.verifyIpn(
@@ -240,10 +259,6 @@ export class PaymentsService {
     }
   }
 
-  /**
-   * Mock gateway complete: finalize payment then redirect to the client landing URL.
-   * Only valid when PAYMENT_PROVIDER=mock.
-   */
   async handleMockComplete(
     paymentId: string,
     txnRef: string,
@@ -328,6 +343,8 @@ export class PaymentsService {
     const success = verify.success;
     const now = new Date();
 
+    let paidOrderPaymentId: string | null = null;
+
     const applied = await this.dataSource.transaction(async (manager) => {
       const updated = await manager.update(
         PaymentAttempt,
@@ -340,7 +357,6 @@ export class PaymentsService {
           providerTransactionId: verify.providerTransactionId ?? null,
           bankCode: verify.bankCode ?? null,
           paidAt: success ? now : null,
-          // jsonb unknown + TypeORM: null is rejected; only set a concrete object
           ...(options.rawIpn != null
             ? { rawIpn: options.rawIpn as Record<string, unknown> }
             : {}),
@@ -367,12 +383,28 @@ export class PaymentsService {
         const payment = await manager.findOne(Payment, {
           where: { id: attempt.paymentId },
         });
-        if (payment) {
+        if (!payment) {
+          return true;
+        }
+
+        if (payment.purpose === PaymentPurpose.WALLET_TOPUP && payment.userId) {
+          await this.walletService.creditWithManager(manager, {
+            type: TransactionType.WALLET_TOPUP,
+            amountVnd: payment.amountVnd,
+            userId: payment.userId,
+            note: `Wallet top-up payment ${payment.id}`,
+            externalRef: payment.id,
+          });
+        } else if (
+          payment.purpose === PaymentPurpose.ORDER &&
+          payment.orderId
+        ) {
           await manager.update(
             Order,
             { id: payment.orderId, status: OrderStatus.PENDING },
             { status: OrderStatus.PAID },
           );
+          paidOrderPaymentId = payment.id;
         }
       }
 
@@ -383,8 +415,8 @@ export class PaymentsService {
       return { kind: 'duplicate' };
     }
 
-    if (success) {
-      await this.runPostPaymentSideEffects(attempt.paymentId);
+    if (success && paidOrderPaymentId) {
+      await this.runPostPaymentSideEffects(paidOrderPaymentId);
     }
 
     return { kind: 'applied', success };
@@ -436,7 +468,7 @@ export class PaymentsService {
     const payment = await this.paymentRepo.findOne({
       where: { id: paymentId },
     });
-    if (!payment) {
+    if (!payment?.orderId) {
       return;
     }
 
@@ -467,7 +499,6 @@ export class PaymentsService {
     }
   }
 
-  /** Authoritative, IPN-confirmed payment status for the owning customer. */
   async getStatus(
     userId: string,
     paymentId: string,
@@ -480,19 +511,65 @@ export class PaymentsService {
       throw new NotFoundException('Payment not found');
     }
 
-    const customer = await this.customerRepo.findOne({ where: { userId } });
-    if (!customer || payment.order.customerId !== customer.id) {
-      throw new ForbiddenException('Payment does not belong to this customer');
+    if (payment.purpose === PaymentPurpose.WALLET_TOPUP) {
+      if (payment.userId !== userId) {
+        throw new ForbiddenException(
+          'Payment does not belong to this customer',
+        );
+      }
+    } else {
+      const customer = await this.customerRepo.findOne({ where: { userId } });
+      if (!customer || payment.order?.customerId !== customer.id) {
+        throw new ForbiddenException(
+          'Payment does not belong to this customer',
+        );
+      }
     }
 
     return {
       id: payment.id,
       orderId: payment.orderId,
+      purpose: payment.purpose,
       status: payment.status,
       provider: payment.provider,
       amountVnd: payment.amountVnd,
       paidAt: payment.paidAt,
     };
+  }
+
+  private async createAttemptAndCheckoutUrl(params: {
+    payment: Payment;
+    amountVnd: string;
+    ipAddr: string;
+    orderInfo: string;
+    gatewayOrderId: string;
+  }): Promise<CheckoutResponseDto> {
+    const { payment, amountVnd, ipAddr, orderInfo, gatewayOrderId } = params;
+    const txnRef = randomUUID().replace(/-/g, '');
+    await this.attemptRepo.save(
+      this.attemptRepo.create({
+        paymentId: payment.id,
+        vnpTxnRef: txnRef,
+        status: PaymentAttemptStatus.PENDING,
+        amountVnd,
+      }),
+    );
+
+    const { paymentUrl } = await this.gateway.createCheckout({
+      amountVnd,
+      txnRef,
+      orderId: gatewayOrderId,
+      orderInfo,
+      ipAddr,
+      returnUrl: this.config.paymentConfig.returnUrl,
+      paymentId: payment.id,
+    });
+
+    this.logger.log(
+      `Checkout created payment=${payment.id} purpose=${payment.purpose} provider=${this.gateway.code} txnRef=${txnRef} amount=${amountVnd}`,
+    );
+
+    return { paymentId: payment.id, paymentUrl };
   }
 
   private buildClientRedirect(

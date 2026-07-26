@@ -8,6 +8,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { ConsultationRequest } from '../consultations/consultation-request.entity';
+import { Treatment } from '../treatments/treatment.entity';
 import { User } from '../users/user.entity';
 import { TransactionStatus, TransactionType } from './enums';
 import { Order } from './order.entity';
@@ -59,6 +60,13 @@ export class Transaction {
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'userId' })
   user: User | null;
+
+  @Column({ nullable: true, type: 'uuid' })
+  treatmentId: string | null;
+
+  @ManyToOne(() => Treatment, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'treatmentId' })
+  treatment: Treatment | null;
 
   @Column({ nullable: true, type: 'varchar' })
   externalRef: string | null;

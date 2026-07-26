@@ -5,8 +5,11 @@ export class PaymentStatusDto {
   @ApiProperty()
   id: string;
 
-  @ApiProperty()
-  orderId: string;
+  @ApiPropertyOptional({ nullable: true })
+  orderId: string | null;
+
+  @ApiProperty({ enum: ['ORDER', 'WALLET_TOPUP'] })
+  purpose: string;
 
   @ApiProperty({ enum: PaymentStatus })
   status: PaymentStatus;
