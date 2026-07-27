@@ -85,11 +85,22 @@ export class TreatmentsService {
     dto: CreateTreatmentDto,
   ): Promise<TreatmentResponseDto> {
     const expert = await this.requireExpert(expertUserId);
-    const customer = await this.customerRepo.findOne({
-      where: { id: dto.customerId },
+    let customer = await this.customerRepo.findOne({
+      where: [{ id: dto.customerId }, { userId: dto.customerId }],
     });
     if (!customer) {
-      throw new NotFoundException(`Customer ${dto.customerId} not found`);
+      try {
+        customer = await this.customerRepo.save(
+          this.customerRepo.create({
+            userId: dto.customerId,
+          }),
+        );
+      } catch (err) {
+        console.error(
+          `Failed to auto-create customer for userId=${dto.customerId}: ${err}`,
+        );
+        throw new NotFoundException(`Customer ${dto.customerId} not found`);
+      }
     }
 
     if (dto.sourceConsultationId) {
@@ -114,7 +125,7 @@ export class TreatmentsService {
 
     const treatment = await this.treatmentRepo.save(
       this.treatmentRepo.create({
-        customerId: dto.customerId,
+        customerId: customer.id,
         expertId: expert.id,
         clinicId: expert.clinicId,
         title: dto.title.trim(),
