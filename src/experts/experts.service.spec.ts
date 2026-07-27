@@ -270,6 +270,32 @@ describe('ExpertsService', () => {
     await expect(service.findOne('missing')).rejects.toThrow(NotFoundException);
   });
 
+  describe('getOwnProfile', () => {
+    it('should return mapped expert profile for userId', async () => {
+      const { service, expertRepo } = makeService({ findOne: makeExpert() });
+
+      const result = await service.getOwnProfile('user-1');
+
+      expect(expertRepo.findOne).toHaveBeenCalledWith({
+        where: { userId: 'user-1' },
+        relations: ['user', 'clinic'],
+      });
+      expect(result.id).toBe('expert-1');
+      expect(result.name).toBe('Dr. Expert');
+      expect(result.email).toBe('expert@example.com');
+      expect(result.clinicId).toBe('clinic-1');
+      expect(result.distanceKm).toBeNull();
+    });
+
+    it('should throw NotFoundException when expert profile is missing', async () => {
+      const { service } = makeService({ findOne: null });
+
+      await expect(service.getOwnProfile('user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
   describe('create', () => {
     it('should create expert profile and sync user.clinicId', async () => {
       const { service, expertRepo, userRepo, clinicsService } = makeService({

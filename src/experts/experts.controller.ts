@@ -77,6 +77,21 @@ export class ExpertsController {
     return this.expertsService.create(this.buildCallerContext(req), body);
   }
 
+  @Get('me')
+  @UseGuards(RolesGuard)
+  @Roles(Role.Expert)
+  @ApiOperation({
+    summary: 'Get own expert profile',
+    description:
+      'Returns the clinic-bound expert profile for the authenticated expert.',
+  })
+  @ApiOkResponse({ type: ExpertResponseDto })
+  @ApiForbiddenResponse({ description: 'Insufficient permissions' })
+  @ApiNotFoundResponse({ description: 'Expert profile not found' })
+  getMe(@Req() req: Request) {
+    return this.expertsService.getOwnProfile(this.requireUserId(req));
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get expert by id' })
   @ApiOkResponse({ type: ExpertResponseDto })
@@ -103,6 +118,14 @@ export class ExpertsController {
     @Body() body: UpdateExpertDto,
   ) {
     return this.expertsService.update(this.buildCallerContext(req), id, body);
+  }
+
+  private requireUserId(req: Request): string {
+    const auth = getAuthContext(req);
+    if (!auth?.userId) {
+      throw new UnauthorizedException('Not authenticated');
+    }
+    return auth.userId;
   }
 
   private buildCallerContext(req: Request): CallerContext {

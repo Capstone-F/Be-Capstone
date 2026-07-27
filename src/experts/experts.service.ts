@@ -102,6 +102,17 @@ export class ExpertsService {
     return this.toResponse(expert, null);
   }
 
+  async getOwnProfile(userId: string): Promise<ExpertResponseDto> {
+    const expert = await this.expertRepository.findOne({
+      where: { userId },
+      relations: ['user', 'clinic'],
+    });
+    if (!expert) {
+      throw new NotFoundException('Expert profile not found for current user');
+    }
+    return this.toResponse(expert, null);
+  }
+
   async create(
     caller: CallerContext,
     dto: CreateExpertDto,
