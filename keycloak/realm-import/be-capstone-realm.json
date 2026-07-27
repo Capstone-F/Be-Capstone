@@ -5,6 +5,9 @@
   "registrationAllowed": true,
   "resetPasswordAllowed": true,
   "rememberMe": true,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 604800,
+  "ssoSessionMaxLifespan": 604800,
   "defaultRole": {
     "name": "default-roles-be-capstone",
     "description": "${role_default-roles}",
