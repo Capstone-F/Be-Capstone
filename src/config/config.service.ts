@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { AppEnv, getMissingRequiredEnv, resolveAppEnv } from './env.config';
 import { LlmConfig } from './llm.config';
 import { PaymentConfig } from './payment.config';
+import { ShippingConfig } from './shipping.config';
 
 @Injectable()
 export class AppConfigService {
@@ -129,6 +130,21 @@ export class AppConfigService {
   /** LLM provider key for routine generation (mock by default). */
   get llmProvider(): string {
     return this.env.LLM_PROVIDER;
+  }
+
+  /**
+   * GHN shipping credentials, gateway host, and warehouse pickup location.
+   * Parcel/business defaults are constants in `delivery/ghn.constants.ts`, not env.
+   */
+  get shippingConfig(): ShippingConfig {
+    return {
+      token: this.env.GHN_TOKEN,
+      shopId: this.env.GHN_SHOP_ID,
+      baseUrl: this.env.GHN_BASE_URL,
+      fromDistrictId: this.env.GHN_FROM_DISTRICT_ID,
+      fromWardCode: this.env.GHN_FROM_WARD_CODE,
+      webhookSecret: this.env.GHN_WEBHOOK_SECRET,
+    };
   }
 
   /** Grouped LLM / Ollama settings for routine generation. */

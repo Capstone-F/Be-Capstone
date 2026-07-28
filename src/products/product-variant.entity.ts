@@ -42,6 +42,10 @@ export class ProductVariant {
   @Column({ type: 'int' })
   priceVnd: number;
 
+  /** Parcel weight in grams, used for GHN shipping fee calculation. */
+  @Column({ type: 'int', default: 200 })
+  weightGram: number;
+
   @Column({ type: 'int', default: 365 })
   shelfLifeValue: number;
 

@@ -189,6 +189,9 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
       deductByVariantId: () =>
         Promise.resolve({ totalDeducted: 0, batches: [] }),
     };
+    const deliveryService = {
+      createGhnOrderForPaidOrder: () => Promise.resolve(),
+    };
 
     const gateway = new VnpayPaymentProvider(vnpay);
 
@@ -201,6 +204,7 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
       config,
       dataSource,
       stockService as never,
+      deliveryService as never,
     );
   });
 
@@ -435,6 +439,9 @@ describe('Mock payment flow (in-memory repos)', () => {
         return Promise.resolve({ totalDeducted: qty, batches: [] });
       },
     };
+    const deliveryService = {
+      createGhnOrderForPaidOrder: () => Promise.resolve(),
+    };
 
     service = new PaymentsService(
       paymentRepo,
@@ -445,6 +452,7 @@ describe('Mock payment flow (in-memory repos)', () => {
       config,
       dataSource,
       stockService as never,
+      deliveryService as never,
     );
   });
 

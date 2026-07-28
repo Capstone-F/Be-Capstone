@@ -18,6 +18,11 @@ import { ConfigModule } from '../src/config/config.module';
 import { KeycloakAdminModule } from '../src/keycloak/keycloak-admin.module';
 import { CartService } from '../src/cart/cart.service';
 import { OrdersService } from '../src/commerce/orders.service';
+import { DeliveryService } from '../src/delivery/delivery.service';
+import { GhnClient } from '../src/delivery/ghn.client';
+import { Delivery } from '../src/delivery/delivery.entity';
+import { DeliveryProvider } from '../src/delivery/delivery-provider.entity';
+import { DeliveryStatusEvent } from '../src/delivery/delivery-status-event.entity';
 import {
   CommerceSettingKey,
   OrderDiscountType,
@@ -68,7 +73,19 @@ describe('Survey purchase → routine generation (e2e)', () => {
   let recommendationService: RecommendationService;
   let cartService: CartService;
   let ordersService: OrdersService;
+  let deliveryService: DeliveryService;
   let routineGenerator: RoutineGeneratorService;
+
+  // GHN fee is quoted over the network in prod; stub it so the flow is deterministic offline.
+  const SHIPPING_FEE_VND = 30_000;
+  const SHIPPING_ADDRESS = {
+    recipientName: 'Nguyen Van A',
+    recipientPhone: '0901234567',
+    provinceId: 202,
+    districtId: 1442,
+    wardCode: '21012',
+    streetAddress: '123 Le Loi, Ben Nghe',
+  };
 
   jest.setTimeout(60_000);
 
@@ -98,6 +115,9 @@ describe('Survey purchase → routine generation (e2e)', () => {
           RoutineStep,
           RoutineStepProtocol,
           RoutineStepDetails,
+          Delivery,
+          DeliveryProvider,
+          DeliveryStatusEvent,
         ]),
         RuleEngineModule,
       ],
@@ -105,6 +125,8 @@ describe('Survey purchase → routine generation (e2e)', () => {
         RecommendationService,
         CartService,
         OrdersService,
+        DeliveryService,
+        GhnClient,
         RoutineGeneratorService,
         MockLlmRoutineProvider,
         { provide: LLM_ROUTINE_PROVIDER, useClass: MockLlmRoutineProvider },
@@ -116,7 +138,22 @@ describe('Survey purchase → routine generation (e2e)', () => {
     recommendationService = moduleFixture.get(RecommendationService);
     cartService = moduleFixture.get(CartService);
     ordersService = moduleFixture.get(OrdersService);
+    deliveryService = moduleFixture.get(DeliveryService);
     routineGenerator = moduleFixture.get(RoutineGeneratorService);
+
+    // OrdersService.createFromCart requires an active GHN provider row and quotes a
+    // live GHN fee. Seed the provider and stub the network quote so the flow is offline.
+    const providerRepo = dataSource.getRepository(DeliveryProvider);
+    if (!(await providerRepo.findOneBy({ code: 'GHN' }))) {
+      await providerRepo.save(
+        providerRepo.create({
+          code: 'GHN',
+          name: 'Giao Hàng Nhanh',
+          isActive: true,
+        }),
+      );
+    }
+    jest.spyOn(deliveryService, 'quoteFee').mockResolvedValue(SHIPPING_FEE_VND);
   });
 
   afterAll(async () => {
@@ -400,11 +437,16 @@ describe('Survey purchase → routine generation (e2e)', () => {
       });
     }
 
-    const order = await ordersService.createFromCart(user.id);
+    const order = await ordersService.createFromCart(user.id, {
+      shippingAddress: SHIPPING_ADDRESS,
+    });
     expect(order.source).toBe(OrderSource.SURVEY);
     expect(order.discountType).toBe(OrderDiscountType.COMBO);
     expect(order.discountVnd).toBe(Math.floor((order.subtotalVnd * 10) / 100));
-    expect(order.totalVnd).toBe(order.subtotalVnd - order.discountVnd);
+    expect(order.totalVnd).toBe(
+      order.subtotalVnd - order.discountVnd + SHIPPING_FEE_VND,
+    );
+    expect(order.shippingFeeVnd).toBe(SHIPPING_FEE_VND);
     expect(order.items).toHaveLength(3);
 
     await dataSource
@@ -456,7 +498,9 @@ describe('Survey purchase → routine generation (e2e)', () => {
       surveyRecommendationId: recommendation.id,
     });
 
-    const order = await ordersService.createFromCart(user.id);
+    const order = await ordersService.createFromCart(user.id, {
+      shippingAddress: SHIPPING_ADDRESS,
+    });
     expect(order.discountType).toBe(OrderDiscountType.COMBO);
     expect(order.discountVnd).toBeGreaterThan(0);
   });
@@ -475,7 +519,9 @@ describe('Survey purchase → routine generation (e2e)', () => {
       surveyRecommendationId: recommendation.id,
     });
 
-    const order = await ordersService.createFromCart(user.id);
+    const order = await ordersService.createFromCart(user.id, {
+      shippingAddress: SHIPPING_ADDRESS,
+    });
     expect(order.discountVnd).toBe(0);
     expect(order.discountType).toBeNull();
   });
@@ -488,7 +534,9 @@ describe('Survey purchase → routine generation (e2e)', () => {
       quantity: 1,
       source: OrderSource.CATALOG,
     });
-    const order = await ordersService.createFromCart(user.id);
+    const order = await ordersService.createFromCart(user.id, {
+      shippingAddress: SHIPPING_ADDRESS,
+    });
     expect(order.source).toBe(OrderSource.CATALOG);
 
     await dataSource

@@ -1,257 +1,442 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { Repository } from 'typeorm';
+import { AppConfigService } from '../config/config.service';
+import { CartService } from '../cart/cart.service';
+import { OrderStatus } from '../commerce/enums';
 import { Order } from '../commerce/order.entity';
-import { OrderSource, OrderStatus } from '../commerce/enums';
-import { Payment } from '../payments/payment.entity';
-import { PaymentStatus } from '../payments/enums';
+import { ProductVariant } from '../products/product-variant.entity';
 import { Customer } from '../users/customer.entity';
-import { DeliveryFee } from './delivery-fee.entity';
-import { DeliveryProvider } from './delivery-provider.entity';
-import { Delivery } from './delivery.entity';
 import { DeliveryService } from './delivery.service';
-import { DeliveryType } from './enums';
+import { Delivery } from './delivery.entity';
+import { DeliveryStatusEvent } from './delivery-status-event.entity';
+import { DeliveryStatus } from './enums';
+import { GhnClient } from './ghn.client';
+import { ShippingAddressDto } from './dto/shipping-address.dto';
+
+type Mocked<T> = { [K in keyof T]: jest.Mock };
+
+const SHIPPING_CONFIG = {
+  token: 'TOK',
+  shopId: '885',
+  baseUrl: 'https://ghn.test',
+  fromDistrictId: 1442,
+  fromWardCode: '21012',
+  webhookSecret: 'shh',
+};
+
+const ADDRESS: ShippingAddressDto = {
+  recipientName: 'Nguyen Van A',
+  recipientPhone: '0901234567',
+  provinceId: 202,
+  districtId: 1449,
+  wardCode: '21211',
+  streetAddress: '123 Le Loi',
+};
 
 describe('DeliveryService', () => {
+  let ghn: Mocked<
+    Pick<GhnClient, 'calculateFee' | 'createOrder' | 'getProvinces'>
+  >;
+  let deliveryRepo: Mocked<Pick<Repository<Delivery>, 'findOne' | 'update'>>;
+  let eventRepo: Mocked<
+    Pick<Repository<DeliveryStatusEvent>, 'create' | 'save'>
+  >;
+  let orderRepo: Mocked<Pick<Repository<Order>, 'update'>>;
+  let variantRepo: Mocked<Pick<Repository<ProductVariant>, 'find'>>;
+  let customerRepo: Mocked<Pick<Repository<Customer>, 'findOne'>>;
+  let cartService: Mocked<Pick<CartService, 'getCartByCustomerId'>>;
   let service: DeliveryService;
-  let feeRepository: { find: jest.Mock; findOne: jest.Mock };
-  let providerRepository: { findOne: jest.Mock };
-  let deliveryRepository: { findOne: jest.Mock };
-  let orderRepository: { findOne: jest.Mock };
-  let paymentRepository: { findOne: jest.Mock };
-  let customerRepository: { findOne: jest.Mock };
-  let savedDeliveries: Delivery[];
-  let savedOrders: Order[];
 
-  const customer = { id: 'cust-1', userId: 'user-1' } as Customer;
-  const provider = {
-    id: 'prov-1',
-    code: 'GHN',
-    name: 'Giao Hàng Nhanh',
-    isActive: true,
-  } as DeliveryProvider;
-  const fee = {
-    id: 'fee-1',
-    providerId: 'prov-1',
-    type: DeliveryType.STANDARD,
-    feeVnd: 30000,
-    isActive: true,
-    provider,
-  } as DeliveryFee;
+  beforeEach(() => {
+    ghn = {
+      calculateFee: jest.fn().mockResolvedValue({ total: 32000 }),
+      createOrder: jest.fn(),
+      getProvinces: jest.fn(),
+    };
+    deliveryRepo = { findOne: jest.fn(), update: jest.fn() };
+    eventRepo = {
+      create: jest.fn((v: unknown) => v),
+      save: jest.fn((v: unknown) => v),
+    };
+    orderRepo = { update: jest.fn() };
+    variantRepo = { find: jest.fn() };
+    customerRepo = { findOne: jest.fn() };
+    cartService = { getCartByCustomerId: jest.fn() };
 
-  const baseOrder = {
-    id: 'order-1',
-    customerId: 'cust-1',
-    status: OrderStatus.PENDING,
-    source: OrderSource.CATALOG,
-    customerSurveyId: null,
-    surveyRecommendationId: null,
-    subtotalVnd: 200000,
-    discountVnd: 20000,
-    discountType: null,
-    shippingFeeVnd: 0,
-    totalVnd: 180000,
-    items: [],
-    createdAt: new Date(),
-  } as Order;
-
-  beforeEach(async () => {
-    savedDeliveries = [];
-    savedOrders = [];
-    feeRepository = {
-      find: jest.fn().mockResolvedValue([fee]),
-      findOne: jest.fn().mockResolvedValue(fee),
-    };
-    providerRepository = {
-      findOne: jest.fn().mockResolvedValue(provider),
-    };
-    deliveryRepository = {
-      findOne: jest.fn(),
-    };
-    orderRepository = {
-      findOne: jest.fn(),
-    };
-    paymentRepository = {
-      findOne: jest.fn().mockResolvedValue(null),
-    };
-    customerRepository = {
-      findOne: jest.fn().mockResolvedValue(customer),
-    };
-
-    const dataSource = {
-      transaction: async (cb: (m: unknown) => Promise<unknown>) =>
-        cb({
-          findOne: async (
-            entity: unknown,
-            opts: { where: { orderId: string } },
-          ) => {
-            if (entity === Delivery) {
-              return (
-                savedDeliveries.find((d) => d.orderId === opts.where.orderId) ??
-                null
-              );
-            }
-            return null;
-          },
-          create: (_entity: unknown, data: Partial<Delivery>) =>
-            ({ ...data }) as Delivery,
-          save: async (value: Delivery | Order) => {
-            if ((value as Delivery).shippingAddress !== undefined) {
-              const d = value as Delivery;
-              if (!d.id) d.id = `del-${savedDeliveries.length + 1}`;
-              const idx = savedDeliveries.findIndex(
-                (x) => x.orderId === d.orderId,
-              );
-              if (idx >= 0) savedDeliveries[idx] = d;
-              else savedDeliveries.push(d);
-              return d;
-            }
-            const o = value as Order;
-            savedOrders.push(o);
-            return o;
-          },
-          update: async (
-            _entity: unknown,
-            id: string,
-            values: Partial<Order>,
-          ) => {
-            savedOrders.push({ id, ...values } as Order);
-            return { affected: 1 };
-          },
-        }),
-    } as unknown as DataSource;
-
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        DeliveryService,
-        { provide: getRepositoryToken(DeliveryFee), useValue: feeRepository },
-        {
-          provide: getRepositoryToken(DeliveryProvider),
-          useValue: providerRepository,
-        },
-        {
-          provide: getRepositoryToken(Delivery),
-          useValue: deliveryRepository,
-        },
-        { provide: getRepositoryToken(Order), useValue: orderRepository },
-        { provide: getRepositoryToken(Payment), useValue: paymentRepository },
-        {
-          provide: getRepositoryToken(Customer),
-          useValue: customerRepository,
-        },
-        { provide: DataSource, useValue: dataSource },
-      ],
-    }).compile();
-
-    service = module.get(DeliveryService);
+    service = new DeliveryService(
+      deliveryRepo as unknown as Repository<Delivery>,
+      eventRepo as unknown as Repository<DeliveryStatusEvent>,
+      orderRepo as unknown as Repository<Order>,
+      variantRepo as unknown as Repository<ProductVariant>,
+      customerRepo as unknown as Repository<Customer>,
+      cartService as unknown as CartService,
+      ghn as unknown as GhnClient,
+      { shippingConfig: SHIPPING_CONFIG } as unknown as AppConfigService,
+    );
   });
 
-  describe('computeTotalVnd', () => {
-    it('adds shipping after discount', () => {
-      expect(DeliveryService.computeTotalVnd(200000, 20000, 30000)).toBe(
-        210000,
+  describe('quoteFee', () => {
+    it('sums item weights and sends the shop origin to GHN', async () => {
+      const fee = await service.quoteFee(ADDRESS, [
+        { weightGram: 200, quantity: 2 },
+        { weightGram: 150, quantity: 1 },
+      ]);
+
+      expect(fee).toBe(32000);
+      const sent = ghn.calculateFee.mock.calls[0][0];
+      expect(sent.weight).toBe(550);
+      expect(sent.to_district_id).toBe(1449);
+      expect(sent.to_ward_code).toBe('21211');
+      expect(sent.from_district_id).toBe(1442);
+      expect(sent.from_ward_code).toBe('21012');
+      expect(sent.service_type_id).toBe(2);
+    });
+
+    it('clamps parcel weight to the GHN maximum of 30000g', async () => {
+      await service.quoteFee(ADDRESS, [{ weightGram: 20000, quantity: 5 }]);
+      expect(ghn.calculateFee.mock.calls[0][0].weight).toBe(30000);
+    });
+
+    it('raises parcel weight to the GHN minimum of 50g', async () => {
+      await service.quoteFee(ADDRESS, [{ weightGram: 1, quantity: 1 }]);
+      expect(ghn.calculateFee.mock.calls[0][0].weight).toBe(50);
+    });
+
+    it('falls back to the default item weight when a variant has none', async () => {
+      await service.quoteFee(ADDRESS, [{ weightGram: 0, quantity: 3 }]);
+      expect(ghn.calculateFee.mock.calls[0][0].weight).toBe(600);
+    });
+  });
+
+  describe('createGhnOrderForPaidOrder', () => {
+    const DELIVERY = {
+      id: 'd1',
+      orderId: 'o1',
+      providerOrderCode: null,
+      districtId: 1449,
+      wardCode: '21211',
+      recipientName: 'Nguyen Van A',
+      recipientPhone: '0901234567',
+      streetAddress: '123 Le Loi',
+      order: {
+        items: [
+          {
+            quantity: 2,
+            unitPriceVnd: 100000,
+            productVariant: {
+              sku: 'SKU-1',
+              weightGram: 200,
+              product: { name: 'Cleanser' },
+            },
+          },
+        ],
+      },
+    };
+
+    it('creates a GHN order and stores the tracking code', async () => {
+      deliveryRepo.findOne.mockResolvedValue(DELIVERY);
+      ghn.createOrder.mockResolvedValue({
+        order_code: 'FFFNL9HH',
+        expected_delivery_time: '2026-07-20T16:00:00Z',
+        total_fee: 32000,
+      });
+
+      await service.createGhnOrderForPaidOrder('o1');
+
+      const sent = ghn.createOrder.mock.calls[0][0];
+      // Customer prepaid shipping via VNPay, so the shop settles with GHN and there is no COD.
+      expect(sent.payment_type_id).toBe(1);
+      expect(sent.cod_amount).toBe(0);
+      expect(sent.client_order_code).toBe('o1');
+      expect(sent.to_district_id).toBe(1449);
+      expect(sent.weight).toBe(400);
+      expect(sent.items).toEqual([
+        {
+          name: 'Cleanser',
+          code: 'SKU-1',
+          quantity: 2,
+          weight: 200,
+          price: 100000,
+        },
+      ]);
+
+      expect(deliveryRepo.update).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'd1' }),
+        expect.objectContaining({
+          providerOrderCode: 'FFFNL9HH',
+          status: 'PROCESSING',
+        }),
+      );
+      expect(orderRepo.update).toHaveBeenCalledWith(
+        { id: 'o1', status: 'PAID' },
+        { status: 'PROCESSING' },
       );
     });
 
-    it('floors at zero', () => {
-      expect(DeliveryService.computeTotalVnd(10000, 50000, 0)).toBe(0);
+    it('is a no-op when the GHN order already exists', async () => {
+      deliveryRepo.findOne.mockResolvedValue({
+        ...DELIVERY,
+        providerOrderCode: 'FFFNL9HH',
+      });
+
+      await service.createGhnOrderForPaidOrder('o1');
+
+      expect(ghn.createOrder).not.toHaveBeenCalled();
+      expect(deliveryRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('swallows GHN failures so the IPN ack is never affected', async () => {
+      deliveryRepo.findOne.mockResolvedValue(DELIVERY);
+      ghn.createOrder.mockRejectedValue(new Error('GHN down'));
+
+      await expect(
+        service.createGhnOrderForPaidOrder('o1'),
+      ).resolves.toBeUndefined();
+      expect(deliveryRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('does not throw when the order has no delivery row', async () => {
+      deliveryRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.createGhnOrderForPaidOrder('o1'),
+      ).resolves.toBeUndefined();
+      expect(ghn.createOrder).not.toHaveBeenCalled();
     });
   });
 
-  describe('listOptions', () => {
-    it('returns active provider fees', async () => {
-      const options = await service.listOptions();
-      expect(options).toEqual([
+  describe('handleGhnWebhook', () => {
+    const BODY = {
+      OrderCode: 'FFFNL9HH',
+      Status: 'delivered',
+      Time: '2026-07-16T10:00:00Z',
+    };
+
+    it('rejects a wrong webhook secret before touching the database', async () => {
+      await expect(
+        service.handleGhnWebhook('wrong', BODY, BODY),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(deliveryRepo.findOne).not.toHaveBeenCalled();
+    });
+
+    it('rejects when no webhook secret is configured', async () => {
+      const unconfigured = new DeliveryService(
+        deliveryRepo as unknown as Repository<Delivery>,
+        eventRepo as unknown as Repository<DeliveryStatusEvent>,
+        orderRepo as unknown as Repository<Order>,
+        variantRepo as unknown as Repository<ProductVariant>,
+        customerRepo as unknown as Repository<Customer>,
+        cartService as unknown as CartService,
+        ghn as unknown as GhnClient,
         {
-          providerId: 'prov-1',
-          providerCode: 'GHN',
-          providerName: 'Giao Hàng Nhanh',
-          type: DeliveryType.STANDARD,
-          feeVnd: 30000,
-        },
-      ]);
+          shippingConfig: { ...SHIPPING_CONFIG, webhookSecret: '' },
+        } as unknown as AppConfigService,
+      );
+
+      await expect(
+        unconfigured.handleGhnWebhook('', BODY, BODY),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('maps delivered to DELIVERED and moves the order to DELIVERED', async () => {
+      deliveryRepo.findOne.mockResolvedValue({
+        id: 'd1',
+        orderId: 'o1',
+        lastStatusAt: null,
+        shippedAt: null,
+      });
+
+      await service.handleGhnWebhook('shh', BODY, BODY);
+
+      expect(deliveryRepo.update).toHaveBeenCalledWith(
+        { id: 'd1' },
+        expect.objectContaining({
+          status: DeliveryStatus.DELIVERED,
+          providerStatus: 'delivered',
+        }),
+      );
+      expect(orderRepo.update).toHaveBeenCalledWith(
+        { id: 'o1' },
+        { status: OrderStatus.DELIVERED },
+      );
+      expect(eventRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ applied: true, providerStatus: 'delivered' }),
+      );
+    });
+
+    it('does not move the order on a return, but does update the delivery', async () => {
+      deliveryRepo.findOne.mockResolvedValue({
+        id: 'd1',
+        orderId: 'o1',
+        lastStatusAt: null,
+      });
+
+      await service.handleGhnWebhook(
+        'shh',
+        { ...BODY, Status: 'returned' },
+        BODY,
+      );
+
+      expect(deliveryRepo.update).toHaveBeenCalledWith(
+        { id: 'd1' },
+        expect.objectContaining({ status: DeliveryStatus.RETURNED }),
+      );
+      // The order was paid; refunding is a human decision, not a webhook's.
+      expect(orderRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('ignores a webhook older than the last applied event but still audits it', async () => {
+      deliveryRepo.findOne.mockResolvedValue({
+        id: 'd1',
+        orderId: 'o1',
+        lastStatusAt: new Date('2026-07-16T12:00:00Z'),
+      });
+
+      await service.handleGhnWebhook(
+        'shh',
+        { ...BODY, Status: 'picking', Time: '2026-07-16T10:00:00Z' },
+        BODY,
+      );
+
+      expect(deliveryRepo.update).not.toHaveBeenCalled();
+      expect(orderRepo.update).not.toHaveBeenCalled();
+      expect(eventRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ applied: false }),
+      );
+    });
+
+    it('audits but ignores a status GHN sends that we do not map', async () => {
+      deliveryRepo.findOne.mockResolvedValue({
+        id: 'd1',
+        orderId: 'o1',
+        lastStatusAt: null,
+      });
+
+      await service.handleGhnWebhook(
+        'shh',
+        { ...BODY, Status: 'some_new_ghn_status' },
+        BODY,
+      );
+
+      expect(deliveryRepo.update).not.toHaveBeenCalled();
+      expect(eventRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ applied: false, mappedStatus: null }),
+      );
+    });
+
+    it('ignores an unknown OrderCode without throwing', async () => {
+      deliveryRepo.findOne.mockResolvedValue(null);
+
+      // Must not throw: a non-200 makes GHN retry 10x for an order we will never know.
+      await expect(
+        service.handleGhnWebhook('shh', BODY, BODY),
+      ).resolves.toBeUndefined();
+      expect(eventRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('stores the full raw payload, not the whitelisted DTO', async () => {
+      deliveryRepo.findOne.mockResolvedValue({
+        id: 'd1',
+        orderId: 'o1',
+        lastStatusAt: null,
+      });
+      const raw = { ...BODY, CODAmount: 0, TotalFee: 32000, Weight: 400 };
+
+      await service.handleGhnWebhook('shh', BODY, raw);
+
+      expect(eventRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ rawWebhook: raw }),
+      );
+    });
+
+    it('stamps shippedAt on the first SHIPPED transition', async () => {
+      deliveryRepo.findOne.mockResolvedValue({
+        id: 'd1',
+        orderId: 'o1',
+        lastStatusAt: null,
+        shippedAt: null,
+      });
+
+      await service.handleGhnWebhook(
+        'shh',
+        { ...BODY, Status: 'picked' },
+        BODY,
+      );
+
+      expect(deliveryRepo.update.mock.calls[0][1].shippedAt).toEqual(
+        new Date('2026-07-16T10:00:00Z'),
+      );
     });
   });
 
-  describe('attachToOrder', () => {
-    it('locks shipping fee and recomputes totalVnd', async () => {
-      orderRepository.findOne
-        .mockResolvedValueOnce({ ...baseOrder })
-        .mockResolvedValueOnce({
-          ...baseOrder,
-          shippingFeeVnd: 30000,
-          totalVnd: 210000,
-        });
+  describe('getDeliveryForUser', () => {
+    it('throws NotFound when the delivery belongs to another customer', async () => {
+      customerRepo.findOne.mockResolvedValue({ id: 'cust-1' });
+      deliveryRepo.findOne.mockResolvedValue(null);
 
-      const result = await service.attachToOrder('user-1', 'order-1', {
-        providerId: 'prov-1',
-        type: DeliveryType.STANDARD,
-        shippingAddress: '123 Nguyen Hue, Q1, HCMC',
+      await expect(
+        service.getDeliveryForUser('user-1', 'order-999'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('scopes the lookup to the calling customer', async () => {
+      customerRepo.findOne.mockResolvedValue({ id: 'cust-1' });
+      deliveryRepo.findOne.mockResolvedValue({
+        id: 'd1',
+        orderId: 'o1',
+        status: DeliveryStatus.DELIVERED,
+        type: 'STANDARD',
+        providerOrderCode: 'FFFNL9HH',
+        shippingFeeVnd: 32000,
+        expectedDeliveryTime: null,
+        shippedAt: null,
+        deliveredAt: null,
+        recipientName: 'Nguyen Van A',
+        streetAddress: '123 Le Loi',
+        statusEvents: [
+          { providerStatus: 'delivered', occurredAt: new Date('2026-07-16') },
+        ],
       });
 
-      expect(savedDeliveries[0].feeVnd).toBe(30000);
-      expect(savedOrders[0].shippingFeeVnd).toBe(30000);
-      expect(savedOrders[0].totalVnd).toBe(210000);
-      expect(result.shippingFeeVnd).toBe(30000);
-      expect(result.totalVnd).toBe(210000);
+      const result = await service.getDeliveryForUser('user-1', 'o1');
+
+      expect(result.providerOrderCode).toBe('FFFNL9HH');
+      expect(result.statusEvents).toHaveLength(1);
+      // Ownership must be enforced in the query, not filtered after the fact.
+      expect(deliveryRepo.findOne.mock.calls[0][0].where).toMatchObject({
+        orderId: 'o1',
+        order: { customerId: 'cust-1' },
+      });
+    });
+  });
+
+  describe('quoteFeeForCart', () => {
+    it('prices the caller cart using variant weights', async () => {
+      customerRepo.findOne.mockResolvedValue({ id: 'cust-1' });
+      cartService.getCartByCustomerId.mockResolvedValue({
+        source: 'CATALOG',
+        surveyRecommendationId: null,
+        items: [{ productVariantId: 'v1', quantity: 2 }],
+      });
+      variantRepo.find.mockResolvedValue([{ id: 'v1', weightGram: 250 }]);
+
+      const result = await service.quoteFeeForCart('user-1', ADDRESS);
+
+      expect(result).toEqual({ shippingFeeVnd: 32000 });
+      expect(ghn.calculateFee.mock.calls[0][0].weight).toBe(500);
     });
 
-    it('rejects when checkout has started', async () => {
-      orderRepository.findOne.mockResolvedValue({ ...baseOrder });
-      paymentRepository.findOne.mockResolvedValue({
-        id: 'pay-1',
-        status: PaymentStatus.PENDING,
+    it('rejects an empty cart', async () => {
+      customerRepo.findOne.mockResolvedValue({ id: 'cust-1' });
+      cartService.getCartByCustomerId.mockResolvedValue({
+        source: null,
+        surveyRecommendationId: null,
+        items: [],
       });
 
-      await expect(
-        service.attachToOrder('user-1', 'order-1', {
-          providerId: 'prov-1',
-          type: DeliveryType.STANDARD,
-          shippingAddress: '123 Nguyen Hue, Q1, HCMC',
-        }),
-      ).rejects.toBeInstanceOf(BadRequestException);
-    });
-
-    it('rejects non-PENDING orders', async () => {
-      orderRepository.findOne.mockResolvedValue({
-        ...baseOrder,
-        status: OrderStatus.PAID,
-      });
-
-      await expect(
-        service.attachToOrder('user-1', 'order-1', {
-          providerId: 'prov-1',
-          type: DeliveryType.STANDARD,
-          shippingAddress: '123 Nguyen Hue, Q1, HCMC',
-        }),
-      ).rejects.toBeInstanceOf(BadRequestException);
-    });
-
-    it('rejects missing orders', async () => {
-      orderRepository.findOne.mockResolvedValue(null);
-      await expect(
-        service.attachToOrder('user-1', 'missing', {
-          providerId: 'prov-1',
-          type: DeliveryType.STANDARD,
-          shippingAddress: '123 Nguyen Hue, Q1, HCMC',
-        }),
-      ).rejects.toBeInstanceOf(NotFoundException);
-    });
-
-    it('rejects users without a customer profile', async () => {
-      customerRepository.findOne.mockResolvedValue(null);
-      await expect(
-        service.attachToOrder('user-1', 'order-1', {
-          providerId: 'prov-1',
-          type: DeliveryType.STANDARD,
-          shippingAddress: '123 Nguyen Hue, Q1, HCMC',
-        }),
-      ).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.quoteFeeForCart('user-1', ADDRESS)).rejects.toThrow(
+        'Cart is empty',
+      );
     });
   });
 });

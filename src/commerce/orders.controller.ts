@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   HttpCode,
@@ -26,6 +27,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
 import { Role } from '../auth/roles.enum';
+import { CreateOrderDto } from './dto/create-order.dto';
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
 import { OrderResponseDto, PaginatedOrdersDto } from './dto/order-response.dto';
 import { OrdersService } from './orders.service';
@@ -45,12 +47,17 @@ export class OrdersController {
   @ApiOperation({
     summary: 'Create a PENDING order from the current cart',
     description:
-      'SURVEY carts validate recommended products and apply a combo discount when all ' +
-      'recommended variants are included. CATALOG carts create a normal e-commerce order.',
+      'Requires a shipping address: the GHN fee is quoted from it, stored on the order, ' +
+      'and included in totalVnd (which is what checkout charges). SURVEY carts validate ' +
+      'recommended products and apply a combo discount when all recommended variants are ' +
+      'included. CATALOG carts create a normal e-commerce order.',
   })
   @ApiCreatedResponse({ type: OrderResponseDto })
-  create(@Req() req: Request): Promise<OrderResponseDto> {
-    return this.ordersService.createFromCart(this.requireUserId(req));
+  create(
+    @Req() req: Request,
+    @Body() dto: CreateOrderDto,
+  ): Promise<OrderResponseDto> {
+    return this.ordersService.createFromCart(this.requireUserId(req), dto);
   }
 
   @Get()

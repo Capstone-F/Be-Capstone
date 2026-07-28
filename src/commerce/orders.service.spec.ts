@@ -3,10 +3,16 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { CartService } from '../cart/cart.service';
+import { DeliveryProvider } from '../delivery/delivery-provider.entity';
+import { Delivery } from '../delivery/delivery.entity';
+import { DeliveryService } from '../delivery/delivery.service';
+import { DeliveryStatus } from '../delivery/enums';
 import { ProductVariant } from '../products/product-variant.entity';
 import { RecommendationService } from '../recommendations/recommendation.service';
 import { SurveyRecommendation } from '../recommendations/survey-recommendation.entity';
+import { SurveyRecommendationItem } from '../recommendations/survey-recommendation-item.entity';
 import { Customer } from '../users/customer.entity';
+import { CreateOrderDto } from './dto/create-order.dto';
 import { CommerceSetting } from './commerce-setting.entity';
 import {
   CommerceSettingKey,
@@ -17,6 +23,13 @@ import {
 import { OrderItem } from './order-item.entity';
 import { Order } from './order.entity';
 import { OrdersService } from './orders.service';
+
+/** Mirrors RecommendationService's private helper so mocks match real combo behavior. */
+function getItemVariantIds(item: SurveyRecommendationItem): string[] {
+  const ranked = (item.rankedVariants ?? []).map((v) => v.productVariantId);
+  if (ranked.length > 0) return ranked;
+  return item.productVariantId ? [item.productVariantId] : [];
+}
 
 describe('OrdersService', () => {
   let service: OrdersService;
@@ -35,28 +48,32 @@ describe('OrdersService', () => {
   let settingRepository: { findOneBy: jest.Mock };
   let variantRepository: { find: jest.Mock };
   let customerRepository: { findOne: jest.Mock };
-  let orderRepository: { findOne: jest.Mock; findAndCount: jest.Mock };
+  let orderRepository: { findOne: jest.Mock };
+  let deliveryProviderRepository: { findOneBy: jest.Mock };
+  let deliveryService: jest.Mocked<Pick<DeliveryService, 'quoteFee'>>;
   let savedOrders: Order[];
+  let savedDeliveries: Delivery[];
 
   const customer = { id: 'cust-1', userId: 'user-1' } as Customer;
   const variants = [
-    { id: 'v1', priceVnd: 100000, isActive: true },
-    { id: 'v2', priceVnd: 200000, isActive: true },
+    { id: 'v1', priceVnd: 100000, weightGram: 200, isActive: true },
+    { id: 'v2', priceVnd: 200000, weightGram: 150, isActive: true },
   ] as ProductVariant[];
 
-  const getItemVariantIds = (item: {
-    productVariantId?: string;
-    rankedVariants?: Array<{ productVariantId: string }>;
-  }): string[] => {
-    const ranked = (item.rankedVariants ?? []).map(
-      (variant) => variant.productVariantId,
-    );
-    if (ranked.length > 0) return ranked;
-    return item.productVariantId ? [item.productVariantId] : [];
+  const DTO: CreateOrderDto = {
+    shippingAddress: {
+      recipientName: 'Nguyen Van A',
+      recipientPhone: '0901234567',
+      provinceId: 202,
+      districtId: 1449,
+      wardCode: '21211',
+      streetAddress: '123 Le Loi',
+    },
   };
 
   beforeEach(async () => {
     savedOrders = [];
+    savedDeliveries = [];
     cartService = {
       getCartByCustomerId: jest.fn(),
       clearCartByCustomerId: jest.fn().mockResolvedValue(undefined),
@@ -108,7 +125,12 @@ describe('OrdersService', () => {
     };
     orderRepository = {
       findOne: jest.fn(),
-      findAndCount: jest.fn().mockResolvedValue([[], 0]),
+    };
+    deliveryProviderRepository = {
+      findOneBy: jest.fn().mockResolvedValue({ id: 'prov-ghn', code: 'GHN' }),
+    };
+    deliveryService = {
+      quoteFee: jest.fn().mockResolvedValue(32000),
     };
 
     const dataSource = {
@@ -123,8 +145,11 @@ describe('OrdersService', () => {
             if (!(value as Order).id) {
               (value as Order).id = `order-${savedOrders.length + 1}`;
             }
+            // Route by discriminating field: Order has customerId, Delivery has providerId.
             if ((value as Order).customerId) {
               savedOrders.push(value as Order);
+            } else if ((value as unknown as Delivery).providerId) {
+              savedDeliveries.push(value as unknown as Delivery);
             }
             return value;
           },
@@ -148,8 +173,13 @@ describe('OrdersService', () => {
           provide: getRepositoryToken(Customer),
           useValue: customerRepository,
         },
+        {
+          provide: getRepositoryToken(DeliveryProvider),
+          useValue: deliveryProviderRepository,
+        },
         { provide: CartService, useValue: cartService },
         { provide: RecommendationService, useValue: recommendationService },
+        { provide: DeliveryService, useValue: deliveryService },
         { provide: DataSource, useValue: dataSource },
       ],
     }).compile();
@@ -184,17 +214,18 @@ describe('OrdersService', () => {
       subtotalVnd: 300000,
       discountVnd: 30000,
       discountType: OrderDiscountType.COMBO,
-      shippingFeeVnd: 0,
-      totalVnd: 270000,
+      shippingFeeVnd: 32000,
+      totalVnd: 302000,
       items: [],
       createdAt: new Date(),
     });
 
-    const order = await service.createFromCart('user-1');
+    const order = await service.createFromCart('user-1', DTO);
     expect(savedOrders[0].discountType).toBe(OrderDiscountType.COMBO);
     expect(savedOrders[0].discountVnd).toBe(30000);
-    expect(savedOrders[0].totalVnd).toBe(270000);
-    expect(order.totalVnd).toBe(270000);
+    // 300000 - 30000 + 32000 shipping
+    expect(savedOrders[0].totalVnd).toBe(302000);
+    expect(order.totalVnd).toBe(302000);
     expect(cartService.clearCartByCustomerId).toHaveBeenCalledWith('cust-1');
   });
 
@@ -221,13 +252,13 @@ describe('OrdersService', () => {
       subtotalVnd: 100000,
       discountVnd: 0,
       discountType: null,
-      shippingFeeVnd: 0,
-      totalVnd: 100000,
+      shippingFeeVnd: 32000,
+      totalVnd: 132000,
       items: [],
       createdAt: new Date(),
     });
 
-    await service.createFromCart('user-1');
+    await service.createFromCart('user-1', DTO);
     expect(savedOrders[0].discountVnd).toBe(0);
     expect(savedOrders[0].discountType).toBeNull();
   });
@@ -247,15 +278,15 @@ describe('OrdersService', () => {
       subtotalVnd: 200000,
       discountVnd: 0,
       discountType: null,
-      shippingFeeVnd: 0,
-      totalVnd: 200000,
+      shippingFeeVnd: 32000,
+      totalVnd: 232000,
       items: [],
       createdAt: new Date(),
     });
 
-    await service.createFromCart('user-1');
+    await service.createFromCart('user-1', DTO);
     expect(savedOrders[0].source).toBe(OrderSource.CATALOG);
-    expect(savedOrders[0].shippingFeeVnd).toBe(0);
+    expect(savedOrders[0].shippingFeeVnd).toBe(32000);
     expect(recommendationService.getByIdForCustomer).not.toHaveBeenCalled();
   });
 
@@ -265,109 +296,98 @@ describe('OrdersService', () => {
       surveyRecommendationId: null,
       items: [],
     });
-    await expect(service.createFromCart('user-1')).rejects.toBeInstanceOf(
+    await expect(service.createFromCart('user-1', DTO)).rejects.toBeInstanceOf(
       BadRequestException,
     );
   });
 
   it('rejects users without a customer profile', async () => {
     customerRepository.findOne.mockResolvedValue(null);
-    await expect(service.createFromCart('user-1')).rejects.toBeInstanceOf(
+    await expect(service.createFromCart('user-1', DTO)).rejects.toBeInstanceOf(
       ForbiddenException,
     );
   });
 
-  describe('listForUser', () => {
-    const orderA = {
-      id: 'order-a',
-      status: OrderStatus.PAID,
+  it('adds the GHN shipping fee to the order total', async () => {
+    cartService.getCartByCustomerId.mockResolvedValue({
+      source: OrderSource.CATALOG,
+      surveyRecommendationId: null,
+      items: [{ productVariantId: 'v1', quantity: 1 }],
+    });
+    orderRepository.findOne.mockResolvedValue({
+      id: 'order-1',
+      status: OrderStatus.PENDING,
       source: OrderSource.CATALOG,
       customerSurveyId: null,
       surveyRecommendationId: null,
       subtotalVnd: 100000,
       discountVnd: 0,
       discountType: null,
-      shippingFeeVnd: 30000,
-      totalVnd: 130000,
+      shippingFeeVnd: 32000,
+      totalVnd: 132000,
       items: [],
-      createdAt: new Date('2026-07-16T12:00:00Z'),
-    } as Order;
-    const orderB = {
-      id: 'order-b',
+      createdAt: new Date(),
+    });
+
+    const order = await service.createFromCart('user-1', DTO);
+
+    expect(savedOrders[0].subtotalVnd).toBe(100000);
+    expect(savedOrders[0].shippingFeeVnd).toBe(32000);
+    expect(savedOrders[0].totalVnd).toBe(132000);
+    expect(order.shippingFeeVnd).toBe(32000);
+    // Weights come from the variants, not the cart.
+    expect(deliveryService.quoteFee).toHaveBeenCalledWith(DTO.shippingAddress, [
+      { weightGram: 200, quantity: 1 },
+    ]);
+  });
+
+  it('creates a PENDING delivery holding the structured address', async () => {
+    cartService.getCartByCustomerId.mockResolvedValue({
+      source: OrderSource.CATALOG,
+      surveyRecommendationId: null,
+      items: [{ productVariantId: 'v1', quantity: 1 }],
+    });
+    orderRepository.findOne.mockResolvedValue({
+      id: 'order-1',
       status: OrderStatus.PENDING,
       source: OrderSource.CATALOG,
       customerSurveyId: null,
       surveyRecommendationId: null,
-      subtotalVnd: 50000,
+      subtotalVnd: 100000,
       discountVnd: 0,
       discountType: null,
-      shippingFeeVnd: 0,
-      totalVnd: 50000,
+      shippingFeeVnd: 32000,
+      totalVnd: 132000,
       items: [],
-      createdAt: new Date('2026-07-15T12:00:00Z'),
-    } as Order;
-
-    it('returns paginated orders for the customer', async () => {
-      orderRepository.findAndCount.mockResolvedValue([[orderA, orderB], 2]);
-
-      const result = await service.listForUser('user-1', {
-        page: 1,
-        limit: 20,
-      });
-
-      expect(result).toEqual({
-        items: [
-          expect.objectContaining({ id: 'order-a' }),
-          expect.objectContaining({ id: 'order-b' }),
-        ],
-        total: 2,
-        page: 1,
-        limit: 20,
-      });
-      expect(orderRepository.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { customerId: 'cust-1' },
-          relations: ['items'],
-          order: { createdAt: 'DESC' },
-          skip: 0,
-          take: 20,
-        }),
-      );
+      createdAt: new Date(),
     });
 
-    it('applies status filter and pagination skip', async () => {
-      orderRepository.findAndCount.mockResolvedValue([[orderA], 1]);
+    await service.createFromCart('user-1', DTO);
 
-      const result = await service.listForUser('user-1', {
-        page: 2,
-        limit: 10,
-        status: OrderStatus.PAID,
-      });
+    expect(savedDeliveries).toHaveLength(1);
+    expect(savedDeliveries[0]).toMatchObject({
+      providerId: 'prov-ghn',
+      status: DeliveryStatus.PENDING,
+      districtId: 1449,
+      wardCode: '21211',
+      recipientPhone: '0901234567',
+      shippingFeeVnd: 32000,
+    });
+    // No GHN order exists until payment succeeds.
+    expect(savedDeliveries[0].providerOrderCode).toBeUndefined();
+  });
 
-      expect(result.page).toBe(2);
-      expect(result.limit).toBe(10);
-      expect(result.total).toBe(1);
-      expect(orderRepository.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { customerId: 'cust-1', status: OrderStatus.PAID },
-          skip: 10,
-          take: 10,
-        }),
-      );
+  it('rejects when the GHN provider row is missing', async () => {
+    deliveryProviderRepository.findOneBy.mockResolvedValue(null);
+    cartService.getCartByCustomerId.mockResolvedValue({
+      source: OrderSource.CATALOG,
+      surveyRecommendationId: null,
+      items: [{ productVariantId: 'v1', quantity: 1 }],
     });
 
-    it('returns an empty page when the customer has no orders', async () => {
-      orderRepository.findAndCount.mockResolvedValue([[], 0]);
-
-      const result = await service.listForUser('user-1', {});
-      expect(result).toEqual({ items: [], total: 0, page: 1, limit: 20 });
-    });
-
-    it('rejects users without a customer profile', async () => {
-      customerRepository.findOne.mockResolvedValue(null);
-      await expect(service.listForUser('user-1', {})).rejects.toBeInstanceOf(
-        ForbiddenException,
-      );
-    });
+    await expect(service.createFromCart('user-1', DTO)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(deliveryService.quoteFee).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { DeliveryStatus, DeliveryType } from '../enums';
 
+export class DeliveryStatusEventDto {
+  @ApiProperty({ description: 'Raw GHN status, e.g. delivering.' })
+  providerStatus!: string;
+
+  @ApiProperty()
+  occurredAt!: Date;
+}
+
 export class DeliveryResponseDto {
   @ApiProperty()
   id!: string;
@@ -8,29 +16,23 @@ export class DeliveryResponseDto {
   @ApiProperty()
   orderId!: string;
 
-  @ApiProperty()
-  providerId!: string;
-
-  @ApiPropertyOptional({ example: 'GHN' })
-  providerCode!: string | null;
-
-  @ApiPropertyOptional({ example: 'Giao Hàng Nhanh' })
-  providerName!: string | null;
+  @ApiProperty({ enum: DeliveryStatus })
+  status!: DeliveryStatus;
 
   @ApiProperty({ enum: DeliveryType })
   type!: DeliveryType;
 
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'GHN order_code. Null until payment succeeds.',
+  })
+  providerOrderCode!: string | null;
+
   @ApiProperty()
-  shippingAddress!: string;
-
-  @ApiProperty({ example: 30000 })
-  feeVnd!: number;
-
-  @ApiProperty({ enum: DeliveryStatus })
-  status!: DeliveryStatus;
+  shippingFeeVnd!: number;
 
   @ApiPropertyOptional({ nullable: true })
-  trackingNumber!: string | null;
+  expectedDeliveryTime!: Date | null;
 
   @ApiPropertyOptional({ nullable: true })
   shippedAt!: Date | null;
@@ -38,6 +40,15 @@ export class DeliveryResponseDto {
   @ApiPropertyOptional({ nullable: true })
   deliveredAt!: Date | null;
 
-  @ApiProperty()
-  createdAt!: Date;
+  @ApiPropertyOptional({ nullable: true })
+  recipientName!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  streetAddress!: string | null;
+
+  @ApiProperty({
+    type: [DeliveryStatusEventDto],
+    description: 'Tracking history.',
+  })
+  statusEvents!: DeliveryStatusEventDto[];
 }

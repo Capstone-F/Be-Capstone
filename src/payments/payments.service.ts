@@ -21,6 +21,7 @@ import type { IpnResponse, ReturnQueryFromVNPay } from 'vnpay';
 import { AppConfigService } from '../config/config.service';
 import { Order } from '../commerce/order.entity';
 import { OrderStatus } from '../commerce/enums';
+import { DeliveryService } from '../delivery/delivery.service';
 import { StockService } from '../stock/stock.service';
 import { Customer } from '../users/customer.entity';
 import { CheckoutDto } from './dto/checkout.dto';
@@ -64,6 +65,7 @@ export class PaymentsService {
     private readonly config: AppConfigService,
     private readonly dataSource: DataSource,
     private readonly stockService: StockService,
+    private readonly deliveryService: DeliveryService,
   ) {}
 
   /** Create (or reuse) a Payment for a PENDING order and return a gateway payment URL. */
@@ -300,7 +302,7 @@ export class PaymentsService {
 
   /**
    * Shared idempotent finalize used by VNPay IPN and mock complete.
-   * On first successful apply: payment PAID, order PAID, then stock deduct.
+   * On first successful apply: payment PAID, order PAID, then post-payment side effects.
    */
   private async finalizeAttemptFromProviderResult(
     verify: ProviderVerifyResult,
@@ -382,10 +384,52 @@ export class PaymentsService {
     }
 
     if (success) {
-      await this.deductStockForPaidPayment(attempt.paymentId);
+      await this.runPostPaymentSideEffects(attempt.paymentId);
     }
 
     return { kind: 'applied', success };
+  }
+
+  /**
+   * Stock deduction + GHN handover, each isolated so one failing cannot skip the other
+   * or reach the finalize/IPN catch. Collaborators are expected to handle their own errors;
+   * this is defence in depth, not a substitute for that.
+   */
+  private async runPostPaymentSideEffects(paymentId: string): Promise<void> {
+    await this.safely('stock deduction', paymentId, () =>
+      this.deductStockForPaidPayment(paymentId),
+    );
+    await this.safely('GHN delivery creation', paymentId, () =>
+      this.createDeliveryForPaidPayment(paymentId),
+    );
+  }
+
+  private async safely(
+    label: string,
+    paymentId: string,
+    run: () => Promise<void>,
+  ): Promise<void> {
+    try {
+      await run();
+    } catch (error) {
+      this.logger.error(
+        `${label} failed for payment=${paymentId} (payment is still confirmed): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+  }
+
+  /** Hands the paid order to GHN. Runs after the IPN's idempotency gate, so at most once. */
+  private async createDeliveryForPaidPayment(paymentId: string): Promise<void> {
+    const payment = await this.paymentRepo.findOne({
+      where: { id: paymentId },
+    });
+    if (!payment) {
+      return;
+    }
+    await this.deliveryService.createGhnOrderForPaidOrder(payment.orderId);
   }
 
   private async deductStockForPaidPayment(paymentId: string): Promise<void> {

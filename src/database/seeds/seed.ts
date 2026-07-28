@@ -28,6 +28,7 @@ import {
 import { StockBatch } from '../../stock/stock-batch.entity';
 import { ProductInstance } from '../../stock/product-instance.entity';
 import { StockMovement } from '../../stock/stock-movement.entity';
+import { DEFAULT_ITEM_WEIGHT_GRAM } from '../../delivery/ghn.constants';
 import {
   Question,
   QuestionAskWhen,
@@ -41,8 +42,6 @@ import {
   OrderStatus,
 } from '../../commerce/enums';
 import { DeliveryProvider } from '../../delivery/delivery-provider.entity';
-import { DeliveryFee } from '../../delivery/delivery-fee.entity';
-import { DeliveryType } from '../../delivery/enums';
 import { SupportHabit } from '../../routines/support-habit.entity';
 import { SupportHabitType } from '../../routines/enums';
 import { Clinic } from '../../clinics/clinic.entity';
@@ -99,8 +98,28 @@ type ProductSeed = {
   priceVnd: number;
   shelfLifeValue?: number;
   shelfLifeUnit?: ShelfLifeUnit;
+  /** Parcel weight in grams. Defaults to a value derived from `volume`. */
+  weightGram?: number;
   ingredients: ProductIngredientSeed[];
 };
+
+/** Packaging (bottle, pump, box) on top of the product's own volume. */
+const PACKAGING_WEIGHT_GRAM = 40;
+
+/**
+ * Approximates shipping weight from a volume string like '236ml', treating 1ml as 1g
+ * and adding packaging. Good enough for a GHN fee quote; set `weightGram` on the seed
+ * to override for anything unusual.
+ */
+function deriveWeightGram(seed: ProductSeed): number {
+  if (seed.weightGram) {
+    return seed.weightGram;
+  }
+  const ml = Number.parseFloat(seed.volume ?? '');
+  return Number.isFinite(ml) && ml > 0
+    ? Math.round(ml) + PACKAGING_WEIGHT_GRAM
+    : DEFAULT_ITEM_WEIGHT_GRAM;
+}
 
 const LABEL_CATEGORIES: LabelCategorySeed[] = [
   {
@@ -1045,12 +1064,6 @@ const DELIVERY_PROVIDERS = [
   { code: 'JT_EXPRESS', name: 'J&T Express' },
 ];
 
-const DELIVERY_FEE_BY_TYPE: Record<DeliveryType, number> = {
-  [DeliveryType.STANDARD]: 30000,
-  [DeliveryType.EXPRESS]: 50000,
-  [DeliveryType.SAME_DAY]: 80000,
-};
-
 const SUPPORT_HABITS = [
   {
     code: 'face_yoga',
@@ -1795,6 +1808,7 @@ async function upsertProductWithVariant(
     variant.priceVnd = seed.priceVnd;
     variant.shelfLifeValue = seed.shelfLifeValue ?? 365;
     variant.shelfLifeUnit = seed.shelfLifeUnit ?? ShelfLifeUnit.DAY;
+    variant.weightGram = deriveWeightGram(seed);
     variant.isActive = true;
     await variantRepo.save(variant);
   } else {
@@ -1817,6 +1831,7 @@ async function upsertProductWithVariant(
         priceVnd: seed.priceVnd,
         shelfLifeValue: seed.shelfLifeValue ?? 365,
         shelfLifeUnit: seed.shelfLifeUnit ?? ShelfLifeUnit.DAY,
+        weightGram: deriveWeightGram(seed),
         isActive: true,
       }),
     );
@@ -1865,7 +1880,6 @@ async function seed(): Promise<void> {
   const questionOptionRepo = AppDataSource.getRepository(QuestionOption);
   const commerceSettingRepo = AppDataSource.getRepository(CommerceSetting);
   const deliveryProviderRepo = AppDataSource.getRepository(DeliveryProvider);
-  const deliveryFeeRepo = AppDataSource.getRepository(DeliveryFee);
   const supportHabitRepo = AppDataSource.getRepository(SupportHabit);
   const ingredientRepo = AppDataSource.getRepository(Ingredient);
   const protocolRepo = AppDataSource.getRepository(IngredientProtocol);
@@ -1909,26 +1923,6 @@ async function seed(): Promise<void> {
       await deliveryProviderRepo.save(
         deliveryProviderRepo.create({ ...dp, isActive: true }),
       );
-    }
-  }
-
-  const providers = await deliveryProviderRepo.find();
-  for (const provider of providers) {
-    for (const type of Object.values(DeliveryType)) {
-      const existingFee = await deliveryFeeRepo.findOneBy({
-        providerId: provider.id,
-        type,
-      });
-      if (!existingFee) {
-        await deliveryFeeRepo.save(
-          deliveryFeeRepo.create({
-            providerId: provider.id,
-            type,
-            feeVnd: DELIVERY_FEE_BY_TYPE[type],
-            isActive: true,
-          }),
-        );
-      }
     }
   }
 
