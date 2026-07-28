@@ -319,13 +319,13 @@ export class UsersService {
       firstName,
       lastName,
       enabled: true,
-      emailVerified: false,
-      requiredActions: ['UPDATE_PASSWORD', 'VERIFY_EMAIL'],
+      emailVerified: true,
+      requiredActions: [],
       credentials: [
         {
           type: 'password',
           value: input.temporaryPassword,
-          temporary: true,
+          temporary: false,
         },
       ],
       attributes: clinicId ? { clinicId: [clinicId] } : undefined,
