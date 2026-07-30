@@ -58,6 +58,7 @@ import { StockModule } from '../src/stock/stock.module';
 import { ProductsModule } from '../src/products/products.module';
 import { ExpertsModule } from '../src/experts/experts.module';
 import { BookingsModule } from '../src/bookings/bookings.module';
+import { ConsultationsModule } from '../src/consultations/consultations.module';
 import { ExpertAvailability } from '../src/bookings/expert-availability.entity';
 import { ConsultationRequest } from '../src/consultations/consultation-request.entity';
 import {
@@ -104,6 +105,8 @@ const TEST_CONFIG: Record<string, unknown> = {
   mobileRedirectUris: ['glowscan://auth/callback'],
   mobileAuthCodeTtlSeconds: 120,
   mobileOauthStateTtlSeconds: 600,
+  zegoAppId: '123456',
+  zegoServerSecret: 'abcdefghijklmnopqrstuvwxyz123456',
   paymentProvider: 'mock',
   paymentConfig: {
     tmnCode: 'E2ETMN01',
@@ -147,6 +150,7 @@ describe('BE Capstone API (e2e)', () => {
         ProductsModule,
         ExpertsModule,
         BookingsModule,
+        ConsultationsModule,
         TypeOrmModule.forRoot(e2eTypeOrmConfig),
       ],
       controllers: [AppController, HealthController],
@@ -3360,6 +3364,146 @@ describe('BE Capstone API (e2e)', () => {
           .set('Cookie', sid)
           .send({ rating: 5 })
           .expect(400);
+      });
+    });
+
+    describe('consultation real-time token endpoints', () => {
+      async function seedRealtimeConsultation(): Promise<{
+        consultation: ConsultationRequest;
+        customerUser: User;
+        expertUser: User;
+      }> {
+        const expert = await seedExpertForBookings({
+          name: 'Dr. Realtime Expert',
+        });
+        const expertUser = await dataSource
+          .getRepository(User)
+          .findOneByOrFail({ id: expert.userId });
+        const customerUser = await seedUser({
+          keycloakSub: `kc-realtime-customer-${Math.random()
+            .toString(36)
+            .slice(2)}`,
+          email: `realtime-customer-${Math.random()
+            .toString(36)
+            .slice(2)}@example.com`,
+          name: 'Realtime Customer',
+          roles: [Role.Customer],
+        });
+        const customer = await dataSource
+          .getRepository(Customer)
+          .save(
+            dataSource
+              .getRepository(Customer)
+              .create({ userId: customerUser.id }),
+          );
+        const consultation = await dataSource
+          .getRepository(ConsultationRequest)
+          .save(
+            dataSource.getRepository(ConsultationRequest).create({
+              customerId: customer.id,
+              expertId: expert.id,
+              reason: 'Realtime consultation',
+              status: ConsultationStatus.CONFIRMED,
+              scheduledAt: new Date('2030-07-01T09:00:00.000Z'),
+            }),
+          );
+
+        return { consultation, customerUser, expertUser };
+      }
+
+      it('should return 401 without authentication', async () => {
+        await request(app.getHttpServer())
+          .get('/consultations/00000000-0000-4000-8000-000000000001/chat-token')
+          .expect(401);
+      });
+
+      it('should issue video and chat tokens with the expert peer for the customer', async () => {
+        const { consultation, customerUser, expertUser } =
+          await seedRealtimeConsultation();
+        const sid = await performMockLogin({
+          userId: customerUser.id,
+          keycloakSub: customerUser.keycloakSub,
+          roles: [Role.Customer],
+        });
+
+        const video = await request(app.getHttpServer())
+          .get(`/consultations/${consultation.id}/video-token`)
+          .set('Cookie', sid)
+          .expect(200);
+
+        expect(video.body).toEqual({
+          appID: 123456,
+          token: expect.stringMatching(/^04/),
+          roomID: `consult_${consultation.id}`,
+          userID: customerUser.id,
+          userName: 'Realtime Customer',
+        });
+
+        const chat = await request(app.getHttpServer())
+          .get(`/consultations/${consultation.id}/chat-token`)
+          .set('Cookie', sid)
+          .expect(200);
+
+        expect(chat.body).toEqual({
+          appID: 123456,
+          token: expect.stringMatching(/^04/),
+          userID: customerUser.id,
+          userName: 'Realtime Customer',
+          peerUserID: expertUser.id,
+          peerUserName: 'Dr. Realtime Expert',
+        });
+      });
+
+      it('should resolve the customer as the chat peer for the expert', async () => {
+        const { consultation, customerUser, expertUser } =
+          await seedRealtimeConsultation();
+        const sid = await performMockLogin({
+          userId: expertUser.id,
+          keycloakSub: expertUser.keycloakSub,
+          roles: [Role.Expert],
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .get(`/consultations/${consultation.id}/chat-token`)
+          .set('Cookie', sid)
+          .expect(200);
+
+        expect(body.userID).toBe(expertUser.id);
+        expect(body.userName).toBe('Dr. Realtime Expert');
+        expect(body.peerUserID).toBe(customerUser.id);
+        expect(body.peerUserName).toBe('Realtime Customer');
+        expect(body.token).toMatch(/^04/);
+      });
+
+      it('should forbid a user who is not on the booking', async () => {
+        const { consultation } = await seedRealtimeConsultation();
+        const outsider = await seedUser({
+          keycloakSub: `kc-realtime-outsider-${Math.random()
+            .toString(36)
+            .slice(2)}`,
+          email: `realtime-outsider-${Math.random()
+            .toString(36)
+            .slice(2)}@example.com`,
+          name: 'Realtime Outsider',
+          roles: [Role.Customer],
+        });
+        const sid = await performMockLogin({
+          userId: outsider.id,
+          keycloakSub: outsider.keycloakSub,
+          roles: [Role.Customer],
+        });
+
+        await request(app.getHttpServer())
+          .get(`/consultations/${consultation.id}/chat-token`)
+          .set('Cookie', sid)
+          .expect(403);
+      });
+
+      it('should return 404 when the booking does not exist', async () => {
+        await request(app.getHttpServer())
+          .get('/consultations/00000000-0000-4000-8000-000000000099/chat-token')
+          .set('Cookie', customerSid)
+          .expect(404);
       });
     });
   });
