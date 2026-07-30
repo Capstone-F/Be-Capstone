@@ -68,7 +68,11 @@ export class TreatmentsController {
   @Post()
   @Roles(Role.Expert)
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Create a DRAFT treatment plan' })
+  @ApiOperation({
+    summary: 'Create a DRAFT treatment plan',
+    description:
+      'Typically created during an IN_PROGRESS consultation after video/chat intake. Optional sourceConsultationId must be IN_PROGRESS or COMPLETED.',
+  })
   @ApiCreatedResponse({ type: TreatmentResponseDto })
   create(@Req() req: Request, @Body() dto: CreateTreatmentDto) {
     return this.treatmentsService.createTreatment(this.requireUserId(req), dto);
