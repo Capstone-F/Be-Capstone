@@ -159,6 +159,7 @@ export class ExpertsService {
       specialization: dto.specialization,
       licenseNumber: dto.licenseNumber?.trim() || null,
       bio: dto.bio?.trim() || null,
+      avatarUrl: dto.avatarUrl?.trim() || null,
       consultationFee: dto.consultationFee ?? 0,
       sessionLengthHours: dto.sessionLengthHours ?? 1,
       isActive,
@@ -201,6 +202,9 @@ export class ExpertsService {
     if (dto.bio !== undefined) {
       expert.bio = dto.bio?.trim() || null;
     }
+    if (dto.avatarUrl !== undefined) {
+      expert.avatarUrl = dto.avatarUrl?.trim() || null;
+    }
     if (dto.consultationFee !== undefined) {
       expert.consultationFee = dto.consultationFee;
     }
@@ -226,6 +230,25 @@ export class ExpertsService {
     }
 
     const reloaded = await this.requireExpert(id);
+    return this.toResponse(reloaded, null);
+  }
+
+  async updateOwnAvatar(
+    userId: string,
+    avatarUrl: string,
+  ): Promise<ExpertResponseDto> {
+    const expert = await this.expertRepository.findOne({
+      where: { userId },
+      relations: ['user', 'clinic'],
+    });
+    if (!expert) {
+      throw new NotFoundException('Expert profile not found for current user');
+    }
+
+    expert.avatarUrl = avatarUrl.trim();
+    await this.expertRepository.save(expert);
+
+    const reloaded = await this.requireExpert(expert.id);
     return this.toResponse(reloaded, null);
   }
 
@@ -384,6 +407,7 @@ export class ExpertsService {
       specialization: expert.specialization,
       licenseNumber: expert.licenseNumber,
       bio: expert.bio,
+      avatarUrl: expert.avatarUrl ?? null,
       rating: Number(expert.rating),
       consultationFee: Number(expert.consultationFee),
       distanceKm,

@@ -57,6 +57,8 @@ import {
 import { StockModule } from '../src/stock/stock.module';
 import { ProductsModule } from '../src/products/products.module';
 import { ExpertsModule } from '../src/experts/experts.module';
+import { UploadsModule } from '../src/uploads/uploads.module';
+import { StorageService } from '../src/uploads/storage.service';
 import { BookingsModule } from '../src/bookings/bookings.module';
 import { ConsultationsModule } from '../src/consultations/consultations.module';
 import { ExpertAvailability } from '../src/bookings/expert-availability.entity';
@@ -151,6 +153,7 @@ describe('BE Capstone API (e2e)', () => {
         ExpertsModule,
         BookingsModule,
         ConsultationsModule,
+        UploadsModule,
         TypeOrmModule.forRoot(e2eTypeOrmConfig),
       ],
       controllers: [AppController, HealthController],
@@ -160,6 +163,14 @@ describe('BE Capstone API (e2e)', () => {
       .useValue(TEST_CONFIG)
       .overrideProvider(REDIS_CLIENT)
       .useValue(createInMemoryRedis())
+      .overrideProvider(StorageService)
+      .useValue({
+        isConfigured: () => true,
+        uploadImage: jest.fn().mockResolvedValue({
+          url: 'https://cdn.example.com/images/e2e.jpg',
+          key: 'images/e2e.jpg',
+        }),
+      })
       .overrideProvider(HealthService)
       .useValue({
         getHealthStatus: () => ({
@@ -1326,6 +1337,26 @@ describe('BE Capstone API (e2e)', () => {
       });
     });
 
+    describe('PATCH /products/variants/:variantId', () => {
+      it('should update variant imageUrl as admin', async () => {
+        const { body: onboarded } = await request(app.getHttpServer())
+          .post('/products')
+          .set('Cookie', adminSid)
+          .send(makeBaseOnboardPayload())
+          .expect(201);
+
+        const variantId = onboarded.product.variants[0].id;
+        const { body } = await request(app.getHttpServer())
+          .patch(`/products/variants/${variantId}`)
+          .set('Cookie', adminSid)
+          .send({ imageUrl: 'https://placehold.co/400' })
+          .expect(200);
+
+        expect(body.id).toBe(variantId);
+        expect(body.imageUrl).toBe('https://placehold.co/400');
+      });
+    });
+
     describe('GET /products', () => {
       it('should return paginated products without authentication', async () => {
         await onboardProductViaHttp(adminSid);
@@ -2166,6 +2197,73 @@ describe('BE Capstone API (e2e)', () => {
         expect(body.clinic.address).toBe('Patch Address');
         expect(body.bio).toBe('Updated bio');
       });
+
+      it('should update expert avatarUrl via PATCH', async () => {
+        const expert = await seedExpert({ name: 'Avatar Expert' });
+
+        const { body } = await request(app.getHttpServer())
+          .patch(`/experts/${expert.id}`)
+          .set('Cookie', adminSid)
+          .send({ avatarUrl: 'https://placehold.co/400' })
+          .expect(200);
+
+        expect(body.avatarUrl).toBe('https://placehold.co/400');
+      });
+
+      it('should allow expert to update own avatar via PATCH /experts/me', async () => {
+        const expert = await seedExpert({ name: 'Self Avatar Expert' });
+        const expertSid = await performMockLogin({
+          userId: expert.userId,
+          keycloakSub: `kc-self-avatar-${Math.random().toString(36).slice(2)}`,
+          roles: [Role.Expert],
+        });
+
+        const { body } = await request(app.getHttpServer())
+          .patch('/experts/me')
+          .set('Cookie', expertSid)
+          .send({ avatarUrl: 'https://placehold.co/400' })
+          .expect(200);
+
+        expect(body.id).toBe(expert.id);
+        expect(body.avatarUrl).toBe('https://placehold.co/400');
+      });
+    });
+  });
+
+  describe('Uploads module endpoints', () => {
+    it('should upload an image for any authenticated user', async () => {
+      const customerSid = await performMockLogin({
+        userId: 'customer-uploads-e2e',
+        keycloakSub: 'kc-customer-uploads-e2e',
+        roles: [Role.Customer],
+      });
+      jest
+        .spyOn(authService, 'refreshTokenIfNeeded')
+        .mockResolvedValue(undefined);
+
+      const { body } = await request(app.getHttpServer())
+        .post('/uploads/images')
+        .set('Cookie', customerSid)
+        .attach('file', Buffer.from('fake-image'), {
+          filename: 'photo.jpg',
+          contentType: 'image/jpeg',
+        })
+        .expect(200);
+
+      expect(body).toEqual({
+        url: 'https://cdn.example.com/images/e2e.jpg',
+        key: 'images/e2e.jpg',
+      });
+    });
+
+    it('should return 401 without authentication', async () => {
+      await request(app.getHttpServer())
+        .post('/uploads/images')
+        .attach('file', Buffer.from('fake-image'), {
+          filename: 'photo.jpg',
+          contentType: 'image/jpeg',
+        })
+        .expect(401);
     });
   });
 

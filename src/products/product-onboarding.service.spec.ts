@@ -104,6 +104,7 @@ describe('ProductOnboardingService', () => {
       expect.objectContaining({
         sku: baseDto.sku,
         priceVnd: baseDto.priceVnd,
+        imageUrl: null,
       }),
     );
     expect(manager.save).toHaveBeenCalledWith(
@@ -112,6 +113,29 @@ describe('ProductOnboardingService', () => {
     );
     expect(productsService.findOne).toHaveBeenCalledWith('product-1');
     expect(result.product.id).toBe('product-1');
+  });
+
+  it('should persist optional imageUrl on the created variant', async () => {
+    const manager = makeManager();
+    const dataSource = {
+      transaction: jest.fn().mockImplementation((cb) => cb(manager)),
+    } as unknown as DataSource;
+    const service = new ProductOnboardingService(
+      dataSource,
+      makeProductsService(),
+    );
+
+    await service.onboard({
+      ...baseDto,
+      imageUrl: 'https://placehold.co/400',
+    });
+
+    expect(manager.create).toHaveBeenCalledWith(
+      ProductVariant,
+      expect.objectContaining({
+        imageUrl: 'https://placehold.co/400',
+      }),
+    );
   });
 
   it('should auto-create only missing ingredients', async () => {

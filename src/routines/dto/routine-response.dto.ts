@@ -13,8 +13,7 @@ export class RoutineStepProductVariantDto {
 
   @ApiPropertyOptional({
     nullable: true,
-    description:
-      'Product image URL when available; currently always null until catalog supports media',
+    description: 'Product variant image URL when available',
   })
   imageUrl!: string | null;
 }

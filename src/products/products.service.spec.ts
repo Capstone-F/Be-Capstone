@@ -27,6 +27,7 @@ const makeProduct = (overrides: Partial<Product> = {}): Product => ({
       packaging: null,
       priceVnd: 650000,
       isActive: true,
+      imageUrl: null,
     } as ProductVariant,
   ],
   productIngredients: [],
@@ -168,6 +169,54 @@ describe('ProductsService', () => {
     );
 
     await expect(service.findOne('missing')).rejects.toThrow(NotFoundException);
+  });
+
+  it('should update variant imageUrl', async () => {
+    const variant = {
+      id: 'variant-1',
+      sku: 'LRP-EFFAC-30',
+      volume: '30ml',
+      packaging: null,
+      priceVnd: 650000,
+      isActive: true,
+      imageUrl: null,
+    };
+    const variantRepo = {
+      findOne: jest.fn().mockResolvedValue(variant),
+      save: jest.fn().mockImplementation(async (v) => v),
+    } as unknown as Repository<ProductVariant>;
+    const service = new ProductsService(
+      {} as Repository<Product>,
+      variantRepo,
+      {} as Repository<ProductIngredient>,
+      {} as Repository<ProductCategory>,
+      ...emptySuggestionDependencies,
+    );
+
+    const result = await service.updateVariantImage(
+      'variant-1',
+      'https://placehold.co/400',
+    );
+
+    expect(result.imageUrl).toBe('https://placehold.co/400');
+    expect(variantRepo.save).toHaveBeenCalled();
+  });
+
+  it('should throw NotFoundException when updating missing variant image', async () => {
+    const variantRepo = {
+      findOne: jest.fn().mockResolvedValue(null),
+    } as unknown as Repository<ProductVariant>;
+    const service = new ProductsService(
+      {} as Repository<Product>,
+      variantRepo,
+      {} as Repository<ProductIngredient>,
+      {} as Repository<ProductCategory>,
+      ...emptySuggestionDependencies,
+    );
+
+    await expect(
+      service.updateVariantImage('missing', 'https://placehold.co/400'),
+    ).rejects.toThrow(NotFoundException);
   });
 
   it('should apply category, brand, and ingredient filters in QueryBuilder', async () => {

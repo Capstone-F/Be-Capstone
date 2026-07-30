@@ -471,9 +471,9 @@ describe('Survey purchase → routine generation (e2e)', () => {
       expect.objectContaining({
         id: expect.any(String),
         name: expect.any(String),
-        imageUrl: null,
       }),
     );
+    expect(step.productVariant).toHaveProperty('imageUrl');
     expect(step).toHaveProperty('waitMinutes');
     expect(step).toHaveProperty('dosageText');
     expect(step).toHaveProperty('amountMl');

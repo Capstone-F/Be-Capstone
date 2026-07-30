@@ -29,6 +29,13 @@ export class ProductVariantResponseDto {
 
   @ApiProperty({ example: true })
   isActive!: boolean;
+
+  @ApiPropertyOptional({
+    example: 'https://placehold.co/400',
+    nullable: true,
+    description: 'Product variant image URL',
+  })
+  imageUrl!: string | null;
 }
 
 export class ProductResponseDto {

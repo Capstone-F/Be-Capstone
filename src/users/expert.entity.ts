@@ -52,6 +52,9 @@ export class Expert {
   @Column({ default: true })
   isActive: boolean;
 
+  @Column({ nullable: true, type: 'varchar' })
+  avatarUrl: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

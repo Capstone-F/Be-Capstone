@@ -59,6 +59,9 @@ export class ProductVariant {
   @Column({ default: true })
   isActive: boolean;
 
+  @Column({ nullable: true, type: 'varchar' })
+  imageUrl: string | null;
+
   @OneToMany(() => StockBatch, (batch) => batch.productVariant)
   batches: StockBatch[];
 

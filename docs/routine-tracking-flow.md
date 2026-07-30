@@ -377,7 +377,7 @@ Returns step outcomes + optional check-in snapshot for that date/period.
             "id": "uuid",
             "name": "Gentle Cleanser",
             "sku": "SKU-1",
-            "imageUrl": null
+            "imageUrl": "https://placehold.co/400"
           },
           "status": "COMPLETED",
           "completedAt": "2026-07-22T03:15:00.000Z",
@@ -467,13 +467,13 @@ EMPTY ──(has ACTIVE)──▶ NOT_STARTED ──(first tick)──▶ IN_PRO
 
 ## 10. Out of scope / later
 
-| Topic                                                     | Status                                  |
-| --------------------------------------------------------- | --------------------------------------- |
-| Cron job to materialize MISSED rows                       | ❌ On-read derivation is enough for MVP |
-| Backdating completions / check-ins                        | ❌ Rejected in MVP                      |
-| Expert override / locked ingredients alerts from check-in | ❌ Treatment module later               |
-| Support habits / reorder forecasts                        | ❌ Schema exists; no tracking APIs yet  |
-| Product images on steps                                   | 🔶 `imageUrl` always `null` for now     |
+| Topic                                                     | Status                                         |
+| --------------------------------------------------------- | ---------------------------------------------- |
+| Cron job to materialize MISSED rows                       | ❌ On-read derivation is enough for MVP        |
+| Backdating completions / check-ins                        | ❌ Rejected in MVP                             |
+| Expert override / locked ingredients alerts from check-in | ❌ Treatment module later                      |
+| Support habits / reorder forecasts                        | ❌ Schema exists; no tracking APIs yet         |
+| Product images on steps                                   | ✅ `imageUrl` from `product_variants.imageUrl` |
 
 ---
 

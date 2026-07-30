@@ -56,17 +56,21 @@ In production, assign roles through the Keycloak Admin Console or the user-manag
 
 Every bookable expert profile (`experts` row) **must** have a non-null `clinicId`. Creating or updating a profile without a clinic is rejected. Booking an expert without a clinic is blocked. List endpoints only return active experts linked to an **active** clinic.
 
-| Method  | Path                   | Roles                     | Description                                       |
-| ------- | ---------------------- | ------------------------- | ------------------------------------------------- |
-| `GET`   | `/clinics`             | Any authenticated         | List active clinics                               |
-| `GET`   | `/clinics/:id`         | Any authenticated         | Clinic profile (name, address, geo)               |
-| `GET`   | `/clinics/:id/experts` | Any authenticated         | Bookable experts in that clinic                   |
-| `GET`   | `/experts`             | Any authenticated         | List active experts (`?clinicId=` supported)      |
-| `GET`   | `/experts/:id`         | Any authenticated         | Expert detail (includes clinic summary)           |
-| `POST`  | `/experts`             | app_admin, clinic_manager | Create expert profile for an existing expert user |
-| `PATCH` | `/experts/:id`         | app_admin, clinic_manager | Update profile (`clinicId` cannot be cleared)     |
+| Method  | Path                   | Roles                     | Description                                                        |
+| ------- | ---------------------- | ------------------------- | ------------------------------------------------------------------ |
+| `GET`   | `/clinics`             | Any authenticated         | List active clinics                                                |
+| `GET`   | `/clinics/:id`         | Any authenticated         | Clinic profile (name, address, geo)                                |
+| `GET`   | `/clinics/:id/experts` | Any authenticated         | Bookable experts in that clinic                                    |
+| `GET`   | `/experts`             | Any authenticated         | List active experts (`?clinicId=` supported)                       |
+| `GET`   | `/experts/:id`         | Any authenticated         | Expert detail (includes clinic summary)                            |
+| `GET`   | `/experts/me`          | expert                    | Own expert profile                                                 |
+| `POST`  | `/experts`             | app_admin, clinic_manager | Create expert profile for an existing expert user                  |
+| `PATCH` | `/experts/:id`         | app_admin, clinic_manager | Update profile (`clinicId` cannot be cleared; may set `avatarUrl`) |
+| `PATCH` | `/experts/me`          | expert                    | Update own `avatarUrl` only                                        |
 
 `POST /users` with `role: expert` still creates the **account** only; call `POST /experts` to attach the clinic-bound consultation profile.
+
+Expert responses include optional `avatarUrl`. Upload images via [uploads.md](uploads.md), then set the URL with `PATCH /experts/:id` or `PATCH /experts/me`.
 
 List/detail responses include:
 

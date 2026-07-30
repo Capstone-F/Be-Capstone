@@ -268,3 +268,13 @@ export class CreateTreatmentEventDto {
   @IsDateString()
   occurredAt?: string;
 }
+
+export class UpdateTreatmentEventPhotoDto {
+  @ApiProperty({
+    example: 'https://placehold.co/400',
+    description:
+      'Progress photo URL (e.g. from POST /uploads/images). Only for PROGRESS_PHOTO events.',
+  })
+  @IsUrl({ require_tld: false })
+  photoUrl!: string;
+}

@@ -232,6 +232,28 @@ export const ENV_DEFINITIONS = {
     description:
       'ZegoCloud Server Secret (32-byte string) from the Admin Console. Used server-side only to mint Token04.',
   },
+  R2_ACCOUNT_ID: {
+    required: false,
+    description:
+      'Cloudflare R2 account id. Used to build the S3-compatible API endpoint.',
+  },
+  R2_ACCESS_KEY_ID: {
+    required: false,
+    description: 'R2 API token access key id (S3-compatible).',
+  },
+  R2_SECRET_ACCESS_KEY: {
+    required: false,
+    description: 'R2 API token secret access key (S3-compatible).',
+  },
+  R2_BUCKET: {
+    required: false,
+    description: 'R2 bucket name for uploaded images.',
+  },
+  R2_PUBLIC_BASE_URL: {
+    required: false,
+    description:
+      'Public base URL for objects (r2.dev subdomain or custom domain). No trailing slash.',
+  },
 } as const satisfies Record<string, EnvDefinition>;
 
 export type EnvKey = keyof typeof ENV_DEFINITIONS;
@@ -280,6 +302,11 @@ export type AppEnv = {
   GHN_WEBHOOK_SECRET: string;
   ZEGO_APP_ID: string;
   ZEGO_SERVER_SECRET: string;
+  R2_ACCOUNT_ID: string;
+  R2_ACCESS_KEY_ID: string;
+  R2_SECRET_ACCESS_KEY: string;
+  R2_BUCKET: string;
+  R2_PUBLIC_BASE_URL: string;
 };
 
 export function getMissingRequiredEnv(
@@ -497,5 +524,13 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
     GHN_WEBHOOK_SECRET: raw.GHN_WEBHOOK_SECRET?.trim() || '',
     ZEGO_APP_ID: raw.ZEGO_APP_ID?.trim() || '',
     ZEGO_SERVER_SECRET: raw.ZEGO_SERVER_SECRET?.trim() || '',
+    R2_ACCOUNT_ID: raw.R2_ACCOUNT_ID?.trim() || '',
+    R2_ACCESS_KEY_ID: raw.R2_ACCESS_KEY_ID?.trim() || '',
+    R2_SECRET_ACCESS_KEY: raw.R2_SECRET_ACCESS_KEY?.trim() || '',
+    R2_BUCKET: raw.R2_BUCKET?.trim() || '',
+    R2_PUBLIC_BASE_URL: (raw.R2_PUBLIC_BASE_URL?.trim() || '').replace(
+      /\/+$/,
+      '',
+    ),
   };
 }
