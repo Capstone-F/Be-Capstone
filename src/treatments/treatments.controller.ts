@@ -35,18 +35,25 @@ import { SessionGuard } from '../auth/guards/session.guard';
 import { Role } from '../auth/roles.enum';
 import { Routine } from '../routines/routine.entity';
 import {
+  TreatmentChartResponseDto,
+  TreatmentEventResponseDto,
+} from './dto/treatment-chart-response.dto';
+import {
   ProductCandidateDto,
   TreatmentPhaseResponseDto,
   TreatmentResponseDto,
 } from './dto/treatment-response.dto';
 import {
+  CancelTreatmentDto,
   CreateTreatmentDto,
+  CreateTreatmentEventDto,
   CreateTreatmentPhaseDto,
   SetPhaseIngredientsDto,
   SetPhaseProductsDto,
   UpdateExpertRoutineDto,
   UpdateTreatmentPhaseDto,
 } from './dto/treatment.dto';
+import { TreatmentEventType } from './enums';
 import { TreatmentsService } from './treatments.service';
 
 @ApiTags('Treatments')
@@ -84,6 +91,110 @@ export class TreatmentsController {
       as === 'expert' ||
       (!as && roles.includes(Role.Expert) && !roles.includes(Role.Customer));
     return this.treatmentsService.listMyTreatments(auth.userId, asExpert);
+  }
+
+  @Get(':id/chart')
+  @Roles(Role.Customer, Role.Expert)
+  @ApiOperation({
+    summary: 'Treatment chart (hồ sơ bệnh án) while plan is in progress',
+    description:
+      'Aggregates progress photos, products used from routine completions, in-person sessions, and consultation results.',
+  })
+  @ApiOkResponse({ type: TreatmentChartResponseDto })
+  getChart(@Req() req: Request, @Param('id', ParseUUIDPipe) id: string) {
+    const auth = getAuthContext(req);
+    if (!auth?.userId) throw new UnauthorizedException('Not authenticated');
+    const roles = auth.roles ?? [];
+    return this.treatmentsService.getChart(
+      auth.userId,
+      {
+        isExpert: roles.includes(Role.Expert),
+        isCustomer: roles.includes(Role.Customer),
+      },
+      id,
+    );
+  }
+
+  @Get(':id/events')
+  @Roles(Role.Customer, Role.Expert)
+  @ApiOperation({ summary: 'List treatment timeline events' })
+  @ApiQuery({ name: 'type', required: false, enum: TreatmentEventType })
+  @ApiOkResponse({ type: [TreatmentEventResponseDto] })
+  listEvents(
+    @Req() req: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('type') type?: TreatmentEventType,
+  ) {
+    const auth = getAuthContext(req);
+    if (!auth?.userId) throw new UnauthorizedException('Not authenticated');
+    const roles = auth.roles ?? [];
+    return this.treatmentsService.listEvents(
+      auth.userId,
+      {
+        isExpert: roles.includes(Role.Expert),
+        isCustomer: roles.includes(Role.Customer),
+      },
+      id,
+      type,
+    );
+  }
+
+  @Post(':id/events')
+  @Roles(Role.Customer, Role.Expert)
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Add a treatment event (e.g. progress photo)',
+    description:
+      'PROGRESS_PHOTO requires photoUrl. Clients supply a hosted URL (no upload in MVP).',
+  })
+  @ApiCreatedResponse({ type: TreatmentEventResponseDto })
+  createEvent(
+    @Req() req: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateTreatmentEventDto,
+  ) {
+    const auth = getAuthContext(req);
+    if (!auth?.userId) throw new UnauthorizedException('Not authenticated');
+    const roles = auth.roles ?? [];
+    return this.treatmentsService.createEvent(
+      auth.userId,
+      {
+        isExpert: roles.includes(Role.Expert),
+        isCustomer: roles.includes(Role.Customer),
+      },
+      id,
+      dto,
+    );
+  }
+
+  @Post(':id/cancel')
+  @Roles(Role.Customer, Role.Expert)
+  @ApiOperation({
+    summary: 'Cancel an ACTIVE/PAUSED treatment mid-plan',
+    description:
+      'Refunds sum of PENDING phase fees to wallet. COMPLETED and ACTIVE phase fees are kept. Linked ACTIVE routines are paused.',
+  })
+  @ApiOkResponse({ type: TreatmentResponseDto })
+  @ApiBadRequestResponse({
+    description: 'Not cancellable or already cancelled',
+  })
+  cancel(
+    @Req() req: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CancelTreatmentDto,
+  ) {
+    const auth = getAuthContext(req);
+    if (!auth?.userId) throw new UnauthorizedException('Not authenticated');
+    const roles = auth.roles ?? [];
+    return this.treatmentsService.cancelTreatment(
+      auth.userId,
+      {
+        isExpert: roles.includes(Role.Expert),
+        isCustomer: roles.includes(Role.Customer),
+      },
+      id,
+      dto,
+    );
   }
 
   @Get(':id')
@@ -145,7 +256,7 @@ export class TreatmentsController {
   @ApiOperation({
     summary: 'Finalize plan totals for customer payment',
     description:
-      'Recomputes totalPriceVnd from phases. Treatment remains DRAFT until customer pays.',
+      'Recomputes totalPriceVnd from phases. Requires noteByExpert on every phase. Treatment remains DRAFT until customer pays.',
   })
   @ApiOkResponse({ type: TreatmentResponseDto })
   submit(@Req() req: Request, @Param('id', ParseUUIDPipe) id: string) {
