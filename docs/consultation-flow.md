@@ -15,7 +15,7 @@ See also:
 
 - [Real-time Communication Flow](realtime-communication-flow.md) — video + chat token APIs for FE / Mobile
 - [User Management & RBAC](users.md) — experts, clinics, roles
-- [Treatment Plan Flow](treatment-plan-flow.md) — multi-phase plans after `COMPLETED`
+- [Treatment Plan Flow](treatment-plan-flow.md) — multi-phase plan created during live `IN_PROGRESS` session
 - [E-Commerce](ecommerce-flow.md) / [VNPay](payments.md) — **product orders + wallet top-up only**, not consultation debit
 
 ---
@@ -83,9 +83,9 @@ Optional branch (before start):
 3. Customer tops up wallet if needed (`POST /wallet/top-up`), then pays with `POST /bookings/:id/pay` (ledger `CONSULTATION_PAYMENT`). Follow-up bookings during an ACTIVE paid treatment date window skip the fee (`isFollowUp`).
 4. Assigned expert confirms → `CONFIRMED` (requires paid or free follow-up).
 5. Optional: customer or expert cancels from `PENDING` / `CONFIRMED` → `CANCELLED`; if `feeChargedVnd > 0`, wallet is refunded (`REFUND`).
-6. Customer and expert open **video** and/or **in-app chat** via consultation token APIs (ZegoCloud). Expert starts → `IN_PROGRESS`, then completes → `COMPLETED`.
-7. Customer submits feedback; expert aggregate `rating` is recalculated.
-8. After session, expert may create a multi-phase treatment plan — see [treatment-plan-flow.md](treatment-plan-flow.md).
+6. Customer and expert open **video** and/or **in-app chat** via consultation token APIs (ZegoCloud). Expert starts → `IN_PROGRESS`.
+7. During the live session, expert may create a multi-phase **treatment plan**, customer pays the plan, and expert activates the first phase — see [treatment-plan-flow.md](treatment-plan-flow.md).
+8. Expert completes → `COMPLETED`; customer submits feedback; expert aggregate `rating` is recalculated.
 
 > **Do not use** ecommerce `POST /payments/checkout` for consultation fees. Top-up uses the same gateway with purpose `WALLET_TOPUP`; consultation / plan **debits** use **Wallet** only.
 
@@ -500,7 +500,7 @@ PATCH /bookings/<bookingId>/complete
 
 **Start is required** before complete (`CONFIRMED` → complete returns `400`). Customer then sees the booking under `tab=past` and can submit feedback.
 
-After complete, expert may create a treatment plan with optional `sourceConsultationId` — see [treatment-plan-flow.md](treatment-plan-flow.md).
+After start (`IN_PROGRESS`), expert gathers intake over video/chat, may create and hand off a treatment plan, then completes the booking — see [treatment-plan-flow.md](treatment-plan-flow.md).
 
 ---
 

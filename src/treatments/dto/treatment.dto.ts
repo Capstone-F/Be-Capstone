@@ -43,7 +43,8 @@ export class CreateTreatmentDto {
   endDate?: string;
 
   @ApiPropertyOptional({
-    description: 'Originating completed consultation',
+    description:
+      'Originating consultation (IN_PROGRESS during live session, or COMPLETED)',
   })
   @IsOptional()
   @IsUUID()

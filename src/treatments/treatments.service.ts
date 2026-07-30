@@ -138,14 +138,22 @@ export class TreatmentsService {
       }
       if (
         consultation.expertId !== expert.id ||
-        consultation.customerId !== dto.customerId
+        consultation.customerId !== customer.id
       ) {
         throw new BadRequestException(
           'Source consultation does not match expert/customer',
         );
       }
-      if (consultation.status !== ConsultationStatus.COMPLETED) {
-        throw new BadRequestException('Source consultation must be COMPLETED');
+      // Plan is typically drafted during the live session (IN_PROGRESS), then
+      // the expert may still link after COMPLETED. Other statuses are rejected.
+      const allowed: ConsultationStatus[] = [
+        ConsultationStatus.IN_PROGRESS,
+        ConsultationStatus.COMPLETED,
+      ];
+      if (!allowed.includes(consultation.status)) {
+        throw new BadRequestException(
+          `Source consultation must be IN_PROGRESS or COMPLETED (current: ${consultation.status})`,
+        );
       }
     }
 

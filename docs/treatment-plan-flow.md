@@ -1,6 +1,6 @@
 # Treatment Plan Flow Integration Guide
 
-End-to-end guide for integrating GlowScan’s **expert creates multi-phase plan → submit → customer wallet pay → phase configure / activate → routine tracking → chart (hồ sơ) → optional mid-plan cancel** flow with this backend.
+End-to-end guide for integrating GlowScan’s **live consultation → video/chat intake → expert creates multi-phase plan → customer pays → activate phase → complete consultation → chart / cancel / follow-ups** flow with this backend.
 
 Entities: **`Treatment`** (plan lifecycle), **`TreatmentPhase`** (priced stages), **`TreatmentEvent`** (progress photos / timeline), **`Routine`** (`EXPERT_PRESCRIBED`, linked via `treatmentPhaseId`). Money for the plan uses the customer **`Wallet`** + ledger **`Transaction`** (`TREATMENT_PLAN_PAYMENT` / `REFUND`) — **not** the ecommerce `Payment` / VNPay checkout stack. Catalog products are optional purchases; phase products are prescriptions.
 
@@ -11,7 +11,8 @@ Entities: **`Treatment`** (plan lifecycle), **`TreatmentPhase`** (priced stages)
 
 See also:
 
-- [Consultation Flow](consultation-flow.md) — booking → `COMPLETED` before plan create; free tái khám while plan is ACTIVE
+- [Consultation Flow](consultation-flow.md) — book → pay fee → confirm → **start** → video/chat; complete after plan handoff; free tái khám while plan is ACTIVE
+- [Real-time Communication Flow](realtime-communication-flow.md) — video + ZIM chat tokens during the session
 - [Routine Tracking](routine-tracking-flow.md) — daily adherence after phase routine is ACTIVE
 - [User Management & RBAC](users.md) — experts, clinics, roles
 - [E-Commerce](ecommerce-flow.md) / [VNPay](payments.md) — **product orders + wallet top-up only**, not plan debit
@@ -34,9 +35,9 @@ See also:
 2. [Base URL & auth](#2-base-url--auth)
 3. [Prerequisites & migrations](#3-prerequisites--migrations)
 4. [Domain rules (must implement on FE)](#4-domain-rules-must-implement-on-fe)
-5. [Step-by-step integration — expert](#5-step-by-step-integration--expert)
-6. [Step-by-step integration — customer](#6-step-by-step-integration--customer)
-7. [Treatment chart (hồ sơ bệnh án)](#7-treatment-chart-hồ-sơ-bệnh-án)
+5. [Step-by-step — live consultation into plan](#5-step-by-step--live-consultation-into-plan)
+6. [Step-by-step — after pay (configure & activate)](#6-step-by-step--after-pay-configure--activate)
+7. [After consultation completed (chart / cancel / follow-ups)](#7-after-consultation-completed-chart--cancel--follow-ups)
 8. [Progress photos & events](#8-progress-photos--events)
 9. [Mid-plan cancel & refund](#9-mid-plan-cancel--refund)
 10. [Wallet payment](#10-wallet-payment)
@@ -52,33 +53,38 @@ See also:
 
 ## 1. Flow overview
 
+The treatment plan is created **during** the live consultation (after intake over video/chat), not only after the booking is marked `COMPLETED`.
+
 ```
-┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────────┐
-│ Consultation │──▶│ Create DRAFT │──▶│ Add phases + │──▶│ Submit (notes    │
-│ COMPLETED    │   │ POST /treat. │   │ noteByExpert │   │ required)        │
-└──────────────┘   └──────────────┘   └──────────────┘   └────────┬─────────┘
-  ✅ Ready           ✅ Ready           ✅ Ready                    │ ✅ Ready
-                                                                    ▼
-┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────────┐
-│ Chart /      │◀──│ Activate     │◀──│ Ingredients→ │◀──│ Customer pays    │
-│ cancel /     │   │ phase        │   │ products→    │   │ wallet → ACTIVE  │
-│ follow-ups   │   │              │   │ routine      │   │                  │
-└──────────────┘   └──────────────┘   └──────────────┘   └──────────────────┘
-  ✅ Ready           ✅ Ready           ✅ Ready            ✅ Ready
+┌─────────────┐   ┌─────────────┐   ┌─────────────┐   ┌──────────────────┐
+│ Start       │──▶│ Join video  │──▶│ Expert      │──▶│ Create DRAFT     │
+│ booking     │   │ + chat      │   │ gathers     │   │ treatment +      │
+│ IN_PROGRESS │   │ (Zego)      │   │ info        │   │ phases + notes   │
+└─────────────┘   └─────────────┘   └─────────────┘   └────────┬─────────┘
+  ✅ Ready          ✅ Ready          FE / session      ✅ Ready │
+                                                                 ▼
+┌─────────────┐   ┌─────────────┐   ┌─────────────┐   ┌──────────────────┐
+│ Chart /     │◀──│ Complete    │◀──│ Activate    │◀──│ Customer pays    │
+│ cancel /    │   │ consultation│   │ phase       │   │ plan (wallet)    │
+│ follow-ups  │   │ COMPLETED   │   │ (+ config)  │   │ → ACTIVE         │
+└─────────────┘   └─────────────┘   └─────────────┘   └──────────────────┘
+  ✅ Ready          ✅ Ready          ✅ Ready           ✅ Ready
 ```
 
 **Happy path:**
 
-1. After a `COMPLETED` consultation, expert creates a `DRAFT` treatment (optionally with `sourceConsultationId`).
-2. Expert adds one or more phases with `priceVnd`. `noteByExpert` may be empty while drafting.
-3. Expert fills `noteByExpert` on **every** phase, then `POST /treatments/:id/submit` (recomputes `totalPriceVnd`; plan stays `DRAFT` until paid).
-4. Customer tops up wallet if needed, then `POST /treatments/:id/pay` → ledger `TREATMENT_PLAN_PAYMENT`, status `ACTIVE`.
-5. Expert configures the paid plan: ingredients → product candidates → selected variants → generate/save routine → `activate` phase (one `ACTIVE` at a time).
-6. Customer follows the expert routine via [routine tracking](routine-tracking-flow.md). Free tái khám bookings apply while `startDate ≤ today ≤ endDate` — see [consultation flow](consultation-flow.md).
-7. Both parties open **chart** (`GET .../chart`) for hồ sơ: photos, products used, sessions, consult results.
-8. Optional: mid-plan cancel → refund **PENDING** phase fees only; COMPLETED + ACTIVE fees kept.
+1. Booking is `CONFIRMED` → expert `PATCH /bookings/:id/start` → `IN_PROGRESS`.
+2. Customer and expert join **video** and/or **chat** ([realtime-communication-flow.md](realtime-communication-flow.md)) and gather clinical info.
+3. Still during the session, expert creates a `DRAFT` treatment with `sourceConsultationId` = this booking (`IN_PROGRESS` allowed).
+4. Expert adds phases (with `noteByExpert` before submit) → `POST /treatments/:id/submit`.
+5. Customer pays the plan from wallet → treatment `ACTIVE` (`TREATMENT_PLAN_PAYMENT`).
+6. Expert configures the paid phase (ingredients → products → routine) and **activates** the phase (same session or shortly after).
+7. Expert `PATCH /bookings/:id/complete` → consultation `COMPLETED` (customer may leave feedback).
+8. Ongoing care: **chart** (hồ sơ), routine tracking, mid-plan **cancel**, free **follow-up** bookings while dates apply.
 
 > **Do not use** ecommerce `POST /payments/checkout` for plan fees. Top-up uses the gateway with purpose `WALLET_TOPUP`; plan **debit** uses **Wallet** only.
+
+> Consultation fee (booking pay) and treatment plan fee are **separate** wallet debits.
 
 ---
 
@@ -96,10 +102,10 @@ See also:
 | Web SPA | Session cookie `sid` (`credentials: 'include'`) — see [auth-web.md](auth-web.md) |
 | Mobile  | `Authorization: Bearer <accessToken>` — see [auth-mobile.md](auth-mobile.md)     |
 
-| Actor    | Typical roles | Notes                                                                                         |
-| -------- | ------------- | --------------------------------------------------------------------------------------------- |
-| Customer | `customer`    | List/detail own plans, pay, chart, events, cancel own                                         |
-| Expert   | `expert`      | Create/edit DRAFT, submit, configure phases, activate, chart/events/cancel for assigned plans |
+| Actor    | Typical roles | Notes                                                                              |
+| -------- | ------------- | ---------------------------------------------------------------------------------- |
+| Customer | `customer`    | Pay plan, chart, events, cancel; join video/chat on the booking                    |
+| Expert   | `expert`      | Start/complete booking; create/submit/configure/activate plan; chart/events/cancel |
 
 All treatment routes require an authenticated session (cookie or Bearer). Role checks use `@Roles` + `RolesGuard`.
 
@@ -109,77 +115,88 @@ When a user has both roles, pass `as=customer` or `as=expert` on `GET /treatment
 
 ## 3. Prerequisites & migrations
 
-| Requirement              | How to get it                                       | Status   |
-| ------------------------ | --------------------------------------------------- | -------- |
-| Running API + DB         | `docker compose up -d` + `npm run start:dev`        | ✅ Ready |
-| Migrations               | `npm run migration:run`                             | ✅ Ready |
-| Seeded clinics / experts | `npm run seed`                                      | ✅ Ready |
-| Customer auth + profile  | Auth guides + customer row                          | ✅ Ready |
-| Expert auth              | Keycloak `expert` role + linked Expert row          | ✅ Ready |
-| Wallet balance           | Top-up via gateway or admin credit                  | ✅ Ready |
-| Completed consultation   | Optional but recommended for `sourceConsultationId` | ✅ Ready |
+| Requirement               | How to get it                                               | Status   |
+| ------------------------- | ----------------------------------------------------------- | -------- |
+| Running API + DB          | `docker compose up -d` + `npm run start:dev`                | ✅ Ready |
+| Migrations                | `npm run migration:run`                                     | ✅ Ready |
+| Seeded clinics / experts  | `npm run seed`                                              | ✅ Ready |
+| Customer + expert auth    | Auth guides + linked profiles                               | ✅ Ready |
+| Wallet balance (customer) | Top-up / admin credit (enough for consult fee **and** plan) | ✅ Ready |
+| Booking in `IN_PROGRESS`  | Confirm → start; video/chat tokens available                | ✅ Ready |
+| ZegoCloud (for intake)    | `ZEGO_APP_ID` + `ZEGO_SERVER_SECRET`                        | ✅ Ready |
 
 ```bash
 npm run migration:run
 ```
-
-Relevant migrations:
 
 | Migration                                   | Purpose                                              |
 | ------------------------------------------- | ---------------------------------------------------- |
 | `1784500000000-ConsultationTreatmentWallet` | Plan pricing, wallet pay, follow-up booking fields   |
 | `1784600000000-TreatmentTrackingChart`      | `note_by_expert`, cancel/refund columns on treatment |
 
-**Admin shortcut for wallet testing (no gateway):** as `app_admin`, `POST /admin/wallets/:userId/top-up` with `{ "amountVnd": 2000000 }`.
+**Admin shortcut for wallet testing:** as `app_admin`, `POST /admin/wallets/:userId/top-up` with `{ "amountVnd": 2000000 }`.
 
 ---
 
 ## 4. Domain rules (must implement on FE)
 
-1. **Money path:** show wallet balance + top-up before pay. Never call `POST /payments/checkout` for a treatment plan fee.
-2. **Draft vs paid:** phase create/edit/delete and pricing only while treatment is unpaid `DRAFT`. After pay, use ingredient/product/routine/activate APIs.
-3. **`noteByExpert`:** optional on create/update; **block submit in UI** until every phase has a non-empty justification (server returns `400` otherwise). Distinct from free-form `notes`.
-4. **Submit before pay:** customer pay requires submitted totals (`totalPriceVnd` + phases). Expert must call submit after phases are ready.
-5. **Dates:** `startDate` / `endDate` on the treatment are required before submit and pay (used for follow-up window).
-6. **One ACTIVE phase:** activating a phase auto-completes the previous ACTIVE phase. Save all DRAFT routines before activate.
-7. **Products used on chart:** derived from routine **COMPLETED** step completions only — not from prescribed-but-unused products.
-8. **Progress photos:** FE hosts the image and sends `photoUrl`; backend does not upload files.
-9. **Cancel window:** only `ACTIVE` or `PAUSED`. Hide cancel for `DRAFT` / `COMPLETED` / `CANCELLED`.
-10. **Refund UX:** on cancel, refund = sum of **PENDING** phase `priceVnd`. COMPLETED and current ACTIVE fees are **kept** (no prorate). Show breakdown before confirm.
-11. **Perspective:** when a user has both roles, pass `as=customer` or `as=expert` on `GET /treatments/me`.
-12. **Access:** only the owning customer or assigned expert may view detail/chart/events or cancel.
+1. **Session-first:** create the plan while the booking is `IN_PROGRESS` (after video/chat intake). Pass `sourceConsultationId` so chart can show consult results.
+2. **`sourceConsultationId` statuses:** `IN_PROGRESS` or `COMPLETED` only. Do not link `PENDING` / `CONFIRMED` / `CANCELLED`.
+3. **Money path:** wallet for both consultation fee and plan fee. Never `POST /payments/checkout` for either.
+4. **Draft vs paid:** phase create/edit/delete only while unpaid `DRAFT`. After pay → ingredients / products / routine / activate.
+5. **`noteByExpert`:** optional while drafting; **required on every phase before submit**. Distinct from free-form `notes`.
+6. **Submit before plan pay:** customer cannot pay until expert submitted (`totalPriceVnd` + dates).
+7. **Dates:** treatment `startDate` / `endDate` required before submit and pay (follow-up window).
+8. **Complete consultation after handoff:** prefer completing the booking once the plan is paid (and ideally first phase activated / customer understands next steps). Completing earlier is allowed by the booking API, but product UX should keep the session open through plan pay when possible.
+9. **One ACTIVE phase:** activating auto-completes the previous ACTIVE phase; save DRAFT routines first.
+10. **Chart products used:** from routine **COMPLETED** step completions only (not prescribed-unused).
+11. **Progress photos:** FE hosts image; send `photoUrl` (no upload API).
+12. **Cancel:** only treatment `ACTIVE` / `PAUSED`. Refund = sum of **PENDING** phase fees; COMPLETED + ACTIVE fees kept.
+13. **Perspective:** `GET /treatments/me?as=customer|expert` when dual-role.
 
 ---
 
-## 5. Step-by-step integration — expert
+## 5. Step-by-step — live consultation into plan
 
-### 5.1 Create DRAFT plan ✅ Ready
+### 5.1 Start session & join call ✅ Ready
+
+Documented in [consultation-flow.md](consultation-flow.md) and [realtime-communication-flow.md](realtime-communication-flow.md):
+
+```http
+PATCH /bookings/:bookingId/start
+GET   /consultations/:bookingId/video-token
+GET   /consultations/:bookingId/chat-token
+```
+
+Booking must be `CONFIRMED` before start → becomes `IN_PROGRESS`. Expert gathers history/symptoms over video and chat.
+
+### 5.2 Create DRAFT plan (during `IN_PROGRESS`) ✅ Ready
 
 ```http
 POST /treatments
 Content-Type: application/json
 
 {
-  "customerId": "<customer-uuid>",
+  "customerId": "<customer-profile-uuid>",
   "title": "Acne 12-week plan",
-  "description": "Post-consult regimen",
+  "description": "Based on live consult intake",
   "startDate": "2026-08-01",
   "endDate": "2026-11-01",
-  "sourceConsultationId": "<completed-booking-uuid>"
+  "sourceConsultationId": "<booking-uuid-in-progress>"
 }
 ```
 
-| Field                   | Required | Notes                                                                 |
-| ----------------------- | -------- | --------------------------------------------------------------------- |
-| `customerId`            | Yes      | Customer profile id (or user id; BE resolves / auto-creates customer) |
-| `title`                 | Yes      | 1–200 chars                                                           |
-| `description`           | No       | Free text                                                             |
-| `startDate` / `endDate` | No\*     | ISO date `YYYY-MM-DD`; **required before submit/pay**                 |
-| `sourceConsultationId`  | No       | Must be `COMPLETED` and match expert+customer                         |
+| Field                   | Required    | Notes                                                               |
+| ----------------------- | ----------- | ------------------------------------------------------------------- |
+| `customerId`            | Yes         | Customer profile id (or user id; BE resolves / auto-creates)        |
+| `title`                 | Yes         | 1–200 chars                                                         |
+| `description`           | No          | Free text                                                           |
+| `startDate` / `endDate` | No\*        | `YYYY-MM-DD`; **required before submit/pay**                        |
+| `sourceConsultationId`  | Recommended | Must match expert+customer; status **`IN_PROGRESS` or `COMPLETED`** |
 
 Response: `TreatmentResponseDto` with `status: DRAFT`.
 
-### 5.2 Add / edit / delete phases ✅ Ready
+### 5.3 Add / edit / delete phases ✅ Ready
 
 ```http
 POST /treatments/:id/phases
@@ -191,7 +208,7 @@ Content-Type: application/json
   "title": "Inflammation control",
   "goals": "Reduce papules",
   "notes": "Optional free-form",
-  "noteByExpert": "Why this phase exists — can fill later before submit",
+  "noteByExpert": "Why this phase — required before submit",
   "priceVnd": 500000,
   "startDate": "2026-08-01",
   "endDate": "2026-09-01"
@@ -202,8 +219,8 @@ Content-Type: application/json
 | -------------- | -------- | ------------------------------------------------------------------------- |
 | `phaseType`    | Yes      | `INITIAL_ASSESSMENT` \| `ACTIVE_TREATMENT` \| `MAINTENANCE` \| `RECOVERY` |
 | `priceVnd`     | Yes      | Integer ≥ 0 (VND service fee for this phase)                              |
-| `noteByExpert` | No       | Optional until submit; clinical “why”                                     |
-| `notes`        | No       | Free-form, not the same as `noteByExpert`                                 |
+| `noteByExpert` | No\*     | Optional until submit; clinical justification for the phase / plan        |
+| `notes`        | No       | Free-form (not `noteByExpert`)                                            |
 | `phaseOrder`   | No       | Default `0`                                                               |
 
 ```http
@@ -213,140 +230,113 @@ DELETE /treatments/phases/:phaseId
 
 Only while treatment is unpaid `DRAFT`.
 
-### 5.3 Submit for payment ✅ Ready
+### 5.4 Submit for payment ✅ Ready
 
 ```http
 POST /treatments/:id/submit
 ```
 
-**Server checks:**
+**Server checks:** ≥1 phase; every phase has non-empty `noteByExpert`; sum of `priceVnd` > 0; treatment `startDate` + `endDate` set.
 
-- ≥1 phase
-- every phase has non-empty `noteByExpert`
-- `totalPriceVnd` = sum(phase `priceVnd`) > 0
-- treatment `startDate` and `endDate` set
+Plan stays `DRAFT` until the customer pays. Stores `totalPriceVnd` (bigint string).
 
-Treatment remains `DRAFT` until the customer pays. Recomputes and stores `totalPriceVnd` (bigint string).
+### 5.5 Customer pays plan ✅ Ready
 
-### 5.4 After pay — configure phase ✅ Ready
+During or right after the live session (booking still often `IN_PROGRESS`):
 
-Order of operations (all require treatment `ACTIVE` + paid, assigned expert):
+```http
+GET  /wallet/me
+POST /wallet/top-up
+POST /treatments/:id/pay
+```
 
-| Step | Method | Path                                              |
-| ---- | ------ | ------------------------------------------------- |
-| 1    | POST   | `/treatments/phases/:phaseId/ingredients`         |
-| 2    | GET    | `/treatments/phases/:phaseId/product-candidates`  |
-| 3    | POST   | `/treatments/phases/:phaseId/products`            |
-| 4    | POST   | `/treatments/phases/:phaseId/routines/generate`   |
-| 5    | POST   | `/treatments/routines/:routineId/save`            |
-| 6    | PATCH  | `/treatments/routines/:routineId` (optional edit) |
-| 7    | POST   | `/treatments/phases/:phaseId/activate`            |
+On success: `TREATMENT_PLAN_PAYMENT` debit → treatment `ACTIVE`, `paidAt` set.
 
-**Ingredients body:**
+Customer list/detail:
+
+```http
+GET /treatments/me?as=customer
+GET /treatments/:id
+```
+
+---
+
+## 6. Step-by-step — after pay (configure & activate)
+
+All require treatment `ACTIVE` + paid, assigned expert.
+
+| Step | Method | Path                                             |
+| ---- | ------ | ------------------------------------------------ |
+| 1    | POST   | `/treatments/phases/:phaseId/ingredients`        |
+| 2    | GET    | `/treatments/phases/:phaseId/product-candidates` |
+| 3    | POST   | `/treatments/phases/:phaseId/products`           |
+| 4    | POST   | `/treatments/phases/:phaseId/routines/generate`  |
+| 5    | POST   | `/treatments/routines/:routineId/save`           |
+| 6    | PATCH  | `/treatments/routines/:routineId` (optional)     |
+| 7    | POST   | `/treatments/phases/:phaseId/activate`           |
+
+**Bodies:**
 
 ```json
 { "ingredientIds": ["<uuid>", "<uuid>"] }
 ```
 
-**Products body:**
-
 ```json
 { "productVariantIds": ["<uuid>", "<uuid>"] }
 ```
 
-**Product candidates:** ranked by overlap with selected ingredients; allergy-aware filtering; includes `matchScore`, `stockQuantity`.
-
 **Activate rules:**
 
 - Only one phase `ACTIVE` at a time (previous ACTIVE → `COMPLETED`).
-- If the phase has routines, none may remain `DRAFT` (save first).
-- Phase may have **no routine** if it has `startDate`/`endDate` and/or `notes`.
+- If routines exist, none may remain `DRAFT` (save first).
+- Phase may have **no routine** if it has dates and/or `notes`.
 
-### 5.5 List / detail / chart / events / cancel
+### 6.1 Complete the consultation ✅ Ready
 
-Same as customer for shared read/cancel endpoints (see sections 6–9), scoped to treatments where `expertId` matches the logged-in expert.
-
-```http
-GET /treatments/me?as=expert
-GET /treatments/:id
-GET /treatments/:id/chart
-```
-
----
-
-## 6. Step-by-step integration — customer
-
-### 6.1 List & open plan ✅ Ready
+After plan handoff (pay + preferably activate / explain next steps):
 
 ```http
-GET /treatments/me
-GET /treatments/me?as=customer
-GET /treatments/:id
+PATCH /bookings/:bookingId/complete
 ```
 
-Show `totalPriceVnd`, phase list, `status`. For payable DRAFT, show pay CTA after expert submitted (`totalPriceVnd` present and phases priced).
+`IN_PROGRESS` → `COMPLETED`. Customer may then submit feedback ([consultation-flow.md](consultation-flow.md)).
 
-### 6.2 Pay with wallet ✅ Ready
-
-```http
-GET /wallet/me
-POST /wallet/top-up   → gateway checkout, purpose WALLET_TOPUP
-POST /treatments/:id/pay
-```
-
-Pay requirements:
-
-- Caller is owning customer
-- Treatment `DRAFT`, not yet `paidAt`
-- Phases present, `totalPriceVnd` > 0
-- Treatment `startDate` / `endDate` set
-
-On success: wallet debit `TREATMENT_PLAN_PAYMENT`, `status → ACTIVE`, `paidAt` / `paidTransactionId` set.
-
-### 6.3 Track routine after phase activate ✅ Ready
-
-Use [routine-tracking-flow.md](routine-tracking-flow.md):
+Customer starts daily routine tracking ([routine-tracking-flow.md](routine-tracking-flow.md)):
 
 ```http
 GET /routines/me/today?period=MORNING
-POST /routines/:routineId/steps/:stepId/complete
-POST /routines/:routineId/check-ins
 ```
-
-Expert-prescribed routines appear alongside AI routines when `ACTIVE`.
-
-### 6.4 Chart, photos, cancel
-
-See [§7](#7-treatment-chart-hồ-sơ-bệnh-án), [§8](#8-progress-photos--events), [§9](#9-mid-plan-cancel--refund).
-
-### 6.5 Free follow-up (tái khám)
-
-While treatment is `ACTIVE` and `startDate ≤ today ≤ endDate`, booking the same expert sets `isFollowUp=true` and waives fee — documented in [consultation-flow.md](consultation-flow.md). Those bookings appear on the treatment chart under in-person sessions (`treatmentId` link).
 
 ---
 
-## 7. Treatment chart (hồ sơ bệnh án)
+## 7. After consultation completed (chart / cancel / follow-ups)
+
+These are the **ongoing treatment** surfaces after the originating consult is done (also usable earlier once the plan exists).
+
+### 7.1 Treatment chart (hồ sơ bệnh án) ✅ Ready
 
 ```http
 GET /treatments/:id/chart
 ```
 
-Auth: owning customer or assigned expert. Available for any status (in-progress or historical).
+Auth: owning customer or assigned expert.
 
-| Chart section          | Source                                                                                                                              |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Plan + phase summaries | `treatments` + `treatment_phases` (includes `noteByExpert`)                                                                         |
-| `progressPhotos`       | `treatment_events` where `type = PROGRESS_PHOTO`, ordered by `occurredAt`                                                           |
-| `productsUsed`         | `RoutineStepCompletion` with `status = COMPLETED` on routines where `treatmentPhaseId` ∈ plan phases; grouped by `productVariantId` |
-| `inPersonSessions`     | `consultation_requests` with `treatmentId = :id`                                                                                    |
-| `consultationResults`  | `sourceConsultation` (+ feedback) and completed linked follow-ups                                                                   |
-| `phaseDetails`         | Full phase DTOs (ingredients, products, routines)                                                                                   |
+| Chart section          | Source                                                                       |
+| ---------------------- | ---------------------------------------------------------------------------- |
+| Plan + phase summaries | `treatments` + `treatment_phases` (includes `noteByExpert`)                  |
+| `progressPhotos`       | `treatment_events` where `type = PROGRESS_PHOTO`                             |
+| `productsUsed`         | `RoutineStepCompletion` `COMPLETED` on routines linked by `treatmentPhaseId` |
+| `inPersonSessions`     | `consultation_requests` with `treatmentId = :id` (follow-ups)                |
+| `consultationResults`  | `sourceConsultation` (+ feedback) and completed linked follow-ups            |
+| `phaseDetails`         | Full phase DTOs                                                              |
 
-**`productsUsed` item fields:** `productVariantId`, `productName`, `sku`, `completedCount`, `lastUsedAt` (`YYYY-MM-DD`), `phaseIds[]`.
+### 7.2 Free follow-up (tái khám) ✅ Ready
 
-Prescribed products with **zero** COMPLETED completions do **not** appear in `productsUsed` (they remain on phase detail / treatment GET).
+While treatment is `ACTIVE` and `startDate ≤ today ≤ endDate`, booking the same expert sets `isFollowUp=true` and waives the consult fee — see [consultation-flow.md](consultation-flow.md). Those bookings appear on the chart under `inPersonSessions`.
 
-**FE screens:** Treatment Chart / Hồ sơ tab → call on focus; pull-to-refresh after photo upload or routine completions.
+### 7.3 Mid-plan cancel ✅ Ready
+
+See [§9](#9-mid-plan-cancel--refund).
 
 ---
 
@@ -367,17 +357,13 @@ Content-Type: application/json
 }
 ```
 
-| Field        | Required | Notes                                              |
-| ------------ | -------- | -------------------------------------------------- |
-| `type`       | Yes      | See enum below                                     |
-| `title`      | Yes      | 1–200 chars                                        |
-| `note`       | No       | Free text                                          |
-| `photoUrl`   | Cond.    | **Required** when `type` is `PROGRESS_PHOTO` (URL) |
-| `occurredAt` | No       | ISO datetime; defaults to now                      |
-
-`TreatmentEventType`: `CONSULTATION` \| `PROGRESS_PHOTO` \| `MEDICATION_CHANGE` \| `INGREDIENT_OVERRIDE` \| `MILESTONE` \| `FOLLOW_UP`.
-
-If the actor is the assigned expert, `createdByExpertId` is set.
+| Field        | Required | Notes                                        |
+| ------------ | -------- | -------------------------------------------- |
+| `type`       | Yes      | See enum in §15                              |
+| `title`      | Yes      | 1–200 chars                                  |
+| `note`       | No       | Free text                                    |
+| `photoUrl`   | Cond.    | **Required** when `type` is `PROGRESS_PHOTO` |
+| `occurredAt` | No       | ISO datetime; defaults to now                |
 
 ### 8.2 List events ✅ Ready
 
@@ -386,9 +372,7 @@ GET /treatments/:id/events
 GET /treatments/:id/events?type=PROGRESS_PHOTO
 ```
 
-Ordered by `occurredAt` ascending.
-
-> **No upload API** in MVP — FE uploads elsewhere (or uses a temporary CDN) and stores the resulting URL.
+Ordered by `occurredAt` ascending. No multipart upload API in MVP.
 
 ---
 
@@ -401,40 +385,42 @@ Content-Type: application/json
 { "reason": "Cannot continue due to side effects" }
 ```
 
-| Actor    | Allowed when        |
-| -------- | ------------------- |
-| Customer | Owns the treatment  |
-| Expert   | Assigned `expertId` |
+| Rule             | Behavior                                                                                 |
+| ---------------- | ---------------------------------------------------------------------------------------- |
+| Who              | Owning customer or assigned expert                                                       |
+| Allowed statuses | Treatment `ACTIVE` or `PAUSED`                                                           |
+| Refund amount    | Sum of phase `priceVnd` where phase status is `PENDING`                                  |
+| Kept fees        | `COMPLETED` phases + **full** current `ACTIVE` phase (no prorate)                        |
+| Wallet           | If refund > 0 and plan was paid → `TransactionType.REFUND`                               |
+| Side effects     | Treatment → `CANCELLED`; linked ACTIVE expert routines → `PAUSED`                        |
+| Stored fields    | `cancelledAt`, `cancelReason`, `cancelledBy`, `refundTransactionId`, `refundedAmountVnd` |
 
-| Rule              | Behavior                                                                                    |
-| ----------------- | ------------------------------------------------------------------------------------------- |
-| Allowed statuses  | `ACTIVE`, `PAUSED` only                                                                     |
-| Already cancelled | `400`                                                                                       |
-| Refund amount     | Sum of phase `priceVnd` where phase `status === PENDING`                                    |
-| Kept fees         | `COMPLETED` phases + **full** current `ACTIVE` phase (no calendar prorate)                  |
-| Wallet            | If refund > 0 and plan was paid → `TransactionType.REFUND` credit                           |
-| Treatment         | `status → CANCELLED`; `cancelledAt`, `cancelReason`, `cancelledBy` (`CUSTOMER` \| `EXPERT`) |
-| Refund fields     | `refundTransactionId`, `refundedAmountVnd` (bigint string)                                  |
-| Routines          | Linked routines with `status === ACTIVE` → `PAUSED`                                         |
-| Phase rows        | Left as-is historically (`PENDING` stay PENDING but plan cannot continue)                   |
-
-**Example:** phases COMPLETED `200k` + ACTIVE `300k` + PENDING `150k` + PENDING `50k` → refund **`200000`** only.
+**Example:** COMPLETED `200k` + ACTIVE `300k` + PENDING `150k` + PENDING `50k` → refund **`200000`**.
 
 ---
 
 ## 10. Wallet payment
 
-| Method | Path                  | Notes                                                         |
-| ------ | --------------------- | ------------------------------------------------------------- |
-| GET    | `/wallet/me`          | Balance                                                       |
-| POST   | `/wallet/top-up`      | Gateway checkout (`PAYMENT_PROVIDER`); purpose `WALLET_TOPUP` |
-| POST   | `/treatments/:id/pay` | Debit `TREATMENT_PLAN_PAYMENT` for full `totalPriceVnd`       |
+| Method | Path                  | Notes                                                          |
+| ------ | --------------------- | -------------------------------------------------------------- |
+| GET    | `/wallet/me`          | Balance                                                        |
+| POST   | `/wallet/top-up`      | Gateway checkout; purpose `WALLET_TOPUP`                       |
+| POST   | `/bookings/:id/pay`   | Consultation fee (`CONSULTATION_PAYMENT`) — before the session |
+| POST   | `/treatments/:id/pay` | Full plan fee (`TREATMENT_PLAN_PAYMENT`) — during/after intake |
 
-Consultation fee and treatment plan debit the wallet after top-up. Plan pay is **one shot** for the whole package (sum of phase fees), not per-phase checkout.
+Plan pay is **one shot** for the whole package (sum of phase fees), not per-phase checkout.
 
 ---
 
 ## 11. Status machines
+
+### Consultation (originating session)
+
+```
+CONFIRMED ──(start)──▶ IN_PROGRESS ──(intake + create plan + pay + activate)──▶ COMPLETED
+                              │
+                              └── video/chat tokens available
+```
 
 ### Treatment
 
@@ -442,16 +428,16 @@ Consultation fee and treatment plan debit the wallet after top-up. Plan pay is *
 DRAFT ──(pay)──▶ ACTIVE ──(cancel)──▶ CANCELLED
                   │
                   ├──▶ PAUSED ──(cancel)──▶ CANCELLED
-                  └──▶ COMPLETED   (future / manual ops)
+                  └──▶ COMPLETED
 ```
 
-| Status      | Meaning                                    |
-| ----------- | ------------------------------------------ |
-| `DRAFT`     | Expert building / submitted, unpaid        |
-| `ACTIVE`    | Paid; phases can be configured & activated |
-| `PAUSED`    | Paid but paused (cancellable)              |
-| `COMPLETED` | Plan finished                              |
-| `CANCELLED` | Mid-plan cancel; refund may apply          |
+| Status      | Meaning                                 |
+| ----------- | --------------------------------------- |
+| `DRAFT`     | Expert building / submitted, unpaid     |
+| `ACTIVE`    | Paid; phases configurable / activatable |
+| `PAUSED`    | Paid but paused (cancellable)           |
+| `COMPLETED` | Plan finished                           |
+| `CANCELLED` | Mid-plan cancel; refund may apply       |
 
 ### Phase
 
@@ -459,11 +445,11 @@ DRAFT ──(pay)──▶ ACTIVE ──(cancel)──▶ CANCELLED
 PENDING ──(activate)──▶ ACTIVE ──(next phase activate)──▶ COMPLETED
 ```
 
-| Status      | Meaning                               |
-| ----------- | ------------------------------------- |
-| `PENDING`   | Not started; fee refundable on cancel |
-| `ACTIVE`    | Current phase; fee kept on cancel     |
-| `COMPLETED` | Finished; fee kept on cancel          |
+| Status      | On mid-plan cancel        |
+| ----------- | ------------------------- |
+| `PENDING`   | Fee **refunded**          |
+| `ACTIVE`    | Fee **kept** (no prorate) |
+| `COMPLETED` | Fee **kept**              |
 
 ---
 
@@ -485,7 +471,7 @@ PENDING ──(activate)──▶ ACTIVE ──(next phase activate)──▶ CO
   "totalPriceVnd": "1000000",
   "paidAt": "2026-07-30T12:00:00.000Z",
   "paidTransactionId": "uuid",
-  "sourceConsultationId": "uuid-or-null",
+  "sourceConsultationId": "uuid",
   "cancelledAt": null,
   "cancelReason": null,
   "cancelledBy": null,
@@ -546,19 +532,7 @@ Money fields (`priceVnd`, `totalPriceVnd`, `refundedAmountVnd`) are **bigint str
       "endDate": "2026-09-01"
     }
   ],
-  "progressPhotos": [
-    {
-      "id": "uuid",
-      "treatmentId": "uuid",
-      "type": "PROGRESS_PHOTO",
-      "title": "Week 2",
-      "note": "Less redness",
-      "photoUrl": "https://cdn.example.com/photos/week2.jpg",
-      "occurredAt": "2026-08-15T10:00:00.000Z",
-      "createdByExpertId": "uuid-or-null",
-      "createdAt": "2026-08-15T10:01:00.000Z"
-    }
-  ],
+  "progressPhotos": [],
   "productsUsed": [
     {
       "productVariantId": "uuid",
@@ -577,7 +551,7 @@ Money fields (`priceVnd`, `totalPriceVnd`, `refundedAmountVnd`) are **bigint str
       "isFollowUp": false,
       "scheduledAt": "2026-07-20T09:00:00.000Z",
       "startedAt": "2026-07-20T09:05:00.000Z",
-      "completedAt": "2026-07-20T09:45:00.000Z",
+      "completedAt": "2026-07-20T10:15:00.000Z",
       "reason": "Acne flare",
       "feedbackRating": 5,
       "feedbackComment": "Clear advice"
@@ -607,41 +581,44 @@ Money fields (`priceVnd`, `totalPriceVnd`, `refundedAmountVnd`) are **bigint str
 
 ## 13. Error map
 
-| HTTP | When                                                                                                                                                                                                   | FE handling             |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- |
-| 400  | Missing `noteByExpert` on submit; empty phases; total ≤ 0; missing dates; PROGRESS_PHOTO without `photoUrl`; cancel when not ACTIVE/PAUSED; unpaid DRAFT edits after pay; activate with DRAFT routines | Show validation message |
-| 401  | Not authenticated                                                                                                                                                                                      | Re-login                |
-| 403  | Not assigned expert / not owning customer; expert profile missing                                                                                                                                      | Hide action / forbidden |
-| 404  | Treatment / phase / routine not found; source consultation missing                                                                                                                                     | Refresh list            |
-| 409  | (Reserved; wallet insufficient may surface as 400 from wallet layer)                                                                                                                                   | Top-up CTA              |
+| HTTP | When                                                                                                                                                                                                           | FE handling             |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| 400  | Source consult not `IN_PROGRESS`/`COMPLETED`; missing `noteByExpert` on submit; empty phases; total ≤ 0; missing dates; PROGRESS_PHOTO without `photoUrl`; cancel when not ACTIVE/PAUSED; configure before pay | Show validation message |
+| 401  | Not authenticated                                                                                                                                                                                              | Re-login                |
+| 403  | Not assigned expert / not owning customer                                                                                                                                                                      | Hide action             |
+| 404  | Treatment / phase / routine / source consultation not found                                                                                                                                                    | Refresh list            |
 
 ---
 
 ## 14. Endpoint checklist
 
-| Method | Path                                             | Auth              | Status   | Purpose                          |
-| ------ | ------------------------------------------------ | ----------------- | -------- | -------------------------------- |
-| POST   | `/treatments`                                    | Expert            | ✅ Ready | Create DRAFT                     |
-| GET    | `/treatments/me`                                 | Customer / Expert | ✅ Ready | List mine (`?as=`)               |
-| GET    | `/treatments/:id`                                | Customer / Expert | ✅ Ready | Detail                           |
-| GET    | `/treatments/:id/chart`                          | Customer / Expert | ✅ Ready | Hồ sơ bệnh án                    |
-| GET    | `/treatments/:id/events`                         | Customer / Expert | ✅ Ready | Timeline (`?type=`)              |
-| POST   | `/treatments/:id/events`                         | Customer / Expert | ✅ Ready | Add photo / milestone            |
-| POST   | `/treatments/:id/cancel`                         | Customer / Expert | ✅ Ready | Mid-plan cancel + PENDING refund |
-| POST   | `/treatments/:id/phases`                         | Expert            | ✅ Ready | Add phase                        |
-| PATCH  | `/treatments/phases/:phaseId`                    | Expert            | ✅ Ready | Update DRAFT phase               |
-| DELETE | `/treatments/phases/:phaseId`                    | Expert            | ✅ Ready | Delete DRAFT phase               |
-| POST   | `/treatments/:id/submit`                         | Expert            | ✅ Ready | Require notes + recompute total  |
-| POST   | `/treatments/:id/pay`                            | Customer          | ✅ Ready | Wallet debit → ACTIVE            |
-| POST   | `/treatments/phases/:phaseId/ingredients`        | Expert            | ✅ Ready | Set ingredients                  |
-| GET    | `/treatments/phases/:phaseId/product-candidates` | Expert            | ✅ Ready | Ranked candidates                |
-| POST   | `/treatments/phases/:phaseId/products`           | Expert            | ✅ Ready | Select variants                  |
-| POST   | `/treatments/phases/:phaseId/routines/generate`  | Expert            | ✅ Ready | Protocol DRAFT routine           |
-| POST   | `/treatments/routines/:routineId/save`           | Expert            | ✅ Ready | DRAFT → ACTIVE routine entity    |
-| PATCH  | `/treatments/routines/:routineId`                | Expert            | ✅ Ready | Edit expert routine              |
-| POST   | `/treatments/phases/:phaseId/activate`           | Expert            | ✅ Ready | Activate phase                   |
-| GET    | `/wallet/me`                                     | Authenticated     | ✅ Ready | Balance                          |
-| POST   | `/wallet/top-up`                                 | Customer          | ✅ Ready | Top-up checkout                  |
+| Method | Path                                             | Auth              | Status   | When in flow                              |
+| ------ | ------------------------------------------------ | ----------------- | -------- | ----------------------------------------- |
+| PATCH  | `/bookings/:id/start`                            | Expert            | ✅ Ready | Start live session                        |
+| GET    | `/consultations/:id/video-token`                 | Both              | ✅ Ready | Join video                                |
+| GET    | `/consultations/:id/chat-token`                  | Both              | ✅ Ready | Join chat                                 |
+| POST   | `/treatments`                                    | Expert            | ✅ Ready | Create DRAFT during `IN_PROGRESS`         |
+| POST   | `/treatments/:id/phases`                         | Expert            | ✅ Ready | Add phase + `noteByExpert`                |
+| PATCH  | `/treatments/phases/:phaseId`                    | Expert            | ✅ Ready | Edit DRAFT phase                          |
+| DELETE | `/treatments/phases/:phaseId`                    | Expert            | ✅ Ready | Delete DRAFT phase                        |
+| POST   | `/treatments/:id/submit`                         | Expert            | ✅ Ready | Require notes + recompute total           |
+| POST   | `/treatments/:id/pay`                            | Customer          | ✅ Ready | Wallet debit → plan ACTIVE                |
+| POST   | `/treatments/phases/:phaseId/ingredients`        | Expert            | ✅ Ready | After pay                                 |
+| GET    | `/treatments/phases/:phaseId/product-candidates` | Expert            | ✅ Ready | After pay                                 |
+| POST   | `/treatments/phases/:phaseId/products`           | Expert            | ✅ Ready | After pay                                 |
+| POST   | `/treatments/phases/:phaseId/routines/generate`  | Expert            | ✅ Ready | After pay                                 |
+| POST   | `/treatments/routines/:routineId/save`           | Expert            | ✅ Ready | After pay                                 |
+| PATCH  | `/treatments/routines/:routineId`                | Expert            | ✅ Ready | After pay                                 |
+| POST   | `/treatments/phases/:phaseId/activate`           | Expert            | ✅ Ready | After pay; before/around consult complete |
+| PATCH  | `/bookings/:id/complete`                         | Expert            | ✅ Ready | End originating consultation              |
+| GET    | `/treatments/me`                                 | Customer / Expert | ✅ Ready | List                                      |
+| GET    | `/treatments/:id`                                | Customer / Expert | ✅ Ready | Detail                                    |
+| GET    | `/treatments/:id/chart`                          | Customer / Expert | ✅ Ready | Post-session hồ sơ                        |
+| GET    | `/treatments/:id/events`                         | Customer / Expert | ✅ Ready | Timeline                                  |
+| POST   | `/treatments/:id/events`                         | Customer / Expert | ✅ Ready | Progress photos                           |
+| POST   | `/treatments/:id/cancel`                         | Customer / Expert | ✅ Ready | Mid-plan cancel                           |
+| GET    | `/wallet/me`                                     | Authenticated     | ✅ Ready | Balance                                   |
+| POST   | `/wallet/top-up`                                 | Customer          | ✅ Ready | Top-up                                    |
 
 ---
 
@@ -650,7 +627,7 @@ Money fields (`priceVnd`, `totalPriceVnd`, `refundedAmountVnd`) are **bigint str
 | Entity / field                    | Role                                                              |
 | --------------------------------- | ----------------------------------------------------------------- |
 | `Treatment`                       | Plan header: parties, dates, status, pay + cancel/refund metadata |
-| `Treatment.sourceConsultationId`  | Originating completed booking                                     |
+| `Treatment.sourceConsultationId`  | Originating booking (`IN_PROGRESS` at create, later `COMPLETED`)  |
 | `TreatmentPhase`                  | Ordered stage with `priceVnd`, `noteByExpert`, status             |
 | `TreatmentPhaseIngredient`        | Expert-selected ingredients                                       |
 | `TreatmentPhaseProduct`           | Prescribed product variants                                       |
@@ -674,53 +651,63 @@ Money fields (`priceVnd`, `totalPriceVnd`, `refundedAmountVnd`) are **bigint str
 ## 16. Local testing
 
 1. `docker compose up -d` → `npm run migration:run` → `npm run seed` → `npm run start:dev`.
-2. Auth as expert + customer (Keycloak); ensure Expert/Customer rows exist.
-3. Complete a consultation (or skip `sourceConsultationId`).
-4. Expert: create treatment → add ≥1 phase with `noteByExpert` → submit.
-5. Admin top-up customer wallet → customer `POST .../pay`.
-6. Expert: ingredients → candidates → products → generate/save routine → activate.
-7. Customer: complete routine steps → `GET .../chart` shows `productsUsed`.
-8. `POST .../events` with `PROGRESS_PHOTO` + `photoUrl` → chart `progressPhotos`.
-9. Cancel with PENDING phases → wallet refund = PENDING sum only.
+2. Auth as expert + customer; ensure wallet has balance for consult fee **and** plan fee.
+3. Create booking → pay consult fee → expert confirm → **start** (`IN_PROGRESS`).
+4. Fetch video/chat tokens; (optional) exercise Zego clients.
+5. Expert: `POST /treatments` with `sourceConsultationId` = booking id → add phases with `noteByExpert` → submit.
+6. Customer: `POST /treatments/:id/pay`.
+7. Expert: ingredients → products → generate/save routine → activate phase.
+8. Expert: `PATCH /bookings/:id/complete`.
+9. Customer: routine today + `GET /treatments/:id/chart`; optional events / cancel / follow-up booking.
 
-Unit coverage: `src/treatments/treatments.service.spec.ts` (submit note guard, cancel refund, chart products).
+Unit coverage: `src/treatments/treatments.service.spec.ts`.
 
 ---
 
 ## 17. Remaining gaps & roadmap
 
-| Topic                                         | Status                                 |
-| --------------------------------------------- | -------------------------------------- |
-| Object storage / multipart photo upload       | ❌ FE supplies `photoUrl` only         |
-| ACTIVE phase fee prorating on cancel          | ❌ Full ACTIVE fee kept                |
-| Ecommerce “purchased” vs “used” products      | ❌ Chart uses routine completions only |
-| Auto COMPLETED treatment when all phases done | 🔶 Not wired as cron / auto-transition |
-| Expert payout / escrow from plan fees         | ❌ Same gap as consultations           |
-| Notifications on pay / cancel / activate      | ❌                                     |
-| Stricter routine lock after phase activate    | 🔶 MVP still allows `PATCH` routine    |
+| Topic                                         | Status                                      |
+| --------------------------------------------- | ------------------------------------------- |
+| Object storage / multipart photo upload       | ❌ FE supplies `photoUrl` only              |
+| ACTIVE phase fee prorating on cancel          | ❌ Full ACTIVE fee kept                     |
+| Ecommerce “purchased” vs “used” products      | ❌ Chart uses routine completions only      |
+| Force consult complete only after plan pay    | ❌ Product UX; booking API does not enforce |
+| Auto COMPLETED treatment when all phases done | 🔶 Not wired                                |
+| Expert payout / escrow from plan fees         | ❌                                          |
+| Notifications on pay / cancel / activate      | ❌                                          |
 
 ---
 
 ## Quick reference — client sequence
 
 ```
-# Expert
-POST /treatments
-POST /treatments/:id/phases          ← repeat; set noteByExpert before submit
-POST /treatments/:id/submit
-# Customer
-GET  /wallet/me  →  POST /wallet/top-up (if needed)
-POST /treatments/:id/pay
-# Expert configure
-POST /treatments/phases/:phaseId/ingredients
-GET  /treatments/phases/:phaseId/product-candidates
-POST /treatments/phases/:phaseId/products
-POST /treatments/phases/:phaseId/routines/generate
-POST /treatments/routines/:routineId/save
-POST /treatments/phases/:phaseId/activate
-# Tracking + chart
-GET  /routines/me/today
-POST /treatments/:id/events          ← PROGRESS_PHOTO + photoUrl
-GET  /treatments/:id/chart
-POST /treatments/:id/cancel          ← optional mid-plan
+# Live consultation
+PATCH /bookings/:bookingId/start
+GET   /consultations/:bookingId/video-token
+GET   /consultations/:bookingId/chat-token
+
+# Expert drafts plan during IN_PROGRESS
+POST  /treatments                              ← sourceConsultationId = bookingId
+POST  /treatments/:id/phases                   ← noteByExpert before submit
+POST  /treatments/:id/submit
+
+# Customer pays plan (session may still be open)
+POST  /treatments/:id/pay
+
+# Expert configures & activates
+POST  /treatments/phases/:phaseId/ingredients
+GET   /treatments/phases/:phaseId/product-candidates
+POST  /treatments/phases/:phaseId/products
+POST  /treatments/phases/:phaseId/routines/generate
+POST  /treatments/routines/:routineId/save
+POST  /treatments/phases/:phaseId/activate
+
+# End originating consult
+PATCH /bookings/:bookingId/complete
+
+# Ongoing care
+GET   /routines/me/today
+GET   /treatments/:id/chart
+POST  /treatments/:id/events
+POST  /treatments/:id/cancel                   ← optional
 ```

@@ -1,11 +1,12 @@
 import { BadRequestException } from '@nestjs/common';
+import { ConsultationStatus } from '../consultations/enums';
+import { StepCompletionStatus } from '../routines/enums';
 import {
   TreatmentEventType,
   TreatmentPhaseStatus,
   TreatmentStatus,
 } from './enums';
 import { TreatmentsService } from './treatments.service';
-import { StepCompletionStatus } from '../routines/enums';
 
 describe('TreatmentsService phase activation rules', () => {
   function makeService(overrides: {
@@ -416,5 +417,116 @@ describe('TreatmentsService submit / cancel / chart', () => {
     ]);
     expect(chart.progressPhotos).toHaveLength(1);
     expect(chart.phases[0].noteByExpert).toBe('Inflammation control');
+  });
+
+  it('allows createTreatment when source consultation is IN_PROGRESS', async () => {
+    const treatmentRepo = {
+      save: jest.fn(async (row) => ({ ...row, id: 't-new' })),
+      findOne: jest.fn().mockResolvedValue({
+        id: 't-new',
+        customerId: 'cust-1',
+        expertId: 'expert-1',
+        clinicId: null,
+        title: 'Plan',
+        description: null,
+        status: TreatmentStatus.DRAFT,
+        startDate: null,
+        endDate: null,
+        totalPriceVnd: null,
+        paidAt: null,
+        paidTransactionId: null,
+        sourceConsultationId: 'booking-1',
+        cancelledAt: null,
+        cancelReason: null,
+        cancelledBy: null,
+        refundTransactionId: null,
+        refundedAmountVnd: null,
+        phases: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+      create: jest.fn((row) => row),
+    };
+
+    const service = buildService({
+      expertRepo: {
+        findOne: jest.fn().mockResolvedValue({
+          id: 'expert-1',
+          userId: 'u-e',
+          clinicId: null,
+        }),
+      },
+      customerRepo: {
+        findOne: jest.fn().mockResolvedValue({ id: 'cust-1', userId: 'u-c' }),
+      },
+      consultationRepo: {
+        findOne: jest.fn().mockResolvedValue({
+          id: 'booking-1',
+          expertId: 'expert-1',
+          customerId: 'cust-1',
+          status: ConsultationStatus.IN_PROGRESS,
+        }),
+      },
+      treatmentRepo: {
+        ...treatmentRepo,
+        create: (row: unknown) => row,
+      },
+    });
+
+    // TypeORM repo.create is used via this.treatmentRepo.create
+    (
+      service as unknown as {
+        treatmentRepo: { create: (r: unknown) => unknown };
+      }
+    ).treatmentRepo.create = (row) => row;
+
+    const result = await service.createTreatment('u-e', {
+      customerId: 'cust-1',
+      title: 'Plan',
+      sourceConsultationId: 'booking-1',
+    });
+
+    expect(treatmentRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceConsultationId: 'booking-1',
+        status: TreatmentStatus.DRAFT,
+      }),
+    );
+    expect(result.id).toBe('t-new');
+  });
+
+  it('rejects createTreatment when source consultation is CONFIRMED', async () => {
+    const service = buildService({
+      expertRepo: {
+        findOne: jest.fn().mockResolvedValue({
+          id: 'expert-1',
+          userId: 'u-e',
+          clinicId: null,
+        }),
+      },
+      customerRepo: {
+        findOne: jest.fn().mockResolvedValue({ id: 'cust-1', userId: 'u-c' }),
+      },
+      consultationRepo: {
+        findOne: jest.fn().mockResolvedValue({
+          id: 'booking-1',
+          expertId: 'expert-1',
+          customerId: 'cust-1',
+          status: ConsultationStatus.CONFIRMED,
+        }),
+      },
+      treatmentRepo: {
+        save: jest.fn(),
+        create: jest.fn((row) => row),
+      },
+    });
+
+    await expect(
+      service.createTreatment('u-e', {
+        customerId: 'cust-1',
+        title: 'Plan',
+        sourceConsultationId: 'booking-1',
+      }),
+    ).rejects.toThrow(BadRequestException);
   });
 });
