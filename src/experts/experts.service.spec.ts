@@ -8,6 +8,7 @@ import { Repository } from 'typeorm';
 import { Role } from '../auth/roles.enum';
 import { Clinic } from '../clinics/clinic.entity';
 import { ClinicsService } from '../clinics/clinics.service';
+import { Feedback } from '../consultations/feedback.entity';
 import { Expert } from '../users/expert.entity';
 import { User } from '../users/user.entity';
 import { CallerContext } from '../users/users.service';
@@ -53,27 +54,35 @@ const makeExpert = (overrides: Partial<Expert> = {}): Expert => ({
 type MockQb = {
   leftJoinAndSelect: jest.Mock;
   innerJoinAndSelect: jest.Mock;
+  innerJoin: jest.Mock;
   where: jest.Mock;
   andWhere: jest.Mock;
   orderBy: jest.Mock;
   skip: jest.Mock;
   take: jest.Mock;
+  select: jest.Mock;
+  addSelect: jest.Mock;
   getMany: jest.Mock;
   getManyAndCount: jest.Mock;
+  getRawOne: jest.Mock;
 };
 
 const makeQueryBuilder = (experts: Expert[] = [], total?: number): MockQb => ({
   leftJoinAndSelect: jest.fn().mockReturnThis(),
   innerJoinAndSelect: jest.fn().mockReturnThis(),
+  innerJoin: jest.fn().mockReturnThis(),
   where: jest.fn().mockReturnThis(),
   andWhere: jest.fn().mockReturnThis(),
   orderBy: jest.fn().mockReturnThis(),
   skip: jest.fn().mockReturnThis(),
   take: jest.fn().mockReturnThis(),
+  select: jest.fn().mockReturnThis(),
+  addSelect: jest.fn().mockReturnThis(),
   getMany: jest.fn().mockResolvedValue(experts),
   getManyAndCount: jest
     .fn()
     .mockResolvedValue([experts, total ?? experts.length]),
+  getRawOne: jest.fn().mockResolvedValue(null),
 });
 
 const adminCaller: CallerContext = {
@@ -98,6 +107,9 @@ describe('ExpertsService', () => {
       user?: User | null;
       existingByUserId?: Expert | null;
       clinic?: Clinic;
+      feedbacks?: Feedback[];
+      feedbackTotal?: number;
+      feedbackAgg?: { avg: string | null; count: string };
     } = {},
   ) {
     const qb = makeQueryBuilder(options.experts ?? [makeExpert()]);
@@ -138,12 +150,38 @@ describe('ExpertsService', () => {
       update: jest.fn().mockResolvedValue(undefined),
     } as unknown as Repository<User>;
 
+    const feedbackQb = makeQueryBuilder();
+    feedbackQb.getManyAndCount.mockResolvedValue([
+      options.feedbacks ?? [],
+      options.feedbackTotal ?? (options.feedbacks ?? []).length,
+    ]);
+    feedbackQb.getRawOne.mockResolvedValue(
+      options.feedbackAgg ?? { avg: null, count: '0' },
+    );
+
+    const feedbackRepo = {
+      createQueryBuilder: jest.fn().mockReturnValue(feedbackQb),
+    } as unknown as Repository<Feedback>;
+
     const clinicsService = {
       requireById: jest.fn().mockResolvedValue(options.clinic ?? makeClinic()),
     } as unknown as ClinicsService;
 
-    const service = new ExpertsService(expertRepo, userRepo, clinicsService);
-    return { service, expertRepo, userRepo, clinicsService, qb };
+    const service = new ExpertsService(
+      expertRepo,
+      userRepo,
+      feedbackRepo,
+      clinicsService,
+    );
+    return {
+      service,
+      expertRepo,
+      userRepo,
+      feedbackRepo,
+      feedbackQb,
+      clinicsService,
+      qb,
+    };
   }
 
   it('should apply specialization, rating, and fee filters in QueryBuilder', async () => {
@@ -481,6 +519,63 @@ describe('ExpertsService', () => {
 
       await expect(
         service.updateOwnAvatar('user-1', 'https://placehold.co/400'),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('findFeedbacksByExpertId', () => {
+    it('should return paginated feedbacks with average rating', async () => {
+      const feedback = {
+        id: 'fb-1',
+        consultationId: 'booking-1',
+        rating: 5,
+        comment: 'Great',
+        createdAt: new Date('2026-07-01'),
+        consultation: {
+          customer: { user: { name: 'Jane Doe' } },
+        },
+      } as Feedback;
+
+      const { service, feedbackRepo, feedbackQb } = makeService({
+        findOne: makeExpert(),
+        feedbacks: [feedback],
+        feedbackTotal: 1,
+        feedbackAgg: { avg: '4.50', count: '2' },
+      });
+
+      const result = await service.findFeedbacksByExpertId('expert-1', {
+        page: 1,
+        limit: 10,
+      });
+
+      expect(feedbackRepo.createQueryBuilder).toHaveBeenCalledWith('f');
+      expect(feedbackQb.where).toHaveBeenCalledWith('c.expertId = :expertId', {
+        expertId: 'expert-1',
+      });
+      expect(result).toEqual({
+        items: [
+          {
+            id: 'fb-1',
+            consultationId: 'booking-1',
+            rating: 5,
+            comment: 'Great',
+            customerName: 'Jane Doe',
+            createdAt: feedback.createdAt,
+          },
+        ],
+        total: 1,
+        page: 1,
+        limit: 10,
+        averageRating: 4.5,
+        ratingCount: 2,
+      });
+    });
+
+    it('should throw when expert does not exist', async () => {
+      const { service } = makeService({ findOne: null });
+
+      await expect(
+        service.findFeedbacksByExpertId('missing', {}),
       ).rejects.toThrow(NotFoundException);
     });
   });
