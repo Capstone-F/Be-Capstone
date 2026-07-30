@@ -458,7 +458,7 @@ export class PaymentsService {
     const payment = await this.paymentRepo.findOne({
       where: { id: paymentId },
     });
-    if (!payment) {
+    if (!payment?.orderId) {
       return;
     }
     await this.deliveryService.createGhnOrderForPaidOrder(payment.orderId);
