@@ -1,8 +1,10 @@
 # Consultation Flow Integration Guide
 
-End-to-end guide for integrating GlowScan’s **expert discovery → slot pick → booking → wallet payment → confirm / cancel → session → feedback** flow with this backend.
+End-to-end guide for integrating GlowScan’s **expert discovery → slot pick → booking → wallet payment → confirm / cancel → session (video + chat) → feedback** flow with this backend.
 
 Entities: **`ConsultationRequest`** (booking lifecycle) and **`Feedback`** (1:1 rating after `COMPLETED`). Display pricing uses **`Expert.consultationFee`**. Money for consultations uses the customer **`Wallet`** + ledger **`Transaction`** (`CONSULTATION_PAYMENT` / `REFUND`) — **not** the ecommerce `Payment` / VNPay checkout stack.
+
+During an active booking, customer and expert talk via **ZegoCloud** (video room + ZIM in-app chat). This backend only **mints tokens** and resolves the peer — clients join Zego with those credentials. Full client integration: [Real-time Communication Flow](realtime-communication-flow.md).
 
 **Auth (register / login):** do not duplicate here — use:
 
@@ -11,6 +13,7 @@ Entities: **`ConsultationRequest`** (booking lifecycle) and **`Feedback`** (1:1 
 
 See also:
 
+- [Real-time Communication Flow](realtime-communication-flow.md) — video + chat token APIs for FE / Mobile
 - [User Management & RBAC](users.md) — experts, clinics, roles
 - [Treatment Plan Flow](treatment-plan-flow.md) — multi-phase plans after `COMPLETED`
 - [E-Commerce](ecommerce-flow.md) / [VNPay](payments.md) — **product orders + wallet top-up only**, not consultation debit
@@ -35,14 +38,15 @@ See also:
 4. [Domain rules (must implement on FE)](#4-domain-rules-must-implement-on-fe)
 5. [Step-by-step integration — customer](#5-step-by-step-integration--customer)
 6. [Step-by-step integration — expert](#6-step-by-step-integration--expert)
-7. [Wallet payment](#7-wallet-payment)
-8. [Status machine](#8-status-machine)
-9. [Response shapes](#9-response-shapes)
-10. [Error map](#10-error-map)
-11. [Endpoint checklist](#11-endpoint-checklist)
-12. [Domain model](#12-domain-model)
-13. [Local testing](#13-local-testing)
-14. [Remaining gaps & roadmap](#14-remaining-gaps--roadmap)
+7. [Real-time communication (video & chat)](#7-real-time-communication-video--chat)
+8. [Wallet payment](#8-wallet-payment)
+9. [Status machine](#9-status-machine)
+10. [Response shapes](#10-response-shapes)
+11. [Error map](#11-error-map)
+12. [Endpoint checklist](#12-endpoint-checklist)
+13. [Domain model](#13-domain-model)
+14. [Local testing](#14-local-testing)
+15. [Remaining gaps & roadmap](#15-remaining-gaps--roadmap)
 
 ---
 
@@ -59,8 +63,14 @@ See also:
 ┌─────────────┐   ┌──────────────┐   ┌─────────────┐   ┌──────────────────┐
 │ Feedback    │◀──│ Complete     │◀──│ Start       │◀──│ Expert confirm   │
 │ rating 1–5  │   │ COMPLETED    │   │ IN_PROGRESS │   │ CONFIRMED        │
-└─────────────┘   └──────────────┘   └─────────────┘   └──────────────────┘
-  ✅ Ready          ✅ Ready           ✅ Ready           ✅ Ready
+└─────────────┘   └──────────────┘   │ + video/chat│   └──────────────────┘
+  ✅ Ready          ✅ Ready           │ ✅ Ready    │     ✅ Ready
+                                       └─────────────┘
+
+During CONFIRMED / IN_PROGRESS (and as product UX allows):
+  GET /consultations/:bookingId/video-token  → Zego video room
+  GET /consultations/:bookingId/chat-token   → ZIM 1:1 chat with peer
+  (details: [realtime-communication-flow.md](realtime-communication-flow.md))
 
 Optional branch (before start):
   PENDING | CONFIRMED ──▶ CANCELLED  (+ wallet refund when feeChargedVnd > 0)
@@ -73,7 +83,7 @@ Optional branch (before start):
 3. Customer tops up wallet if needed (`POST /wallet/top-up`), then pays with `POST /bookings/:id/pay` (ledger `CONSULTATION_PAYMENT`). Follow-up bookings during an ACTIVE paid treatment date window skip the fee (`isFollowUp`).
 4. Assigned expert confirms → `CONFIRMED` (requires paid or free follow-up).
 5. Optional: customer or expert cancels from `PENDING` / `CONFIRMED` → `CANCELLED`; if `feeChargedVnd > 0`, wallet is refunded (`REFUND`).
-6. Expert starts → `IN_PROGRESS`, then completes → `COMPLETED`.
+6. Customer and expert open **video** and/or **in-app chat** via consultation token APIs (ZegoCloud). Expert starts → `IN_PROGRESS`, then completes → `COMPLETED`.
 7. Customer submits feedback; expert aggregate `rating` is recalculated.
 8. After session, expert may create a multi-phase treatment plan — see [treatment-plan-flow.md](treatment-plan-flow.md).
 
@@ -95,10 +105,10 @@ Optional branch (before start):
 | Web SPA | Session cookie `sid` (`credentials: 'include'`) — see [auth-web.md](auth-web.md) |
 | Mobile  | `Authorization: Bearer <accessToken>` — see [auth-mobile.md](auth-mobile.md)     |
 
-| Actor    | Typical roles | Notes                                        |
-| -------- | ------------- | -------------------------------------------- |
-| Customer | `customer`    | Create / pay / cancel own / feedback         |
-| Expert   | `expert`      | Confirm / start / complete / cancel assigned |
+| Actor    | Typical roles | Notes                                                            |
+| -------- | ------------- | ---------------------------------------------------------------- |
+| Customer | `customer`    | Create / pay / cancel own / feedback / video+chat tokens         |
+| Expert   | `expert`      | Confirm / start / complete / cancel assigned / video+chat tokens |
 
 All booking, clinic, expert-discovery, and wallet routes require an authenticated session (cookie or Bearer). Role checks use `@Roles` + `RolesGuard`.
 
@@ -106,14 +116,15 @@ All booking, clinic, expert-discovery, and wallet routes require an authenticate
 
 ## 3. Prerequisites & seed data
 
-| Requirement              | How to get it                                        | Status   |
-| ------------------------ | ---------------------------------------------------- | -------- |
-| Running API + DB         | `docker compose up -d` + `npm run start:dev`         | ✅ Ready |
-| Migrations               | `npm run migration:run`                              | ✅ Ready |
-| Seeded clinics / experts | `npm run seed`                                       | ✅ Ready |
-| Customer auth            | Register / login (auth guides)                       | ✅ Ready |
-| Expert auth              | Keycloak user with `expert` role + linked Expert row | ✅ Ready |
-| Wallet balance           | Top-up via gateway or admin credit                   | ✅ Ready |
+| Requirement              | How to get it                                                                        | Status   |
+| ------------------------ | ------------------------------------------------------------------------------------ | -------- |
+| Running API + DB         | `docker compose up -d` + `npm run start:dev`                                         | ✅ Ready |
+| Migrations               | `npm run migration:run`                                                              | ✅ Ready |
+| Seeded clinics / experts | `npm run seed`                                                                       | ✅ Ready |
+| Customer auth            | Register / login (auth guides)                                                       | ✅ Ready |
+| Expert auth              | Keycloak user with `expert` role + linked Expert row                                 | ✅ Ready |
+| Wallet balance           | Top-up via gateway or admin credit                                                   | ✅ Ready |
+| ZegoCloud configured     | `ZEGO_APP_ID` + `ZEGO_SERVER_SECRET` in env; In-app Chat enabled on the Zego project | ✅ Ready |
 
 ### Seeded clinics & experts
 
@@ -149,6 +160,7 @@ Relevant migration for consultation money fields: `1784500000000-ConsultationTre
 7. **One feedback:** one rating per booking; duplicate → `409`.
 8. **Perspective:** when a user has both roles, pass `as=customer` or `as=expert` on `GET /bookings/me`.
 9. **Expert prep:** use `GET /customers/:id/consultation-context` only when the expert already shares a booking or treatment with that customer.
+10. **Realtime:** only the booking’s customer or expert may fetch video/chat tokens. Use `userID` / `peerUserID` from the BE response as Zego user IDs (app `User.id` UUIDs). Do **not** invent room IDs — video uses `roomID` from the video-token response. Chat has no shared room; message only `peerUserID`. See [realtime-communication-flow.md](realtime-communication-flow.md).
 
 ---
 
@@ -391,6 +403,30 @@ Only when `status = COMPLETED`. One **`Feedback`** row per consultation (`409` o
 
 ---
 
+### 5.9 Video call & in-app chat ✅ Ready
+
+After the booking is confirmed (and typically while `CONFIRMED` / `IN_PROGRESS`), the customer can open realtime channels with the assigned expert.
+
+| Method | Path                                    | Auth                       | Status   |
+| ------ | --------------------------------------- | -------------------------- | -------- |
+| GET    | `/consultations/:bookingId/video-token` | Booking customer or expert | ✅ Ready |
+| GET    | `/consultations/:bookingId/chat-token`  | Booking customer or expert | ✅ Ready |
+
+```http
+GET /consultations/<bookingId>/video-token
+```
+
+```http
+GET /consultations/<bookingId>/chat-token
+```
+
+- **Video:** join Zego Express room using `appID`, `token`, `userID`, `userName`, `roomID` from the response.
+- **Chat:** login to ZIM with `appID`, `token`, `userID`, `userName`, then open a conversation with `peerUserID` / `peerUserName` (the expert).
+
+Full SDK wiring, response shapes, and errors: [realtime-communication-flow.md](realtime-communication-flow.md).
+
+---
+
 ## 6. Step-by-step integration — expert
 
 ### 6.1 See assigned bookings ✅ Ready
@@ -468,7 +504,50 @@ After complete, expert may create a treatment plan with optional `sourceConsulta
 
 ---
 
-## 7. Wallet payment
+### 6.6 Video call & in-app chat ✅ Ready
+
+Same token endpoints as the customer. The expert uses the same booking id; chat `peerUserID` resolves to the **customer**.
+
+| Method | Path                                    | Auth                       | Status   |
+| ------ | --------------------------------------- | -------------------------- | -------- |
+| GET    | `/consultations/:bookingId/video-token` | Booking customer or expert | ✅ Ready |
+| GET    | `/consultations/:bookingId/chat-token`  | Booking customer or expert | ✅ Ready |
+
+```http
+GET /consultations/<bookingId>/video-token
+```
+
+```http
+GET /consultations/<bookingId>/chat-token
+```
+
+Recommended UX: fetch tokens once both parties are ready (e.g. around `CONFIRMED` / after `start`), join the video room with `roomID`, and message only `peerUserID`. Details: [realtime-communication-flow.md](realtime-communication-flow.md).
+
+---
+
+## 7. Real-time communication (video & chat)
+
+GlowScan uses **one ZegoCloud project** for both:
+
+| Channel | Zego product         | BE responsibility                                     | Client responsibility                    |
+| ------- | -------------------- | ----------------------------------------------------- | ---------------------------------------- |
+| Video   | Express / video call | Mint Token04 scoped to `roomID = consult_{bookingId}` | Join that room with returned credentials |
+| Chat    | ZIM (In-app Chat)    | Mint Token04 + return `peerUserID` / `peerUserName`   | Login ZIM; message only that peer        |
+
+| Method | Path                                    | Who                         |
+| ------ | --------------------------------------- | --------------------------- |
+| GET    | `/consultations/:bookingId/video-token` | Assigned customer or expert |
+| GET    | `/consultations/:bookingId/chat-token`  | Assigned customer or expert |
+
+**Access control:** only users linked to the booking (`customer.userId` / `expert.userId`) get tokens (`403` otherwise). Chat refuses a null peer with `409` (e.g. no expert assigned). Message history for MVP lives on **ZegoCloud** — no local message sync API.
+
+**Do not put `ZEGO_SERVER_SECRET` in the client.** Clients only need `appID` from the token response (or a public app id if you mirror it in FE config — the BE response is authoritative for the session).
+
+Full FE / Mobile guide (auth headers, sample responses, SDK steps, errors): **[realtime-communication-flow.md](realtime-communication-flow.md)**.
+
+---
+
+## 8. Wallet payment
 
 ### Why not VNPay for consultation debit?
 
@@ -505,7 +584,7 @@ Treatment package payment: see [treatment-plan-flow.md](treatment-plan-flow.md).
 
 ---
 
-## 8. Status machine
+## 9. Status machine
 
 ```
                  ┌──────────────┐
@@ -534,7 +613,7 @@ Pay (`POST /bookings/:id/pay`) happens while **`PENDING`** and is required (or f
 
 ---
 
-## 9. Response shapes
+## 10. Response shapes
 
 ### Booking (`BookingResponseDto`)
 
@@ -588,7 +667,7 @@ After feedback: `feedback: { "rating": 5, "comment": "..." }`.
 
 ---
 
-## 10. Error map
+## 11. Error map
 
 | Situation                                         | HTTP      | Typical message                                           |
 | ------------------------------------------------- | --------- | --------------------------------------------------------- |
@@ -607,10 +686,13 @@ After feedback: `feedback: { "rating": 5, "comment": "..." }`.
 | Feedback not COMPLETED / not owner                | 400 / 403 | Feedback ownership / status messages                      |
 | Duplicate feedback                                | 409       | `Feedback has already been submitted for this booking`    |
 | List as wrong perspective                         | 403       | `Insufficient permissions to list bookings as …`          |
+| Video/chat token — not on booking                 | 403       | Only assigned customer/expert may join call / open chat   |
+| Chat token — no peer (e.g. no expert)             | 409       | `No expert assigned to this booking yet`                  |
+| Zego not configured on server                     | 503       | `ZegoCloud is not configured …`                           |
 
 ---
 
-## 11. Endpoint checklist
+## 12. Endpoint checklist
 
 ### Discovery
 
@@ -648,23 +730,31 @@ After feedback: `feedback: { "rating": 5, "comment": "..." }`.
 | POST                   | `/bookings/:id/pay`             | Customer  | ✅     |
 | Cancel → wallet refund | —                               | System    | ✅     |
 
+### Realtime (ZegoCloud)
+
+| Method | Path                                    | Actor                     | Status |
+| ------ | --------------------------------------- | ------------------------- | ------ |
+| GET    | `/consultations/:bookingId/video-token` | Owner customer / assignee | ✅     |
+| GET    | `/consultations/:bookingId/chat-token`  | Owner customer / assignee | ✅     |
+
+See [realtime-communication-flow.md](realtime-communication-flow.md).
+
 ### Expert prep / treatments
 
-| Method | Path                                  | Actor  | Status |
-| ------ | ------------------------------------- | ------ | ------ | ------------------------- |
-| GET    | `/customers/:id/consultation-context` | Expert | ✅     |
-| POST   | `/treatments`                         | Expert | ✅     | (see treatment-plan-flow) |
+| Method | Path                                  | Actor  | Status                       |
+| ------ | ------------------------------------- | ------ | ---------------------------- |
+| GET    | `/customers/:id/consultation-context` | Expert | ✅                           |
+| POST   | `/treatments`                         | Expert | ✅ (see treatment-plan-flow) |
 
 ### Explicitly out of scope for consultations
 
-| Method                | Path                 | Why                                                      |
-| --------------------- | -------------------- | -------------------------------------------------------- |
-| POST                  | `/payments/checkout` | Product orders only (top-up uses purpose `WALLET_TOPUP`) |
-| Video / chat realtime | —                    | Future (`ChatHistory` entity has no API)                 |
+| Method | Path                 | Why                                                      |
+| ------ | -------------------- | -------------------------------------------------------- |
+| POST   | `/payments/checkout` | Product orders only (top-up uses purpose `WALLET_TOPUP`) |
 
 ---
 
-## 12. Domain model
+## 13. Domain model
 
 ```
 Customer ──< ConsultationRequest >── Expert ── Clinic
@@ -687,7 +777,7 @@ Wallet (user)     Transaction.consultationId / treatmentId
 | `Transaction`         | Ledger with `consultationId` / `treatmentId`                                             |
 | `Payment`             | Ecommerce orders **and** wallet top-up (`purpose`)                                       |
 | `Treatment`           | Multi-phase package — see [treatment-plan-flow.md](treatment-plan-flow.md)               |
-| `ChatHistory`         | Schema only — no endpoints yet                                                           |
+| `ChatHistory`         | Schema stub only — MVP chat history is retained by ZegoCloud ZIM, not this API           |
 
 **Money ↔ treatment link:**
 
@@ -705,7 +795,7 @@ Later bookings with same expert → isFollowUp (fee waived)
 
 ---
 
-## 13. Local testing
+## 14. Local testing
 
 ```bash
 docker compose up -d
@@ -722,17 +812,19 @@ npm run start:dev
    - `POST /wallet/top-up` with `PAYMENT_PROVIDER=mock` and open `paymentUrl`, or
    - as admin: `POST /admin/wallets/<userId>/top-up`.
 6. `POST /bookings/<id>/pay` → confirm `isPaid: true`.
-7. Log in as the **assigned expert** → `PATCH .../confirm` → `.../start` → `.../complete`.
-8. As customer: `POST .../feedback` with `{ "rating": 5 }`.
-9. Optional: cancel path — create another booking, pay, then `PATCH .../cancel` and verify wallet refund.
+7. Log in as the **assigned expert** → `PATCH .../confirm`.
+8. As customer or expert: `GET /consultations/<id>/video-token` and `GET /consultations/<id>/chat-token` — verify `roomID` / `peerUserID` (requires `ZEGO_*` env).
+9. Expert: `PATCH .../start` → `.../complete`.
+10. As customer: `POST .../feedback` with `{ "rating": 5 }`.
+11. Optional: cancel path — create another booking, pay, then `PATCH .../cancel` and verify wallet refund.
 
-Worth checking by hand: double-pay (`400 already paid`); confirm before pay (`400`); complete without start (`400`); duplicate feedback (`409`); book an unavailable slot (`409` / `400`).
+Worth checking by hand: double-pay (`400 already paid`); confirm before pay (`400`); complete without start (`400`); duplicate feedback (`409`); book an unavailable slot (`409` / `400`); chat/video token as outsider (`403`).
 
 ---
 
-## 14. Remaining gaps & roadmap
+## 15. Remaining gaps & roadmap
 
-1. **Realtime video/chat** during consultation — `ChatHistory` entity exists; no API yet.
+1. **Local chat transcript API** — optional sync of ZIM history into `ChatHistory` (not required for MVP launch).
 2. **Notifications** (push/email on confirm / cancel / plan paid).
 3. **Routine edit policy after phase activate** — MVP allows edit; stricter locking TBD (treatment flow).
 4. Expert payout / escrow release from consultation and plan fees.

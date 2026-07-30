@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   ForbiddenException,
   NotFoundException,
   ServiceUnavailableException,
@@ -16,7 +17,7 @@ describe('ZegoTokenService', () => {
   const expertUserId = 'u-expert';
 
   let consultationRepo: { findOne: jest.Mock };
-  let userRepo: { findOne: jest.Mock };
+  let userRepo: { findOne: jest.Mock; find: jest.Mock };
   let config: {
     zegoAppId: string;
     zegoServerSecret: string;
@@ -39,6 +40,10 @@ describe('ZegoTokenService', () => {
         id: customerUserId,
         name: 'Nguyen Van A',
       }),
+      find: jest.fn().mockResolvedValue([
+        { id: customerUserId, name: 'Nguyen Van A' },
+        { id: expertUserId, name: 'Dr. Tran B' },
+      ]),
     };
     config = {
       zegoAppId: '123456',
@@ -58,65 +63,151 @@ describe('ZegoTokenService', () => {
     generateToken04Spy.mockRestore();
   });
 
-  it('returns a token scoped to consult_{bookingId} for the customer', async () => {
-    const result = await service.generateVideoToken(customerUserId, bookingId);
+  describe('generateVideoToken', () => {
+    it('returns a token scoped to consult_{bookingId} for the customer', async () => {
+      const result = await service.generateVideoToken(
+        customerUserId,
+        bookingId,
+      );
 
-    expect(result).toEqual({
-      appID: 123456,
-      token: '04AAAA_test_token',
-      roomID: `consult_${bookingId}`,
-      userID: customerUserId,
-      userName: 'Nguyen Van A',
+      expect(result).toEqual({
+        appID: 123456,
+        token: '04AAAA_test_token',
+        roomID: `consult_${bookingId}`,
+        userID: customerUserId,
+        userName: 'Nguyen Van A',
+      });
+
+      const payload = JSON.parse(generateToken04Spy.mock.calls[0][4] as string);
+      expect(payload).toEqual({
+        room_id: `consult_${bookingId}`,
+        privilege: { '1': 1, '2': 1 },
+      });
+      expect(generateToken04Spy).toHaveBeenCalledWith(
+        123456,
+        customerUserId,
+        config.zegoServerSecret,
+        7200,
+        expect.any(String),
+      );
     });
 
-    const payload = JSON.parse(generateToken04Spy.mock.calls[0][4] as string);
-    expect(payload).toEqual({
-      room_id: `consult_${bookingId}`,
-      privilege: { '1': 1, '2': 1 },
-    });
-    expect(generateToken04Spy).toHaveBeenCalledWith(
-      123456,
-      customerUserId,
-      config.zegoServerSecret,
-      7200,
-      expect.any(String),
-    );
-  });
+    it('allows the assigned expert', async () => {
+      userRepo.findOne.mockResolvedValue({
+        id: expertUserId,
+        name: 'Dr Expert',
+      });
 
-  it('allows the assigned expert', async () => {
-    userRepo.findOne.mockResolvedValue({
-      id: expertUserId,
-      name: 'Dr Expert',
+      const result = await service.generateVideoToken(expertUserId, bookingId);
+
+      expect(result.userID).toBe(expertUserId);
+      expect(result.userName).toBe('Dr Expert');
+      expect(result.roomID).toBe(`consult_${bookingId}`);
     });
 
-    const result = await service.generateVideoToken(expertUserId, bookingId);
+    it('forbids a user who is not on the booking', async () => {
+      await expect(
+        service.generateVideoToken('u-outsider', bookingId),
+      ).rejects.toThrow(ForbiddenException);
+      expect(generateToken04Spy).not.toHaveBeenCalled();
+    });
 
-    expect(result.userID).toBe(expertUserId);
-    expect(result.userName).toBe('Dr Expert');
-    expect(result.roomID).toBe(`consult_${bookingId}`);
+    it('throws NotFound when booking is missing', async () => {
+      consultationRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.generateVideoToken(customerUserId, bookingId),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws when Zego env is not configured', async () => {
+      config.zegoAppId = '';
+      config.zegoServerSecret = '';
+
+      await expect(
+        service.generateVideoToken(customerUserId, bookingId),
+      ).rejects.toThrow(ServiceUnavailableException);
+    });
   });
 
-  it('forbids a user who is not on the booking', async () => {
-    await expect(
-      service.generateVideoToken('u-outsider', bookingId),
-    ).rejects.toThrow(ForbiddenException);
-    expect(generateToken04Spy).not.toHaveBeenCalled();
-  });
+  describe('generateChatToken', () => {
+    it('returns a chat token with peer expert for the customer', async () => {
+      const result = await service.generateChatToken(customerUserId, bookingId);
 
-  it('throws NotFound when booking is missing', async () => {
-    consultationRepo.findOne.mockResolvedValue(null);
+      expect(result).toEqual({
+        appID: 123456,
+        token: '04AAAA_test_token',
+        userID: customerUserId,
+        userName: 'Nguyen Van A',
+        peerUserID: expertUserId,
+        peerUserName: 'Dr. Tran B',
+      });
+      expect(generateToken04Spy).toHaveBeenCalledWith(
+        123456,
+        customerUserId,
+        config.zegoServerSecret,
+        7200,
+        '',
+      );
+    });
 
-    await expect(
-      service.generateVideoToken(customerUserId, bookingId),
-    ).rejects.toThrow(NotFoundException);
-  });
+    it('returns a chat token with peer customer for the expert', async () => {
+      const result = await service.generateChatToken(expertUserId, bookingId);
 
-  it('throws when Zego env is not configured', async () => {
-    config.zegoAppId = '';
-    config.zegoServerSecret = '';
+      expect(result).toEqual({
+        appID: 123456,
+        token: '04AAAA_test_token',
+        userID: expertUserId,
+        userName: 'Dr. Tran B',
+        peerUserID: customerUserId,
+        peerUserName: 'Nguyen Van A',
+      });
+      expect(generateToken04Spy).toHaveBeenCalledWith(
+        123456,
+        expertUserId,
+        config.zegoServerSecret,
+        7200,
+        '',
+      );
+    });
 
-    await expect(
-      service.generateVideoToken(customerUserId, bookingId),
-    ).rejects.toThrow(ServiceUnavailableException);
+    it('forbids a user who is not on the booking', async () => {
+      await expect(
+        service.generateChatToken('u-outsider', bookingId),
+      ).rejects.toThrow(ForbiddenException);
+      expect(generateToken04Spy).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFound when booking is missing', async () => {
+      consultationRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.generateChatToken(customerUserId, bookingId),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws Conflict when expert is not assigned yet', async () => {
+      consultationRepo.findOne.mockResolvedValue({
+        id: bookingId,
+        customerId: 'cust-1',
+        expertId: null,
+        customer: { userId: customerUserId },
+        expert: null,
+      });
+
+      await expect(
+        service.generateChatToken(customerUserId, bookingId),
+      ).rejects.toThrow(ConflictException);
+      expect(generateToken04Spy).not.toHaveBeenCalled();
+    });
+
+    it('throws when Zego env is not configured', async () => {
+      config.zegoAppId = '';
+      config.zegoServerSecret = '';
+
+      await expect(
+        service.generateChatToken(customerUserId, bookingId),
+      ).rejects.toThrow(ServiceUnavailableException);
+    });
   });
 });
