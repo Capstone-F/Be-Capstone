@@ -222,6 +222,16 @@ export const ENV_DEFINITIONS = {
       'Shared secret embedded in the GHN webhook URL path. GHN does not sign callbacks, ' +
       'so this path segment is the only authentication gate on the webhook.',
   },
+  ZEGO_APP_ID: {
+    required: false,
+    description:
+      'ZegoCloud App ID from the Admin Console (Video Call). Used to mint Token04 for consultation rooms.',
+  },
+  ZEGO_SERVER_SECRET: {
+    required: false,
+    description:
+      'ZegoCloud Server Secret (32-byte string) from the Admin Console. Used server-side only to mint Token04.',
+  },
 } as const satisfies Record<string, EnvDefinition>;
 
 export type EnvKey = keyof typeof ENV_DEFINITIONS;
@@ -268,6 +278,8 @@ export type AppEnv = {
   GHN_FROM_DISTRICT_ID: number;
   GHN_FROM_WARD_CODE: string;
   GHN_WEBHOOK_SECRET: string;
+  ZEGO_APP_ID: string;
+  ZEGO_SERVER_SECRET: string;
 };
 
 export function getMissingRequiredEnv(
@@ -483,5 +495,7 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
     ),
     GHN_FROM_WARD_CODE: raw.GHN_FROM_WARD_CODE?.trim() || '',
     GHN_WEBHOOK_SECRET: raw.GHN_WEBHOOK_SECRET?.trim() || '',
+    ZEGO_APP_ID: raw.ZEGO_APP_ID?.trim() || '',
+    ZEGO_SERVER_SECRET: raw.ZEGO_SERVER_SECRET?.trim() || '',
   };
 }
