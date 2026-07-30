@@ -112,9 +112,21 @@ export class ZegoTokenService {
 
     const { appID, serverSecret } = this.requireZegoCredentials();
 
+    // ZIM SDK strictly limits userID length to <= 32 bytes.
+    const zimUserId = userId.replace(/-/g, '').slice(0, 32);
+    const zimPeerUserId = peerUserID.replace(/-/g, '').slice(0, 32);
+
     const token = generateToken04(
       appID,
-      userId,
+      zimUserId,
+      serverSecret,
+      TOKEN_TTL_SECONDS,
+      '',
+    );
+
+    const peerToken = generateToken04(
+      appID,
+      zimPeerUserId,
       serverSecret,
       TOKEN_TTL_SECONDS,
       '',
@@ -130,9 +142,10 @@ export class ZegoTokenService {
     return {
       appID,
       token,
-      userID: userId,
+      peerToken,
+      userID: zimUserId,
       userName: nameById.get(userId) || userId,
-      peerUserID,
+      peerUserID: zimPeerUserId,
       peerUserName: nameById.get(peerUserID) || peerUserID,
     };
   }
