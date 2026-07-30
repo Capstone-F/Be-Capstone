@@ -33,3 +33,9 @@ export enum TreatmentAccessStatus {
   EXPIRED = 'EXPIRED',
   REVOKED = 'REVOKED',
 }
+
+/** Who cancelled a paid treatment plan mid-progress. */
+export enum TreatmentCancelledBy {
+  CUSTOMER = 'CUSTOMER',
+  EXPERT = 'EXPERT',
+}

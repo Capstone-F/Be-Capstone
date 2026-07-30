@@ -12,7 +12,7 @@ import { Clinic } from '../clinics/clinic.entity';
 import { ConsultationRequest } from '../consultations/consultation-request.entity';
 import { Customer } from '../users/customer.entity';
 import { Expert } from '../users/expert.entity';
-import { TreatmentStatus } from './enums';
+import { TreatmentCancelledBy, TreatmentStatus } from './enums';
 import { TreatmentAccess } from './treatment-access.entity';
 import { TreatmentEvent } from './treatment-event.entity';
 import { TreatmentPhase } from './treatment-phase.entity';
@@ -81,6 +81,25 @@ export class Treatment {
   })
   @JoinColumn({ name: 'sourceConsultationId' })
   sourceConsultation: ConsultationRequest | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  cancelledAt: Date | null;
+
+  @Column({ nullable: true, type: 'text' })
+  cancelReason: string | null;
+
+  @Column({
+    type: 'varchar',
+    enum: TreatmentCancelledBy,
+    nullable: true,
+  })
+  cancelledBy: TreatmentCancelledBy | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  refundTransactionId: string | null;
+
+  @Column({ type: 'bigint', nullable: true })
+  refundedAmountVnd: string | null;
 
   @OneToMany(() => TreatmentPhase, (phase) => phase.treatment)
   phases: TreatmentPhase[];

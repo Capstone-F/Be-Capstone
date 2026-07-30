@@ -4,14 +4,17 @@ import {
   IsDateString,
   IsEnum,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
+  IsUrl,
   IsUUID,
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
-import { TreatmentPhaseType } from '../enums';
+import { TreatmentEventType, TreatmentPhaseType } from '../enums';
 
 export class CreateTreatmentDto {
   @ApiProperty()
@@ -75,6 +78,15 @@ export class CreateTreatmentPhaseDto {
   @IsString()
   notes?: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Expert clinical justification for this phase (required before submit)',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  noteByExpert?: string;
+
   @ApiProperty({ example: 500000, description: 'Phase service fee in VND' })
   @Type(() => Number)
   @IsInt()
@@ -120,6 +132,15 @@ export class UpdateTreatmentPhaseDto {
   @IsOptional()
   @IsString()
   notes?: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'Expert clinical justification for this phase (required before submit)',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  noteByExpert?: string | null;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -201,4 +222,48 @@ export class UpdateExpertRoutineDto {
   @ApiPropertyOptional({ type: [UpdateRoutineStepDto] })
   @IsOptional()
   steps?: UpdateRoutineStepDto[];
+}
+
+export class CancelTreatmentDto {
+  @ApiPropertyOptional({ description: 'Why the plan is being cancelled' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  reason?: string;
+}
+
+export class CreateTreatmentEventDto {
+  @ApiProperty({ enum: TreatmentEventType })
+  @IsEnum(TreatmentEventType)
+  type!: TreatmentEventType;
+
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  title!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  note?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Required when type is PROGRESS_PHOTO',
+  })
+  @ValidateIf(
+    (o: CreateTreatmentEventDto) =>
+      o.type === TreatmentEventType.PROGRESS_PHOTO,
+  )
+  @IsNotEmpty()
+  @IsUrl({ require_tld: false })
+  photoUrl?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'ISO timestamp; defaults to now',
+  })
+  @IsOptional()
+  @IsDateString()
+  occurredAt?: string;
 }

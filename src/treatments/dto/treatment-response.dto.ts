@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  TreatmentCancelledBy,
   TreatmentPhaseStatus,
   TreatmentPhaseType,
   TreatmentStatus,
@@ -72,6 +73,12 @@ export class TreatmentPhaseResponseDto {
   @ApiPropertyOptional({ nullable: true })
   notes!: string | null;
 
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Expert clinical justification for this phase',
+  })
+  noteByExpert!: string | null;
+
   @ApiProperty({ description: 'Phase service fee (bigint string)' })
   priceVnd!: string;
 
@@ -133,6 +140,21 @@ export class TreatmentResponseDto {
 
   @ApiPropertyOptional({ nullable: true })
   sourceConsultationId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  cancelledAt!: Date | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  cancelReason!: string | null;
+
+  @ApiPropertyOptional({ enum: TreatmentCancelledBy, nullable: true })
+  cancelledBy!: TreatmentCancelledBy | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  refundTransactionId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  refundedAmountVnd!: string | null;
 
   @ApiProperty({ type: [TreatmentPhaseResponseDto] })
   phases!: TreatmentPhaseResponseDto[];

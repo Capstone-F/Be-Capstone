@@ -11,6 +11,7 @@ import { ProductVariant } from '../products/product-variant.entity';
 import { RoutineStepDetails } from '../routines/routine-step-details.entity';
 import { RoutineStepProtocol } from '../routines/routine-step-protocol.entity';
 import { RoutineStep } from '../routines/routine-step.entity';
+import { RoutineStepCompletion } from '../routines/routine-step-completion.entity';
 import { Routine } from '../routines/routine.entity';
 import { StockBatch } from '../stock/stock-batch.entity';
 import { CustomerAllergy } from '../users/customer-allergy.entity';
@@ -48,6 +49,7 @@ import { TreatmentsService } from './treatments.service';
       RoutineStep,
       RoutineStepDetails,
       RoutineStepProtocol,
+      RoutineStepCompletion,
       CustomerAllergy,
       StockBatch,
     ]),

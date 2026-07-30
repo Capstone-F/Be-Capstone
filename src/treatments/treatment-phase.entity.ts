@@ -46,6 +46,10 @@ export class TreatmentPhase {
   @Column({ nullable: true, type: 'text' })
   notes: string | null;
 
+  /** Expert clinical justification for this phase; required before submit. */
+  @Column({ name: 'note_by_expert', nullable: true, type: 'text' })
+  noteByExpert: string | null;
+
   @Column({ nullable: true, type: 'text' })
   achievements: string | null;
 

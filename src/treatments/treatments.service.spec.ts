@@ -1,6 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
-import { TreatmentPhaseStatus, TreatmentStatus } from './enums';
+import {
+  TreatmentEventType,
+  TreatmentPhaseStatus,
+  TreatmentStatus,
+} from './enums';
 import { TreatmentsService } from './treatments.service';
+import { StepCompletionStatus } from '../routines/enums';
 
 describe('TreatmentsService phase activation rules', () => {
   function makeService(overrides: {
@@ -15,6 +20,7 @@ describe('TreatmentsService phase activation rules', () => {
       startDate: new Date('2026-08-01'),
       endDate: new Date('2026-09-01'),
       notes: null,
+      noteByExpert: 'Why this phase',
       title: 'Phase 1',
       phaseType: 'ACTIVE_TREATMENT',
       phaseOrder: 0,
@@ -66,6 +72,7 @@ describe('TreatmentsService phase activation rules', () => {
       phaseRepo as never,
       {} as never,
       {} as never,
+      {} as never,
       expertRepo as never,
       {} as never,
       {} as never,
@@ -78,10 +85,10 @@ describe('TreatmentsService phase activation rules', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       dataSource as never,
     );
 
-    // Bypass private loaders by spying through public activate after patching private methods via any
     (
       service as unknown as { loadPhase: (id: string) => Promise<unknown> }
     ).loadPhase = async () => phase;
@@ -121,5 +128,293 @@ describe('TreatmentsService phase activation rules', () => {
     });
     await service.activatePhase('u-e', 'phase-1');
     expect(dataSource.transaction).toHaveBeenCalled();
+  });
+});
+
+describe('TreatmentsService submit / cancel / chart', () => {
+  function buildService(deps: {
+    treatmentRepo?: Record<string, unknown>;
+    phaseRepo?: Record<string, unknown>;
+    eventRepo?: Record<string, unknown>;
+    expertRepo?: Record<string, unknown>;
+    customerRepo?: Record<string, unknown>;
+    consultationRepo?: Record<string, unknown>;
+    routineRepo?: Record<string, unknown>;
+    completionRepo?: Record<string, unknown>;
+    walletService?: Record<string, unknown>;
+  }) {
+    return new TreatmentsService(
+      (deps.treatmentRepo ?? {}) as never,
+      (deps.phaseRepo ?? {}) as never,
+      {} as never,
+      {} as never,
+      (deps.eventRepo ?? {}) as never,
+      (deps.expertRepo ?? {}) as never,
+      (deps.customerRepo ?? {}) as never,
+      (deps.consultationRepo ?? {}) as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      (deps.routineRepo ?? { find: jest.fn().mockResolvedValue([]) }) as never,
+      {} as never,
+      (deps.completionRepo ?? {
+        find: jest.fn().mockResolvedValue([]),
+      }) as never,
+      {} as never,
+      {} as never,
+      (deps.walletService ?? {}) as never,
+      {} as never,
+    );
+  }
+
+  it('rejects submit when a phase is missing noteByExpert', async () => {
+    const treatment = {
+      id: 't-1',
+      expertId: 'expert-1',
+      status: TreatmentStatus.DRAFT,
+      paidAt: null,
+      startDate: new Date('2026-08-01'),
+      endDate: new Date('2026-11-01'),
+    };
+    const service = buildService({
+      expertRepo: {
+        findOne: jest.fn().mockResolvedValue({ id: 'expert-1', userId: 'u-e' }),
+      },
+      treatmentRepo: {
+        findOne: jest.fn().mockResolvedValue({
+          ...treatment,
+          phases: [],
+        }),
+        save: jest.fn(),
+      },
+      phaseRepo: {
+        find: jest.fn().mockResolvedValue([
+          {
+            id: 'p-1',
+            noteByExpert: null,
+            priceVnd: '100000',
+          },
+        ]),
+      },
+    });
+
+    await expect(service.submitForPayment('u-e', 't-1')).rejects.toThrow(
+      /noteByExpert/,
+    );
+  });
+
+  it('refunds only PENDING phase fees on mid-plan cancel', async () => {
+    const treatment = {
+      id: 't-1',
+      expertId: 'expert-1',
+      customerId: 'cust-1',
+      status: TreatmentStatus.ACTIVE,
+      paidAt: new Date(),
+      phases: [
+        {
+          id: 'p-done',
+          status: TreatmentPhaseStatus.COMPLETED,
+          priceVnd: '200000',
+        },
+        {
+          id: 'p-active',
+          status: TreatmentPhaseStatus.ACTIVE,
+          priceVnd: '300000',
+        },
+        {
+          id: 'p-pending',
+          status: TreatmentPhaseStatus.PENDING,
+          priceVnd: '150000',
+        },
+        {
+          id: 'p-pending-2',
+          status: TreatmentPhaseStatus.PENDING,
+          priceVnd: '50000',
+        },
+      ],
+    };
+
+    const walletService = {
+      credit: jest.fn().mockResolvedValue({ id: 'tx-refund' }),
+    };
+    const treatmentRepo = {
+      findOne: jest.fn().mockResolvedValue(treatment),
+      save: jest.fn(async (row) => row),
+    };
+    const routineRepo = {
+      find: jest
+        .fn()
+        .mockResolvedValue([
+          { id: 'r-1', treatmentPhaseId: 'p-active', status: 'ACTIVE' },
+        ]),
+      save: jest.fn(async (row) => row),
+    };
+
+    const service = buildService({
+      treatmentRepo,
+      expertRepo: {
+        findOne: jest.fn().mockResolvedValue({ id: 'expert-1', userId: 'u-e' }),
+      },
+      customerRepo: {
+        findOne: jest.fn().mockResolvedValue({ id: 'cust-1', userId: 'u-c' }),
+      },
+      routineRepo,
+      walletService,
+    });
+
+    (
+      service as unknown as {
+        getTreatmentDetail: (id: string) => Promise<unknown>;
+      }
+    ).getTreatmentDetail = async () => ({
+      id: 't-1',
+      status: TreatmentStatus.CANCELLED,
+      refundedAmountVnd: '200000',
+    });
+
+    const result = await service.cancelTreatment(
+      'u-e',
+      { isExpert: true, isCustomer: false },
+      't-1',
+      { reason: 'Patient request' },
+    );
+
+    expect(walletService.credit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amountVnd: '200000',
+        treatmentId: 't-1',
+        userId: 'u-c',
+      }),
+    );
+    expect(treatmentRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: TreatmentStatus.CANCELLED,
+        refundTransactionId: 'tx-refund',
+        refundedAmountVnd: '200000',
+        cancelReason: 'Patient request',
+      }),
+    );
+    expect(routineRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'r-1', status: 'PAUSED' }),
+    );
+    expect(result.status).toBe(TreatmentStatus.CANCELLED);
+  });
+
+  it('chart productsUsed only includes COMPLETED routine step products', async () => {
+    const treatment = {
+      id: 't-1',
+      title: 'Acne plan',
+      expertId: 'expert-1',
+      customerId: 'cust-1',
+      status: TreatmentStatus.ACTIVE,
+      paidAt: new Date(),
+      startDate: new Date('2026-08-01'),
+      endDate: new Date('2026-11-01'),
+      sourceConsultationId: null,
+      phases: [
+        {
+          id: 'phase-1',
+          phaseType: 'ACTIVE_TREATMENT',
+          phaseOrder: 0,
+          title: 'Phase 1',
+          status: TreatmentPhaseStatus.ACTIVE,
+          noteByExpert: 'Inflammation control',
+          startDate: new Date('2026-08-01'),
+          endDate: new Date('2026-09-01'),
+          notes: null,
+          goals: null,
+          priceVnd: '100000',
+          phaseIngredients: [],
+          phaseProducts: [],
+          routines: [],
+          treatmentId: 't-1',
+        },
+      ],
+    };
+
+    const completionRepo = {
+      find: jest.fn().mockResolvedValue([
+        {
+          status: StepCompletionStatus.COMPLETED,
+          sessionDate: new Date('2026-08-10'),
+          routine: { treatmentPhaseId: 'phase-1' },
+          routineStep: {
+            details: [
+              {
+                productVariantId: 'var-1',
+                productVariant: {
+                  sku: 'SKU-1',
+                  product: { name: 'Serum A' },
+                },
+              },
+            ],
+          },
+        },
+        {
+          status: StepCompletionStatus.COMPLETED,
+          sessionDate: new Date('2026-08-11'),
+          routine: { treatmentPhaseId: 'phase-1' },
+          routineStep: {
+            details: [
+              {
+                productVariantId: 'var-1',
+                productVariant: {
+                  sku: 'SKU-1',
+                  product: { name: 'Serum A' },
+                },
+              },
+            ],
+          },
+        },
+      ]),
+    };
+
+    const service = buildService({
+      treatmentRepo: {
+        findOne: jest.fn().mockResolvedValue(treatment),
+      },
+      expertRepo: {
+        findOne: jest.fn().mockResolvedValue({ id: 'expert-1', userId: 'u-e' }),
+      },
+      eventRepo: {
+        find: jest.fn().mockResolvedValue([
+          {
+            id: 'e-1',
+            treatmentId: 't-1',
+            type: TreatmentEventType.PROGRESS_PHOTO,
+            title: 'Week 2',
+            note: null,
+            photoUrl: 'https://cdn.example/p.jpg',
+            occurredAt: new Date('2026-08-12'),
+            createdByExpertId: 'expert-1',
+            createdAt: new Date(),
+          },
+        ]),
+      },
+      consultationRepo: {
+        find: jest.fn().mockResolvedValue([]),
+        findOne: jest.fn(),
+      },
+      completionRepo,
+    });
+
+    const chart = await service.getChart(
+      'u-e',
+      { isExpert: true, isCustomer: false },
+      't-1',
+    );
+
+    expect(chart.productsUsed).toEqual([
+      expect.objectContaining({
+        productVariantId: 'var-1',
+        productName: 'Serum A',
+        sku: 'SKU-1',
+        completedCount: 2,
+        phaseIds: ['phase-1'],
+      }),
+    ]);
+    expect(chart.progressPhotos).toHaveLength(1);
+    expect(chart.phases[0].noteByExpert).toBe('Inflammation control');
   });
 });

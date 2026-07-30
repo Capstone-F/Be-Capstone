@@ -8,13 +8,20 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { TransactionType } from '../commerce/enums';
 import { ConsultationRequest } from '../consultations/consultation-request.entity';
+import { Feedback } from '../consultations/feedback.entity';
 import { ConsultationStatus } from '../consultations/enums';
 import { Ingredient } from '../ingredients/ingredient.entity';
 import { TimeOfUse } from '../ingredients/enums';
 import { ProductIngredient } from '../products/product-ingredient.entity';
 import { ProductProtocol } from '../products/product-protocol.entity';
 import { ProductVariant } from '../products/product-variant.entity';
-import { RoutinePeriod, RoutineStatus, RoutineType } from '../routines/enums';
+import {
+  RoutinePeriod,
+  RoutineStatus,
+  RoutineType,
+  StepCompletionStatus,
+} from '../routines/enums';
+import { RoutineStepCompletion } from '../routines/routine-step-completion.entity';
 import { RoutineStepDetails } from '../routines/routine-step-details.entity';
 import { RoutineStepProtocol } from '../routines/routine-step-protocol.entity';
 import { RoutineStep } from '../routines/routine-step.entity';
@@ -24,9 +31,16 @@ import { CustomerAllergy } from '../users/customer-allergy.entity';
 import { Customer } from '../users/customer.entity';
 import { Expert } from '../users/expert.entity';
 import { WalletService } from '../wallet/wallet.service';
-import { TreatmentPhaseStatus, TreatmentStatus } from './enums';
 import {
+  TreatmentCancelledBy,
+  TreatmentEventType,
+  TreatmentPhaseStatus,
+  TreatmentStatus,
+} from './enums';
+import {
+  CancelTreatmentDto,
   CreateTreatmentDto,
+  CreateTreatmentEventDto,
   CreateTreatmentPhaseDto,
   SetPhaseIngredientsDto,
   SetPhaseProductsDto,
@@ -34,10 +48,18 @@ import {
   UpdateTreatmentPhaseDto,
 } from './dto/treatment.dto';
 import {
+  TreatmentChartConsultationResultDto,
+  TreatmentChartProductUsedDto,
+  TreatmentChartResponseDto,
+  TreatmentChartSessionDto,
+  TreatmentEventResponseDto,
+} from './dto/treatment-chart-response.dto';
+import {
   ProductCandidateDto,
   TreatmentPhaseResponseDto,
   TreatmentResponseDto,
 } from './dto/treatment-response.dto';
+import { TreatmentEvent } from './treatment-event.entity';
 import { TreatmentPhaseIngredient } from './treatment-phase-ingredient.entity';
 import { TreatmentPhaseProduct } from './treatment-phase-product.entity';
 import { TreatmentPhase } from './treatment-phase.entity';
@@ -54,6 +76,8 @@ export class TreatmentsService {
     private readonly phaseIngredientRepo: Repository<TreatmentPhaseIngredient>,
     @InjectRepository(TreatmentPhaseProduct)
     private readonly phaseProductRepo: Repository<TreatmentPhaseProduct>,
+    @InjectRepository(TreatmentEvent)
+    private readonly eventRepo: Repository<TreatmentEvent>,
     @InjectRepository(Expert)
     private readonly expertRepo: Repository<Expert>,
     @InjectRepository(Customer)
@@ -72,6 +96,8 @@ export class TreatmentsService {
     private readonly routineRepo: Repository<Routine>,
     @InjectRepository(RoutineStep)
     private readonly stepRepo: Repository<RoutineStep>,
+    @InjectRepository(RoutineStepCompletion)
+    private readonly completionRepo: Repository<RoutineStepCompletion>,
     @InjectRepository(CustomerAllergy)
     private readonly allergyRepo: Repository<CustomerAllergy>,
     @InjectRepository(StockBatch)
@@ -160,6 +186,7 @@ export class TreatmentsService {
         title: dto.title?.trim() || null,
         goals: dto.goals?.trim() || null,
         notes: dto.notes?.trim() || null,
+        noteByExpert: dto.noteByExpert?.trim() || null,
         priceVnd: String(dto.priceVnd),
         status: TreatmentPhaseStatus.PENDING,
         startDate: dto.startDate ? new Date(dto.startDate) : null,
@@ -185,6 +212,9 @@ export class TreatmentsService {
     if (dto.title !== undefined) phase.title = dto.title?.trim() || null;
     if (dto.goals !== undefined) phase.goals = dto.goals?.trim() || null;
     if (dto.notes !== undefined) phase.notes = dto.notes?.trim() || null;
+    if (dto.noteByExpert !== undefined) {
+      phase.noteByExpert = dto.noteByExpert?.trim() || null;
+    }
     if (dto.priceVnd !== undefined) phase.priceVnd = String(dto.priceVnd);
     if (dto.startDate !== undefined) {
       phase.startDate = dto.startDate ? new Date(dto.startDate) : null;
@@ -267,6 +297,13 @@ export class TreatmentsService {
     const phases = await this.phaseRepo.find({ where: { treatmentId } });
     if (phases.length === 0) {
       throw new BadRequestException('Treatment must have at least one phase');
+    }
+
+    const missingNote = phases.find((p) => !p.noteByExpert?.trim());
+    if (missingNote) {
+      throw new BadRequestException(
+        'Each phase requires noteByExpert before submit (why this phase/plan was created)',
+      );
     }
 
     const total = phases.reduce(
@@ -847,6 +884,209 @@ export class TreatmentsService {
     return this.toPhaseDto(await this.loadPhase(phaseId));
   }
 
+  async cancelTreatment(
+    userId: string,
+    roles: { isExpert: boolean; isCustomer: boolean },
+    treatmentId: string,
+    dto: CancelTreatmentDto,
+  ): Promise<TreatmentResponseDto> {
+    const treatment = await this.loadTreatment(treatmentId);
+    const cancelledBy = await this.resolveCancelActor(userId, roles, treatment);
+
+    if (
+      treatment.status !== TreatmentStatus.ACTIVE &&
+      treatment.status !== TreatmentStatus.PAUSED
+    ) {
+      throw new BadRequestException(
+        `Treatment can only be cancelled when ACTIVE or PAUSED (current: ${treatment.status})`,
+      );
+    }
+
+    const pendingRefund = (treatment.phases ?? [])
+      .filter((p) => p.status === TreatmentPhaseStatus.PENDING)
+      .reduce((sum, p) => sum + BigInt(p.priceVnd || '0'), 0n);
+
+    let refundTxId: string | null = null;
+    let refundedAmount: string | null = null;
+
+    if (pendingRefund > 0n && treatment.paidAt) {
+      const customer = await this.customerRepo.findOne({
+        where: { id: treatment.customerId },
+      });
+      if (!customer?.userId) {
+        throw new BadRequestException(
+          'Customer wallet user is required to refund',
+        );
+      }
+      const tx = await this.walletService.credit({
+        type: TransactionType.REFUND,
+        amountVnd: pendingRefund.toString(),
+        userId: customer.userId,
+        treatmentId: treatment.id,
+        note: `Refund PENDING phases for treatment ${treatment.id}`,
+      });
+      refundTxId = tx.id;
+      refundedAmount = pendingRefund.toString();
+    }
+
+    treatment.status = TreatmentStatus.CANCELLED;
+    treatment.cancelledAt = new Date();
+    treatment.cancelReason = dto.reason?.trim() || null;
+    treatment.cancelledBy = cancelledBy;
+    treatment.refundTransactionId = refundTxId;
+    treatment.refundedAmountVnd = refundedAmount;
+    await this.treatmentRepo.save(treatment);
+
+    const phaseIds = (treatment.phases ?? []).map((p) => p.id);
+    if (phaseIds.length > 0) {
+      const activeRoutines = await this.routineRepo.find({
+        where: {
+          treatmentPhaseId: In(phaseIds),
+          status: RoutineStatus.ACTIVE,
+        },
+      });
+      for (const routine of activeRoutines) {
+        routine.status = RoutineStatus.PAUSED;
+        await this.routineRepo.save(routine);
+      }
+    }
+
+    return this.getTreatmentDetail(treatmentId);
+  }
+
+  async createEvent(
+    userId: string,
+    roles: { isExpert: boolean; isCustomer: boolean },
+    treatmentId: string,
+    dto: CreateTreatmentEventDto,
+  ): Promise<TreatmentEventResponseDto> {
+    const treatment = await this.loadTreatment(treatmentId);
+    await this.assertCanView(userId, treatment, roles);
+
+    if (
+      dto.type === TreatmentEventType.PROGRESS_PHOTO &&
+      !dto.photoUrl?.trim()
+    ) {
+      throw new BadRequestException(
+        'photoUrl is required for PROGRESS_PHOTO events',
+      );
+    }
+
+    let createdByExpertId: string | null = null;
+    if (roles.isExpert) {
+      const expert = await this.expertRepo.findOne({ where: { userId } });
+      if (expert && treatment.expertId === expert.id) {
+        createdByExpertId = expert.id;
+      }
+    }
+
+    const event = await this.eventRepo.save(
+      this.eventRepo.create({
+        treatmentId,
+        type: dto.type,
+        title: dto.title.trim(),
+        note: dto.note?.trim() || null,
+        photoUrl: dto.photoUrl?.trim() || null,
+        occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : new Date(),
+        createdByExpertId,
+      }),
+    );
+
+    return this.toEventDto(event);
+  }
+
+  async listEvents(
+    userId: string,
+    roles: { isExpert: boolean; isCustomer: boolean },
+    treatmentId: string,
+    type?: TreatmentEventType,
+  ): Promise<TreatmentEventResponseDto[]> {
+    const treatment = await this.loadTreatment(treatmentId);
+    await this.assertCanView(userId, treatment, roles);
+
+    const events = await this.eventRepo.find({
+      where: type ? { treatmentId, type } : { treatmentId },
+      order: { occurredAt: 'ASC' },
+    });
+    return events.map((e) => this.toEventDto(e));
+  }
+
+  async getChart(
+    userId: string,
+    roles: { isExpert: boolean; isCustomer: boolean },
+    treatmentId: string,
+  ): Promise<TreatmentChartResponseDto> {
+    const treatment = await this.loadTreatment(treatmentId);
+    await this.assertCanView(userId, treatment, roles);
+
+    const phases = [...(treatment.phases ?? [])].sort(
+      (a, b) => a.phaseOrder - b.phaseOrder,
+    );
+    const phaseIds = phases.map((p) => p.id);
+
+    const progressPhotos = await this.eventRepo.find({
+      where: {
+        treatmentId,
+        type: TreatmentEventType.PROGRESS_PHOTO,
+      },
+      order: { occurredAt: 'ASC' },
+    });
+
+    const productsUsed = await this.loadProductsUsed(phaseIds);
+
+    const linkedSessions = await this.consultationRepo.find({
+      where: { treatmentId },
+      relations: ['feedback'],
+      order: { scheduledAt: 'ASC' },
+    });
+
+    let sourceConsultation: ConsultationRequest | null = null;
+    if (treatment.sourceConsultationId) {
+      sourceConsultation = await this.consultationRepo.findOne({
+        where: { id: treatment.sourceConsultationId },
+        relations: ['feedback'],
+      });
+    }
+
+    const inPersonSessions = linkedSessions.map((s) =>
+      this.toChartSessionDto(s),
+    );
+    const followUpSessions = linkedSessions
+      .filter((s) => s.status === ConsultationStatus.COMPLETED)
+      .map((s) => this.toChartSessionDto(s));
+
+    const consultationResults: TreatmentChartConsultationResultDto = {
+      sourceConsultation: sourceConsultation
+        ? this.toChartSessionDto(sourceConsultation)
+        : null,
+      followUpSessions,
+    };
+
+    return {
+      treatmentId: treatment.id,
+      title: treatment.title,
+      status: treatment.status,
+      startDate: this.formatDate(treatment.startDate),
+      endDate: this.formatDate(treatment.endDate),
+      paidAt: treatment.paidAt,
+      phases: phases.map((p) => ({
+        id: p.id,
+        phaseType: p.phaseType,
+        phaseOrder: p.phaseOrder,
+        title: p.title,
+        status: p.status,
+        noteByExpert: p.noteByExpert,
+        startDate: this.formatDate(p.startDate),
+        endDate: this.formatDate(p.endDate),
+      })),
+      progressPhotos: progressPhotos.map((e) => this.toEventDto(e)),
+      productsUsed,
+      inPersonSessions,
+      consultationResults,
+      phaseDetails: phases.map((p) => this.toPhaseDto(p)),
+    };
+  }
+
   private periodsFromTimeOfUse(timeOfUse: TimeOfUse | null): RoutinePeriod[] {
     switch (timeOfUse) {
       case TimeOfUse.AM:
@@ -867,6 +1107,131 @@ export class TreatmentsService {
       .where('b.productVariantId = :variantId', { variantId })
       .getRawOne<{ qty: string }>();
     return Number(row?.qty ?? 0);
+  }
+
+  private async resolveCancelActor(
+    userId: string,
+    roles: { isExpert: boolean; isCustomer: boolean },
+    treatment: Treatment,
+  ): Promise<TreatmentCancelledBy> {
+    if (roles.isExpert) {
+      const expert = await this.expertRepo.findOne({ where: { userId } });
+      if (expert && treatment.expertId === expert.id) {
+        return TreatmentCancelledBy.EXPERT;
+      }
+    }
+    if (roles.isCustomer) {
+      const customer = await this.customerRepo.findOne({ where: { userId } });
+      if (customer && treatment.customerId === customer.id) {
+        return TreatmentCancelledBy.CUSTOMER;
+      }
+    }
+    throw new ForbiddenException(
+      'You do not have access to cancel this treatment',
+    );
+  }
+
+  private async loadProductsUsed(
+    phaseIds: string[],
+  ): Promise<TreatmentChartProductUsedDto[]> {
+    if (phaseIds.length === 0) return [];
+
+    const completions = await this.completionRepo.find({
+      where: {
+        status: StepCompletionStatus.COMPLETED,
+        routine: { treatmentPhaseId: In(phaseIds) },
+      },
+      relations: [
+        'routine',
+        'routineStep',
+        'routineStep.details',
+        'routineStep.details.productVariant',
+        'routineStep.details.productVariant.product',
+      ],
+    });
+
+    const byVariant = new Map<
+      string,
+      {
+        productVariantId: string;
+        productName: string | null;
+        sku: string | null;
+        completedCount: number;
+        lastUsedAt: Date | null;
+        phaseIds: Set<string>;
+      }
+    >();
+
+    for (const completion of completions) {
+      const phaseId = completion.routine?.treatmentPhaseId;
+      if (!phaseId) continue;
+      const details = completion.routineStep?.details ?? [];
+      for (const detail of details) {
+        if (!detail.productVariantId) continue;
+        const existing = byVariant.get(detail.productVariantId);
+        const sessionDate = completion.sessionDate
+          ? new Date(completion.sessionDate)
+          : null;
+        if (!existing) {
+          byVariant.set(detail.productVariantId, {
+            productVariantId: detail.productVariantId,
+            productName: detail.productVariant?.product?.name ?? null,
+            sku: detail.productVariant?.sku ?? null,
+            completedCount: 1,
+            lastUsedAt: sessionDate,
+            phaseIds: new Set([phaseId]),
+          });
+        } else {
+          existing.completedCount += 1;
+          existing.phaseIds.add(phaseId);
+          if (
+            sessionDate &&
+            (!existing.lastUsedAt || sessionDate > existing.lastUsedAt)
+          ) {
+            existing.lastUsedAt = sessionDate;
+          }
+        }
+      }
+    }
+
+    return [...byVariant.values()].map((row) => ({
+      productVariantId: row.productVariantId,
+      productName: row.productName,
+      sku: row.sku,
+      completedCount: row.completedCount,
+      lastUsedAt: this.formatDate(row.lastUsedAt),
+      phaseIds: [...row.phaseIds],
+    }));
+  }
+
+  private toChartSessionDto(
+    consultation: ConsultationRequest & { feedback?: Feedback | null },
+  ): TreatmentChartSessionDto {
+    return {
+      id: consultation.id,
+      status: consultation.status,
+      isFollowUp: consultation.isFollowUp ?? false,
+      scheduledAt: consultation.scheduledAt,
+      startedAt: consultation.startedAt,
+      completedAt: consultation.completedAt,
+      reason: consultation.reason,
+      feedbackRating: consultation.feedback?.rating ?? null,
+      feedbackComment: consultation.feedback?.comment ?? null,
+    };
+  }
+
+  private toEventDto(event: TreatmentEvent): TreatmentEventResponseDto {
+    return {
+      id: event.id,
+      treatmentId: event.treatmentId,
+      type: event.type,
+      title: event.title,
+      note: event.note,
+      photoUrl: event.photoUrl,
+      occurredAt: event.occurredAt,
+      createdByExpertId: event.createdByExpertId,
+      createdAt: event.createdAt,
+    };
   }
 
   private async recomputeTotalPrice(treatmentId: string): Promise<void> {
@@ -996,6 +1361,11 @@ export class TreatmentsService {
       paidAt: treatment.paidAt,
       paidTransactionId: treatment.paidTransactionId,
       sourceConsultationId: treatment.sourceConsultationId,
+      cancelledAt: treatment.cancelledAt,
+      cancelReason: treatment.cancelReason,
+      cancelledBy: treatment.cancelledBy,
+      refundTransactionId: treatment.refundTransactionId,
+      refundedAmountVnd: treatment.refundedAmountVnd,
       phases: phases.map((p) => this.toPhaseDto(p)),
       createdAt: treatment.createdAt,
       updatedAt: treatment.updatedAt,
@@ -1011,6 +1381,7 @@ export class TreatmentsService {
       title: phase.title,
       goals: phase.goals,
       notes: phase.notes,
+      noteByExpert: phase.noteByExpert,
       priceVnd: phase.priceVnd,
       status: phase.status,
       startDate: this.formatDate(phase.startDate),
