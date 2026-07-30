@@ -593,7 +593,7 @@ export class RoutineTrackingService {
         id: detail.productVariantId,
         name: variant?.product?.name ?? detail.productVariantId,
         sku: variant?.sku ?? null,
-        imageUrl: null,
+        imageUrl: variant?.imageUrl ?? null,
       };
     }
     const amountRaw = detail?.amountMl;

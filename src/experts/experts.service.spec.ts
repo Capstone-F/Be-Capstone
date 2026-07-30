@@ -32,6 +32,7 @@ const makeExpert = (overrides: Partial<Expert> = {}): Expert => ({
   specialization: ExpertSpecialty.DERMATOLOGY,
   licenseNumber: 'LIC-001',
   bio: 'Expert bio',
+  avatarUrl: null,
   rating: 4.5,
   consultationFee: 300000,
   sessionLengthHours: 1,
@@ -435,6 +436,52 @@ describe('ExpertsService', () => {
       await expect(
         service.update(managerCaller, 'expert-1', { bio: 'x' }),
       ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should update avatarUrl for admin', async () => {
+      const updated = makeExpert({
+        avatarUrl: 'https://placehold.co/400',
+      });
+      const { service, expertRepo } = makeService({
+        findOne: makeExpert(),
+      });
+      (expertRepo.findOne as jest.Mock)
+        .mockResolvedValueOnce(makeExpert())
+        .mockResolvedValueOnce(updated);
+
+      const result = await service.update(adminCaller, 'expert-1', {
+        avatarUrl: 'https://placehold.co/400',
+      });
+
+      expect(result.avatarUrl).toBe('https://placehold.co/400');
+    });
+  });
+
+  describe('updateOwnAvatar', () => {
+    it('should update avatar for the authenticated expert', async () => {
+      const { service, expertRepo } = makeService({});
+      (expertRepo.findOne as jest.Mock)
+        .mockResolvedValueOnce(makeExpert())
+        .mockResolvedValueOnce(
+          makeExpert({ avatarUrl: 'https://placehold.co/400' }),
+        );
+      (expertRepo.save as jest.Mock).mockImplementation(async (e) => e);
+
+      const result = await service.updateOwnAvatar(
+        'user-1',
+        'https://placehold.co/400',
+      );
+
+      expect(result.avatarUrl).toBe('https://placehold.co/400');
+    });
+
+    it('should throw when expert profile is missing', async () => {
+      const { service, expertRepo } = makeService({});
+      (expertRepo.findOne as jest.Mock).mockResolvedValue(null);
+
+      await expect(
+        service.updateOwnAvatar('user-1', 'https://placehold.co/400'),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });

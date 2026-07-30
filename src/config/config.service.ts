@@ -167,6 +167,28 @@ export class AppConfigService {
     return this.env.ZEGO_SERVER_SECRET;
   }
 
+  /** Cloudflare R2 account id. Empty when not configured. */
+  get r2AccountId(): string {
+    return this.env.R2_ACCOUNT_ID;
+  }
+
+  get r2AccessKeyId(): string {
+    return this.env.R2_ACCESS_KEY_ID;
+  }
+
+  get r2SecretAccessKey(): string {
+    return this.env.R2_SECRET_ACCESS_KEY;
+  }
+
+  get r2Bucket(): string {
+    return this.env.R2_BUCKET;
+  }
+
+  /** Public base URL for R2 objects (no trailing slash). Empty when not configured. */
+  get r2PublicBaseUrl(): string {
+    return this.env.R2_PUBLIC_BASE_URL;
+  }
+
   getMissingRequiredKeys(): string[] {
     return getMissingRequiredEnv();
   }

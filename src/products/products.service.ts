@@ -79,6 +79,31 @@ export class ProductsService {
     return this.toDetailResponse(product, mappings);
   }
 
+  async updateVariantImage(
+    variantId: string,
+    imageUrl: string,
+  ): Promise<ProductVariantResponseDto> {
+    const variant = await this.variantRepository.findOne({
+      where: { id: variantId },
+    });
+    if (!variant) {
+      throw new NotFoundException(`Product variant ${variantId} not found`);
+    }
+
+    variant.imageUrl = imageUrl.trim();
+    const saved = await this.variantRepository.save(variant);
+
+    return {
+      id: saved.id,
+      sku: saved.sku,
+      volume: saved.volume,
+      packaging: saved.packaging,
+      priceVnd: saved.priceVnd,
+      isActive: saved.isActive,
+      imageUrl: saved.imageUrl ?? null,
+    };
+  }
+
   async findMany(query: ListProductsQueryDto): Promise<PaginatedProductsDto> {
     const page = Math.max(1, query.page ?? 1);
     const limit = Math.min(100, Math.max(1, query.limit ?? 20));
@@ -320,6 +345,7 @@ export class ProductsService {
         packaging: v.packaging,
         priceVnd: v.priceVnd,
         isActive: v.isActive,
+        imageUrl: v.imageUrl ?? null,
       }),
     );
 

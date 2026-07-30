@@ -6,6 +6,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUrl,
   IsUUID,
   Max,
   Min,
@@ -37,6 +38,15 @@ export class UpdateExpertDto {
   @IsOptional()
   @IsString()
   bio?: string | null;
+
+  @ApiPropertyOptional({
+    example: 'https://placehold.co/400',
+    nullable: true,
+    description: 'Expert avatar URL (e.g. from POST /uploads/images)',
+  })
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  avatarUrl?: string | null;
 
   @ApiPropertyOptional({ example: 300000, minimum: 0 })
   @IsOptional()

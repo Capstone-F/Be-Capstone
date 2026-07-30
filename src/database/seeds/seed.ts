@@ -1809,6 +1809,7 @@ async function upsertProductWithVariant(
     variant.shelfLifeValue = seed.shelfLifeValue ?? 365;
     variant.shelfLifeUnit = seed.shelfLifeUnit ?? ShelfLifeUnit.DAY;
     variant.weightGram = deriveWeightGram(seed);
+    variant.imageUrl = 'https://placehold.co/400';
     variant.isActive = true;
     await variantRepo.save(variant);
   } else {
@@ -1832,6 +1833,7 @@ async function upsertProductWithVariant(
         shelfLifeValue: seed.shelfLifeValue ?? 365,
         shelfLifeUnit: seed.shelfLifeUnit ?? ShelfLifeUnit.DAY,
         weightGram: deriveWeightGram(seed),
+        imageUrl: 'https://placehold.co/400',
         isActive: true,
       }),
     );
@@ -2395,6 +2397,7 @@ async function seed(): Promise<void> {
             specialization: expertSeed.specialization,
             licenseNumber: expertSeed.licenseNumber,
             bio: expertSeed.bio,
+            avatarUrl: 'https://placehold.co/400',
             rating: expertSeed.rating,
             consultationFee: expertSeed.consultationFee,
             sessionLengthHours: expertSeed.sessionLengthHours,
@@ -2406,6 +2409,7 @@ async function seed(): Promise<void> {
         expert.specialization = expertSeed.specialization;
         expert.licenseNumber = expertSeed.licenseNumber;
         expert.bio = expertSeed.bio;
+        expert.avatarUrl = 'https://placehold.co/400';
         expert.rating = expertSeed.rating;
         expert.consultationFee = expertSeed.consultationFee;
         expert.sessionLengthHours = expertSeed.sessionLengthHours;

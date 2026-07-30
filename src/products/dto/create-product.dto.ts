@@ -8,6 +8,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUrl,
   Max,
   Min,
   ValidateNested,
@@ -78,6 +79,14 @@ export class CreateProductDto {
   @IsInt()
   @Min(0)
   priceVnd!: number;
+
+  @ApiPropertyOptional({
+    example: 'https://placehold.co/400',
+    description: 'Optional variant image URL (e.g. from POST /uploads/images)',
+  })
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  imageUrl?: string;
 
   @ApiPropertyOptional({ example: 365, minimum: 1 })
   @IsOptional()

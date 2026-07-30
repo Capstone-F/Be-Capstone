@@ -60,6 +60,13 @@ export class ExpertResponseDto {
   @ApiProperty({ example: true })
   isActive!: boolean;
 
+  @ApiPropertyOptional({
+    example: 'https://placehold.co/400',
+    nullable: true,
+    description: 'Expert profile avatar URL',
+  })
+  avatarUrl!: string | null;
+
   @ApiProperty()
   createdAt!: Date;
 

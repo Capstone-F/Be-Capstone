@@ -127,9 +127,9 @@ GET /products/categories
 GET /products/<productId>
 ```
 
-Response shape (detail) includes `product.variants[]` with `id`, `sku`, `volume`, `packaging`, `priceVnd`, `isActive`. Store `variants[].id` for the cart step.
+Response shape (detail) includes `product.variants[]` with `id`, `sku`, `volume`, `packaging`, `priceVnd`, `isActive`, `imageUrl`. Store `variants[].id` for the cart step.
 
-> Staff/admin product onboarding (`POST /products`) exists but is **not** part of the customer purchase flow.
+> Staff/admin product onboarding (`POST /products`) exists but is **not** part of the customer purchase flow. Optional `imageUrl` may be set on create; update later with `PATCH /products/variants/:variantId`. See [uploads.md](uploads.md).
 
 ---
 
@@ -472,6 +472,9 @@ GHN status → `DeliveryStatus` / `OrderStatus` mapping: [shipping.md](shipping.
 | ----------- | ------------------------------------------------ | -------- | -------------------------------------------------- |
 | GET         | `/users/me`                                      | ✅ Ready | Account identity                                   |
 | GET / PATCH | `/customers/me`                                  | ✅ Ready | Profile / phone / allergies — **no saved address** |
+| POST        | `/products`                                      | ✅ Ready | Admin/Staff onboard (optional `imageUrl`)          |
+| PATCH       | `/products/variants/:variantId`                  | ✅ Ready | Admin/Staff set variant `imageUrl`                 |
+| POST        | `/uploads/images`                                | ✅ Ready | Multipart → R2 URL; see [uploads.md](uploads.md)   |
 | GET / PATCH | `/admin/commerce-settings/survey-combo-discount` | ✅ Ready | Admin only                                         |
 | GET         | `/payments/vnpay/return`                         | ✅ Ready | Gateway browser return; not called by app UI       |
 | GET         | `/payments/vnpay/ipn`                            | ✅ Ready | Gateway server callback                            |

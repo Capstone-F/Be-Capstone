@@ -530,3 +530,108 @@ describe('TreatmentsService submit / cancel / chart', () => {
     ).rejects.toThrow(BadRequestException);
   });
 });
+
+describe('TreatmentsService updateEventPhoto', () => {
+  function buildService(deps: {
+    treatmentRepo?: Record<string, unknown>;
+    eventRepo?: Record<string, unknown>;
+    expertRepo?: Record<string, unknown>;
+    customerRepo?: Record<string, unknown>;
+  }) {
+    return new TreatmentsService(
+      (deps.treatmentRepo ?? {}) as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      (deps.eventRepo ?? {}) as never,
+      (deps.expertRepo ?? {}) as never,
+      (deps.customerRepo ?? {}) as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      {} as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+  }
+
+  const treatment = {
+    id: 't-1',
+    expertId: 'expert-1',
+    customerId: 'cust-1',
+    status: TreatmentStatus.ACTIVE,
+  };
+
+  it('updates photoUrl on PROGRESS_PHOTO events', async () => {
+    const event = {
+      id: 'e-1',
+      treatmentId: 't-1',
+      type: TreatmentEventType.PROGRESS_PHOTO,
+      title: 'Week 2',
+      note: null,
+      photoUrl: 'https://old.example/p.jpg',
+      occurredAt: new Date(),
+      createdByExpertId: null,
+      createdAt: new Date(),
+    };
+    const eventRepo = {
+      findOne: jest.fn().mockResolvedValue(event),
+      save: jest.fn(async (row) => row),
+    };
+    const service = buildService({
+      treatmentRepo: {
+        findOne: jest.fn().mockResolvedValue(treatment),
+      },
+      expertRepo: {
+        findOne: jest.fn().mockResolvedValue({ id: 'expert-1', userId: 'u-e' }),
+      },
+      eventRepo,
+    });
+
+    const result = await service.updateEventPhoto(
+      'u-e',
+      { isExpert: true, isCustomer: false },
+      't-1',
+      'e-1',
+      'https://placehold.co/400',
+    );
+
+    expect(result.photoUrl).toBe('https://placehold.co/400');
+    expect(eventRepo.save).toHaveBeenCalled();
+  });
+
+  it('rejects photoUrl updates on non-PROGRESS_PHOTO events', async () => {
+    const service = buildService({
+      treatmentRepo: {
+        findOne: jest.fn().mockResolvedValue(treatment),
+      },
+      expertRepo: {
+        findOne: jest.fn().mockResolvedValue({ id: 'expert-1', userId: 'u-e' }),
+      },
+      eventRepo: {
+        findOne: jest.fn().mockResolvedValue({
+          id: 'e-2',
+          treatmentId: 't-1',
+          type: TreatmentEventType.MILESTONE,
+          photoUrl: null,
+        }),
+      },
+    });
+
+    await expect(
+      service.updateEventPhoto(
+        'u-e',
+        { isExpert: true, isCustomer: false },
+        't-1',
+        'e-2',
+        'https://placehold.co/400',
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+});

@@ -55,6 +55,7 @@ export class ProductOnboardingService {
         shelfLifeValue: dto.shelfLifeValue ?? 365,
         shelfLifeUnit: dto.shelfLifeUnit ?? ShelfLifeUnit.DAY,
         isActive: true,
+        imageUrl: dto.imageUrl?.trim() || null,
       });
       await manager.save(ProductVariant, variant);
 

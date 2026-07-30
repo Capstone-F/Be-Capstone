@@ -1003,6 +1003,33 @@ export class TreatmentsService {
     return this.toEventDto(event);
   }
 
+  async updateEventPhoto(
+    userId: string,
+    roles: { isExpert: boolean; isCustomer: boolean },
+    treatmentId: string,
+    eventId: string,
+    photoUrl: string,
+  ): Promise<TreatmentEventResponseDto> {
+    const treatment = await this.loadTreatment(treatmentId);
+    await this.assertCanView(userId, treatment, roles);
+
+    const event = await this.eventRepo.findOne({
+      where: { id: eventId, treatmentId },
+    });
+    if (!event) {
+      throw new NotFoundException(`Treatment event ${eventId} not found`);
+    }
+    if (event.type !== TreatmentEventType.PROGRESS_PHOTO) {
+      throw new BadRequestException(
+        'photoUrl can only be updated on PROGRESS_PHOTO events',
+      );
+    }
+
+    event.photoUrl = photoUrl.trim();
+    const saved = await this.eventRepo.save(event);
+    return this.toEventDto(saved);
+  }
+
   async listEvents(
     userId: string,
     roles: { isExpert: boolean; isCustomer: boolean },

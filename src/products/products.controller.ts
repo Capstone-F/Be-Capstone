@@ -5,6 +5,8 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   Req,
@@ -35,11 +37,13 @@ import { ProductCategoryResponseDto } from './dto/product-category-response.dto'
 import {
   PaginatedProductsDto,
   ProductDetailResponseDto,
+  ProductVariantResponseDto,
 } from './dto/product-response.dto';
 import {
   SuggestedProductsResponseDto,
   SuggestProductsQueryDto,
 } from './dto/suggest-products.dto';
+import { UpdateProductVariantImageDto } from './dto/update-product-variant-image.dto';
 import { ProductOnboardingService } from './product-onboarding.service';
 import { ProductsService } from './products.service';
 
@@ -67,6 +71,25 @@ export class ProductsController {
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   onboard(@Body() body: CreateProductDto) {
     return this.productOnboardingService.onboard(body);
+  }
+
+  @Patch('variants/:variantId')
+  @UseGuards(SessionGuard, RolesGuard)
+  @Roles(Role.AppAdmin, Role.Staff)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update product variant image URL',
+    description:
+      'Sets imageUrl on a variant (typically after POST /uploads/images). Admin/Staff only.',
+  })
+  @ApiOkResponse({ type: ProductVariantResponseDto })
+  @ApiForbiddenResponse({ description: 'Insufficient permissions' })
+  @ApiNotFoundResponse({ description: 'Variant not found' })
+  updateVariantImage(
+    @Param('variantId', ParseUUIDPipe) variantId: string,
+    @Body() body: UpdateProductVariantImageDto,
+  ) {
+    return this.productsService.updateVariantImage(variantId, body.imageUrl);
   }
 
   @Get()

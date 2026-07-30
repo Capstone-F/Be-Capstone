@@ -74,6 +74,7 @@ describe('RoutineGeneratorService', () => {
             productVariant: {
               id: 'v1',
               sku: 'SKU-1',
+              imageUrl: 'https://placehold.co/400',
               product: { name: 'Serum A' },
             },
           },
@@ -95,6 +96,7 @@ describe('RoutineGeneratorService', () => {
             productVariant: {
               id: 'v1',
               sku: 'SKU-1',
+              imageUrl: 'https://placehold.co/400',
               product: { name: 'Serum A' },
             },
           },
@@ -234,7 +236,7 @@ describe('RoutineGeneratorService', () => {
       id: 'v1',
       name: 'Serum A',
       sku: 'SKU-1',
-      imageUrl: null,
+      imageUrl: 'https://placehold.co/400',
     });
 
     expect(savedSteps.length).toBeGreaterThan(0);

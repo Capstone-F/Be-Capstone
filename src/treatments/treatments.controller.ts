@@ -51,6 +51,7 @@ import {
   SetPhaseIngredientsDto,
   SetPhaseProductsDto,
   UpdateExpertRoutineDto,
+  UpdateTreatmentEventPhotoDto,
   UpdateTreatmentPhaseDto,
 } from './dto/treatment.dto';
 import { TreatmentEventType } from './enums';
@@ -149,7 +150,7 @@ export class TreatmentsController {
   @ApiOperation({
     summary: 'Add a treatment event (e.g. progress photo)',
     description:
-      'PROGRESS_PHOTO requires photoUrl. Clients supply a hosted URL (no upload in MVP).',
+      'PROGRESS_PHOTO requires photoUrl. Upload via POST /uploads/images first, then pass the returned URL.',
   })
   @ApiCreatedResponse({ type: TreatmentEventResponseDto })
   createEvent(
@@ -168,6 +169,36 @@ export class TreatmentsController {
       },
       id,
       dto,
+    );
+  }
+
+  @Patch(':id/events/:eventId')
+  @Roles(Role.Customer, Role.Expert)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update PROGRESS_PHOTO event photo URL',
+    description:
+      'Replaces photoUrl on a PROGRESS_PHOTO event. Upload via POST /uploads/images first.',
+  })
+  @ApiOkResponse({ type: TreatmentEventResponseDto })
+  updateEventPhoto(
+    @Req() req: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('eventId', ParseUUIDPipe) eventId: string,
+    @Body() dto: UpdateTreatmentEventPhotoDto,
+  ) {
+    const auth = getAuthContext(req);
+    if (!auth?.userId) throw new UnauthorizedException('Not authenticated');
+    const roles = auth.roles ?? [];
+    return this.treatmentsService.updateEventPhoto(
+      auth.userId,
+      {
+        isExpert: roles.includes(Role.Expert),
+        isCustomer: roles.includes(Role.Customer),
+      },
+      id,
+      eventId,
+      dto.photoUrl,
     );
   }
 

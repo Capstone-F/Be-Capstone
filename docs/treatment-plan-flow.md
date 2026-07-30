@@ -150,7 +150,7 @@ npm run migration:run
 8. **Complete consultation after handoff:** prefer completing the booking once the plan is paid (and ideally first phase activated / customer understands next steps). Completing earlier is allowed by the booking API, but product UX should keep the session open through plan pay when possible.
 9. **One ACTIVE phase:** activating auto-completes the previous ACTIVE phase; save DRAFT routines first.
 10. **Chart products used:** from routine **COMPLETED** step completions only (not prescribed-unused).
-11. **Progress photos:** FE hosts image; send `photoUrl` (no upload API).
+11. **Progress photos:** upload via `POST /uploads/images`, then send returned `url` as `photoUrl` (create or patch event). See [uploads.md](uploads.md).
 12. **Cancel:** only treatment `ACTIVE` / `PAUSED`. Refund = sum of **PENDING** phase fees; COMPLETED + ACTIVE fees kept.
 13. **Perspective:** `GET /treatments/me?as=customer|expert` when dual-role.
 
@@ -357,22 +357,35 @@ Content-Type: application/json
 }
 ```
 
-| Field        | Required | Notes                                        |
-| ------------ | -------- | -------------------------------------------- |
-| `type`       | Yes      | See enum in §15                              |
-| `title`      | Yes      | 1–200 chars                                  |
-| `note`       | No       | Free text                                    |
-| `photoUrl`   | Cond.    | **Required** when `type` is `PROGRESS_PHOTO` |
-| `occurredAt` | No       | ISO datetime; defaults to now                |
+| Field        | Required | Notes                                                                                        |
+| ------------ | -------- | -------------------------------------------------------------------------------------------- |
+| `type`       | Yes      | See enum in §15                                                                              |
+| `title`      | Yes      | 1–200 chars                                                                                  |
+| `note`       | No       | Free text                                                                                    |
+| `photoUrl`   | Cond.    | **Required** when `type` is `PROGRESS_PHOTO` (from `POST /uploads/images` or any public URL) |
+| `occurredAt` | No       | ISO datetime; defaults to now                                                                |
 
-### 8.2 List events ✅ Ready
+### 8.2 Update progress photo URL ✅ Ready
+
+```http
+PATCH /treatments/:id/events/:eventId
+Content-Type: application/json
+
+{
+  "photoUrl": "https://placehold.co/400"
+}
+```
+
+Only allowed when the event `type` is `PROGRESS_PHOTO`.
+
+### 8.3 List events ✅ Ready
 
 ```http
 GET /treatments/:id/events
 GET /treatments/:id/events?type=PROGRESS_PHOTO
 ```
 
-Ordered by `occurredAt` ascending. No multipart upload API in MVP.
+Ordered by `occurredAt` ascending. Preferred flow: [uploads.md](uploads.md) → create/patch event with `photoUrl`.
 
 ---
 
@@ -616,6 +629,8 @@ Money fields (`priceVnd`, `totalPriceVnd`, `refundedAmountVnd`) are **bigint str
 | GET    | `/treatments/:id/chart`                          | Customer / Expert | ✅ Ready | Post-session hồ sơ                        |
 | GET    | `/treatments/:id/events`                         | Customer / Expert | ✅ Ready | Timeline                                  |
 | POST   | `/treatments/:id/events`                         | Customer / Expert | ✅ Ready | Progress photos                           |
+| PATCH  | `/treatments/:id/events/:eventId`                | Customer / Expert | ✅ Ready | Update PROGRESS_PHOTO `photoUrl`          |
+| POST   | `/uploads/images`                                | Any authenticated | ✅ Ready | Multipart → R2 public URL                 |
 | POST   | `/treatments/:id/cancel`                         | Customer / Expert | ✅ Ready | Mid-plan cancel                           |
 | GET    | `/wallet/me`                                     | Authenticated     | ✅ Ready | Balance                                   |
 | POST   | `/wallet/top-up`                                 | Customer          | ✅ Ready | Top-up                                    |
@@ -666,15 +681,15 @@ Unit coverage: `src/treatments/treatments.service.spec.ts`.
 
 ## 17. Remaining gaps & roadmap
 
-| Topic                                         | Status                                      |
-| --------------------------------------------- | ------------------------------------------- |
-| Object storage / multipart photo upload       | ❌ FE supplies `photoUrl` only              |
-| ACTIVE phase fee prorating on cancel          | ❌ Full ACTIVE fee kept                     |
-| Ecommerce “purchased” vs “used” products      | ❌ Chart uses routine completions only      |
-| Force consult complete only after plan pay    | ❌ Product UX; booking API does not enforce |
-| Auto COMPLETED treatment when all phases done | 🔶 Not wired                                |
-| Expert payout / escrow from plan fees         | ❌                                          |
-| Notifications on pay / cancel / activate      | ❌                                          |
+| Topic                                         | Status                                                  |
+| --------------------------------------------- | ------------------------------------------------------- |
+| Object storage / multipart photo upload       | ✅ `POST /uploads/images` (R2); events store `photoUrl` |
+| ACTIVE phase fee prorating on cancel          | ❌ Full ACTIVE fee kept                                 |
+| Ecommerce “purchased” vs “used” products      | ❌ Chart uses routine completions only                  |
+| Force consult complete only after plan pay    | ❌ Product UX; booking API does not enforce             |
+| Auto COMPLETED treatment when all phases done | 🔶 Not wired                                            |
+| Expert payout / escrow from plan fees         | ❌                                                      |
+| Notifications on pay / cancel / activate      | ❌                                                      |
 
 ---
 

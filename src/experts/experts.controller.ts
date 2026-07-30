@@ -33,6 +33,7 @@ import { Role } from '../auth/roles.enum';
 import { CallerContext } from '../users/users.service';
 import { CreateExpertDto } from './dto/create-expert.dto';
 import { UpdateExpertDto } from './dto/update-expert.dto';
+import { UpdateOwnExpertAvatarDto } from './dto/update-own-expert-avatar.dto';
 import { ListExpertsQueryDto } from './dto/list-experts.dto';
 import {
   ExpertResponseDto,
@@ -90,6 +91,25 @@ export class ExpertsController {
   @ApiNotFoundResponse({ description: 'Expert profile not found' })
   getMe(@Req() req: Request) {
     return this.expertsService.getOwnProfile(this.requireUserId(req));
+  }
+
+  @Patch('me')
+  @UseGuards(RolesGuard)
+  @Roles(Role.Expert)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update own expert avatar URL',
+    description:
+      'Sets avatarUrl on the authenticated expert profile (typically after POST /uploads/images).',
+  })
+  @ApiOkResponse({ type: ExpertResponseDto })
+  @ApiForbiddenResponse({ description: 'Insufficient permissions' })
+  @ApiNotFoundResponse({ description: 'Expert profile not found' })
+  updateMe(@Req() req: Request, @Body() body: UpdateOwnExpertAvatarDto) {
+    return this.expertsService.updateOwnAvatar(
+      this.requireUserId(req),
+      body.avatarUrl,
+    );
   }
 
   @Get(':id')
