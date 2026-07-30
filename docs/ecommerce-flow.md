@@ -1,23 +1,28 @@
 # E-Commerce Integration Guide
 
-End-to-end guide for integrating the **catalog → cart → order (+ shipping) → payment → fulfillment / tracking** flow with this backend.
+End-to-end guide for integrating the **catalog → cart → order (+ GHN shipping) → payment → fulfillment / tracking** flow with this backend.
 
 **Auth (register / login):** do not duplicate here — use:
 
 - [Web Authentication Guide](auth-web.md) — session cookie (`sid`) for SPAs
 - [Mobile Authentication Guide](auth-mobile.md) — Bearer tokens for Expo / React Native
 
-See also: [VNPay Payment Integration](payments.md) · [User Management & RBAC](users.md) · [Consultation Flow](consultation-flow.md) (expert bookings use **Wallet**, not VNPay)
+See also:
+
+- [GHN Delivery Integration](shipping.md) — address picker, fee quote, webhook, env vars
+- [VNPay Payment Integration](payments.md)
+- [User Management & RBAC](users.md)
+- [Consultation Flow](consultation-flow.md) — expert bookings use **Wallet**, not VNPay
 
 ---
 
 ## Status legend
 
-| Marker     | Meaning                                                 |
-| ---------- | ------------------------------------------------------- |
-| ✅ Ready   | Controller + service exist; usable today                |
-| ❌ Missing | Not implemented yet (schema/module may exist)           |
-| 🔶 Extend  | Endpoint exists but must change to support shipping fee |
+| Marker     | Meaning                                       |
+| ---------- | --------------------------------------------- |
+| ✅ Ready   | Controller + service exist; usable today      |
+| ❌ Missing | Not implemented yet (schema/module may exist) |
+| 🔶 Extend  | Endpoint exists but needs more work for UX    |
 
 ---
 
@@ -37,35 +42,35 @@ See also: [VNPay Payment Integration](payments.md) · [User Management & RBAC](u
 ## 1. Flow overview
 
 ```
-┌──────────┐   ┌──────────┐   ┌──────┐   ┌─────────────────────┐
-│ Discover │──▶│ Register │──▶│ Cart │──▶│ Order + shipping    │
-│ products │   │ / Login  │   │      │   │ (fee locked in)     │
-└──────────┘   └──────────┘   └──────┘   └──────────┬──────────┘
-   ✅ Ready      ✅ (auth docs)  ✅ Ready    ✅ Order + shipping
+┌──────────┐   ┌──────────┐   ┌──────┐   ┌──────────────────────────┐
+│ Discover │──▶│ Register │──▶│ Cart │──▶│ Order + GHN address      │
+│ products │   │ / Login  │   │      │   │ (live fee at create)     │
+└──────────┘   └──────────┘   └──────┘   └──────────┬───────────────┘
+   ✅ Ready      ✅ (auth docs)  ✅ Ready    ✅ Ready
                                                             │
                                                             ▼
 ┌──────────┐   ┌──────────────────────┐            ┌────────────┐
-│ Tracking │◀──│ Fulfillment updates  │◀───────────│  Payment   │
-│ (read)   │   │ (staff / carrier)    │            │  (VNPay)   │
+│ Tracking │◀──│ GHN webhook statuses │◀───────────│  Payment   │
+│ (read)   │   │ (carrier)            │            │  (VNPay)   │
 └──────────┘   └──────────────────────┘            └────────────┘
-  🔶 GET ready       ❌ Staff PATCH                   ✅ Ready
-     (staff PATCH                                   (products +
-      missing)                                       shipping)
+  ✅ Ready           ✅ Ready                        ✅ Ready
+                                                     (products +
+                                                      shipping)
 ```
 
-**Target happy path (catalog purchase):**
+**Happy path (catalog purchase):**
 
 1. Browse products / categories (public).
 2. Register or log in (web or mobile).
 3. Add product variants to cart (`source: CATALOG`).
-4. Create a `PENDING` order from the cart.
-5. **Choose delivery option + shipping address; lock shipping fee into the order** (before payment).
-6. Checkout → redirect to VNPay → poll until `PAID` (amount = products − discount + shipping).
-7. Staff/system updates delivery status + tracking; customer reads tracking.
+4. Collect a **GHN structured address** (provinces → districts → wards); optionally preview fee.
+5. `POST /orders` **with** `shippingAddress` → server live-quotes GHN fee, creates `PENDING` order + `Delivery`, clears cart.
+6. Checkout → redirect to VNPay → poll until payment `PAID` (amount = products − discount + shipping).
+7. On IPN success: stock deduct + **GHN order create**; webhook drives delivery/order status; customer reads tracking.
 
-> **Pricing model:** Fixed fee matrix by `(providerId, DeliveryType)` in `delivery_fees` (seeded: STANDARD 30_000, EXPRESS 50_000, SAME_DAY 80_000 per provider). Fee is snapshotted onto the order at attach time — no live carrier quotes.
+> **Pricing model:** Live GHN fee quote at order creation (and optional `POST /delivery/fee-quote` preview). Fee is snapshotted onto `Order.shippingFeeVnd` / `Delivery`. Free-text addresses are **not** accepted — use GHN `provinceId` / `districtId` / `wardCode` from the master-data endpoints. Full carrier details: [shipping.md](shipping.md).
 
-There is also a **survey / recommendation** path (`source: SURVEY`) that reuses cart → order → shipping → payment, with extra validation and optional combo discount. Full survey → protocols → products integration: [Survey Flow Guide](survey-flow.md).
+There is also a **survey / recommendation** path (`source: SURVEY`) that reuses cart → order → payment, with extra validation and optional combo discount. Full survey → protocols → products integration: [Survey Flow Guide](survey-flow.md).
 
 ---
 
@@ -83,7 +88,7 @@ There is also a **survey / recommendation** path (`source: SURVEY`) that reuses 
 | Web SPA | Session cookie `sid` (`credentials: 'include'`) — see [auth-web.md](auth-web.md) |
 | Mobile  | `Authorization: Bearer <accessToken>` — see [auth-mobile.md](auth-mobile.md)     |
 
-Cart, orders, and payment checkout require an authenticated **Customer** (session or Bearer). Product catalog list/detail/categories are public.
+Cart, orders, delivery address/fee, and payment checkout require an authenticated **Customer** (session or Bearer). Product catalog list/detail/categories are public.
 
 ---
 
@@ -145,7 +150,7 @@ After auth, optional profile helpers (not required for checkout, but useful for 
 | GET    | `/customers/me` | Session / Bearer | ✅ Ready |
 | PATCH  | `/customers/me` | Session / Bearer | ✅ Ready |
 
-> There is **no saved shipping-address field** on the customer profile today. Address should be collected when attaching delivery to the order (before payment).
+> There is **no saved shipping-address field** on the customer profile today. Collect the GHN address during checkout (before / while calling `POST /orders`).
 
 ---
 
@@ -202,23 +207,106 @@ Example response:
 
 ---
 
-### 3.4 Create order ✅ Ready
+### 3.4 Build GHN shipping address ✅ Ready
 
-Creates a `PENDING` order from the current cart, then clears the cart. Shipping is attached in the next step.
+Must happen **before** `POST /orders`. GHN needs its own location IDs — free text alone cannot create a valid shipment.
 
-| Method | Path                   | Auth     | Status   |
-| ------ | ---------------------- | -------- | -------- |
-| POST   | `/orders`              | Customer | ✅ Ready |
-| GET    | `/orders`              | Customer | ✅ Ready |
-| GET    | `/orders/:id`          | Customer | ✅ Ready |
-| POST   | `/orders/:id/delivery` | Customer | ✅ Ready |
-| GET    | `/orders/:id/delivery` | Customer | ✅ Ready |
+| Method | Path                              | Auth     | Status   |
+| ------ | --------------------------------- | -------- | -------- |
+| GET    | `/delivery/provinces`             | Customer | ✅ Ready |
+| GET    | `/delivery/districts?provinceId=` | Customer | ✅ Ready |
+| GET    | `/delivery/wards?districtId=`     | Customer | ✅ Ready |
+| POST   | `/delivery/fee-quote`             | Customer | ✅ Ready |
+
+```http
+GET /delivery/provinces
+GET /delivery/districts?provinceId=202
+GET /delivery/wards?districtId=1442
+```
+
+**Optional fee preview** (uses current cart weights + address; display only — order create re-quotes server-side):
+
+```http
+POST /delivery/fee-quote
+Content-Type: application/json
+
+{
+  "shippingAddress": {
+    "recipientName": "Nguyen Van A",
+    "recipientPhone": "0901234567",
+    "provinceId": 202,
+    "districtId": 1442,
+    "wardCode": "21012",
+    "streetAddress": "123 Le Loi, Ben Nghe"
+  }
+}
+```
+
+```json
+{ "shippingFeeVnd": 32000 }
+```
+
+**Address fields (required on order create):**
+
+| Field            | Notes                            |
+| ---------------- | -------------------------------- |
+| `recipientName`  | Max 1024                         |
+| `recipientPhone` | 10-digit VN phone (`/^0\d{9}$/`) |
+| `provinceId`     | GHN ProvinceID                   |
+| `districtId`     | GHN DistrictID                   |
+| `wardCode`       | GHN WardCode (string)            |
+| `streetAddress`  | Street / building detail         |
+
+Full carrier env / webhook notes: [shipping.md](shipping.md).
+
+---
+
+### 3.5 Create order (locks GHN fee) ✅ Ready
+
+Creates a `PENDING` order from the current cart **and** a `PENDING` `Delivery` with the quoted fee, then clears the cart.
+
+| Method | Path          | Auth     | Status   |
+| ------ | ------------- | -------- | -------- |
+| POST   | `/orders`     | Customer | ✅ Ready |
+| GET    | `/orders`     | Customer | ✅ Ready |
+| GET    | `/orders/:id` | Customer | ✅ Ready |
 
 ```http
 POST /orders
+Content-Type: application/json
+
+{
+  "shippingAddress": {
+    "recipientName": "Nguyen Van A",
+    "recipientPhone": "0901234567",
+    "provinceId": 202,
+    "districtId": 1442,
+    "wardCode": "21012",
+    "streetAddress": "123 Le Loi, Ben Nghe"
+  }
+}
 ```
 
-No body. Response includes `id`, `status` (`PENDING`), money fields (`subtotalVnd`, `discountVnd`, `shippingFeeVnd` = `0`, `totalVnd`), and `items[]`.
+`shippingAddress` is **required**. Server:
+
+1. Requires an active seeded `GHN` delivery provider (`npm run seed` if missing).
+2. Live-quotes fee from GHN (outside the DB transaction).
+3. Sets `shippingFeeVnd` and `totalVnd = max(0, subtotalVnd - discountVnd) + shippingFeeVnd`.
+4. Writes `Delivery` (structured address columns + human-readable snapshot). GHN `providerOrderCode` stays **null** until payment succeeds.
+
+Example money fields after create:
+
+```json
+{
+  "id": "...",
+  "status": "PENDING",
+  "subtotalVnd": 500000,
+  "discountVnd": 0,
+  "shippingFeeVnd": 32000,
+  "totalVnd": 532000,
+  "items": []
+}
+```
 
 ```http
 GET /orders?page=1&limit=20
@@ -231,7 +319,7 @@ Returns a paginated list of the authenticated customer’s orders (newest first)
 GET /orders/<orderId>
 ```
 
-Returns the same order shape for the authenticated owner only (includes `shippingFeeVnd` after attach).
+Returns the same order shape for the authenticated owner only.
 
 **Catalog vs survey:**
 
@@ -243,10 +331,10 @@ Returns the same order shape for the authenticated owner only (includes `shippin
 **Money formula:**
 
 ```
-totalVnd = max(0, subtotalVnd - discountVnd + shippingFeeVnd)
+totalVnd = max(0, subtotalVnd - discountVnd) + shippingFeeVnd
 ```
 
-At create time `shippingFeeVnd` is `0`; it is set when delivery is attached.
+Shipping is added **after** the discount floor, so a 100% product discount still charges shipping.
 
 Admin combo-discount setting (not customer-facing):
 
@@ -255,67 +343,7 @@ Admin combo-discount setting (not customer-facing):
 | GET    | `/admin/commerce-settings/survey-combo-discount` | App Admin | ✅ Ready |
 | PATCH  | `/admin/commerce-settings/survey-combo-discount` | App Admin | ✅ Ready |
 
----
-
-### 3.5 Choose delivery + lock shipping fee ✅ Ready
-
-Must happen **before** `POST /payments/checkout` so VNPay charges products + shipping.
-
-| Capability                       | Path                        | Auth     | Status   |
-| -------------------------------- | --------------------------- | -------- | -------- |
-| List priced delivery options     | `GET /delivery/options`     | Customer | ✅ Ready |
-| Attach shipping to pending order | `POST /orders/:id/delivery` | Customer | ✅ Ready |
-| Read delivery for order          | `GET /orders/:id/delivery`  | Customer | ✅ Ready |
-
-```http
-GET /delivery/options
-```
-
-Returns active options from the fee matrix, e.g.:
-
-```json
-[
-  {
-    "providerId": "...",
-    "providerCode": "GHN",
-    "providerName": "Giao Hàng Nhanh",
-    "type": "STANDARD",
-    "feeVnd": 30000
-  }
-]
-```
-
-```http
-POST /orders/<orderId>/delivery
-Content-Type: application/json
-
-{
-  "providerId": "<uuid>",
-  "type": "STANDARD",
-  "shippingAddress": "123 Nguyen Hue, Q1, HCMC"
-}
-```
-
-Order money after attach:
-
-```json
-{
-  "id": "...",
-  "status": "PENDING",
-  "subtotalVnd": 500000,
-  "discountVnd": 0,
-  "shippingFeeVnd": 30000,
-  "totalVnd": 530000,
-  "items": []
-}
-```
-
-Rules enforced:
-
-1. Only for `PENDING` orders owned by the caller.
-2. Fee is snapshotted from `delivery_fees` onto `order.shippingFeeVnd` and `delivery.feeVnd`.
-3. Re-attach is allowed while `PENDING` and **no** in-flight payment (`PENDING`/`PROCESSING`); rejected once checkout has started.
-4. Checkout rejects orders that still lack a `Delivery` row.
+> **Removed from this flow:** `GET /delivery/options` fee matrix and `POST /orders/:id/delivery` attach step. Shipping is chosen via GHN address at **order create**.
 
 ---
 
@@ -342,10 +370,10 @@ Content-Type: application/json
 }
 ```
 
-| Field     | Notes                                                                     |
-| --------- | ------------------------------------------------------------------------- |
-| `orderId` | Must be a `PENDING` order owned by the caller, **with shipping attached** |
-| `client`  | Optional: `web` (default) or `mobile` — selects return landing URL        |
+| Field     | Notes                                                                |
+| --------- | -------------------------------------------------------------------- |
+| `orderId` | Must be a `PENDING` order owned by the caller, **with Delivery** row |
+| `client`  | Optional: `web` (default) or `mobile` — selects return landing URL   |
 
 Response:
 
@@ -358,25 +386,58 @@ Response:
 
 **Client steps:**
 
-1. Ensure shipping is attached and `totalVnd` includes `shippingFeeVnd`.
+1. Ensure order was created with `shippingAddress` and `totalVnd` includes `shippingFeeVnd`.
 2. Redirect / open `paymentUrl`.
 3. After return, read `paymentId` from the landing query (hint only).
 4. Poll `GET /payments/:id` until status is terminal (`PAID` / `FAILED` / …). Authoritative status comes from the IPN, not the browser return.
 
-On successful IPN, the backend marks the related **order** as `PAID` as well. Checkout charges `order.totalVnd` (products − discount + shipping). Missing delivery → `400 Order has no shipping selection`.
+On successful IPN the backend:
+
+1. Marks payment + order paid (idempotent).
+2. Deducts stock.
+3. Creates the GHN shipment (`providerOrderCode`), moves delivery toward `PROCESSING` / order `PROCESSING` when handover succeeds.
+
+Checkout charges `order.totalVnd` (products − discount + shipping). Missing delivery → `400 Order has no shipping selection`.
+
+Customer prepays shipping via VNPay; GHN orders use shop-pay / `cod_amount: 0` (see [shipping.md](shipping.md)).
 
 ---
 
-### 3.7 Fulfillment & tracking 🔶 Partial
+### 3.7 Fulfillment & tracking ✅ Ready
 
-After payment, staff (or a future carrier integration) updates shipment status; the customer can already read delivery via `GET /orders/:id/delivery`.
+Status after payment is driven by the **GHN webhook** (not a staff PATCH). Customer reads delivery + history:
 
-| Capability                         | Path                       | Auth              | Status     |
-| ---------------------------------- | -------------------------- | ----------------- | ---------- |
-| Get delivery for order             | `GET /orders/:id/delivery` | Customer          | ✅ Ready   |
-| Staff update status / tracking no. | `PATCH /deliveries/:id`    | Staff / App Admin | ❌ Missing |
+| Capability              | Path                                 | Auth     | Status   |
+| ----------------------- | ------------------------------------ | -------- | -------- |
+| Get delivery + tracking | `GET /delivery/order/:orderId`       | Customer | ✅ Ready |
+| GHN status webhook      | `POST /delivery/ghn/webhook/:secret` | Public   | ✅ Ready |
 
-Until staff PATCH exists, tracking numbers / status progression after `PAID` must be updated in DB or a future API.
+```http
+GET /delivery/order/<orderId>
+```
+
+Example shape (abbreviated):
+
+```json
+{
+  "id": "...",
+  "orderId": "...",
+  "status": "IN_TRANSIT",
+  "type": "STANDARD",
+  "providerOrderCode": "GHN...",
+  "shippingFeeVnd": 32000,
+  "expectedDeliveryTime": "...",
+  "shippedAt": "...",
+  "deliveredAt": null,
+  "recipientName": "Nguyen Van A",
+  "streetAddress": "123 Le Loi, Ben Nghe",
+  "statusEvents": [{ "providerStatus": "delivering", "occurredAt": "..." }]
+}
+```
+
+GHN status → `DeliveryStatus` / `OrderStatus` mapping: [shipping.md](shipping.md#status-mapping).
+
+**Known limitation:** if GHN is down at IPN time, order can stay `PAID` with `providerOrderCode` null and is not auto-retried. See shipping.md.
 
 ---
 
@@ -384,25 +445,26 @@ Until staff PATCH exists, tracking numbers / status progression after `PAID` mus
 
 ### Customer purchase path
 
-| Step                                   | Method | Path                                                              | Status     |
-| -------------------------------------- | ------ | ----------------------------------------------------------------- | ---------- |
-| List categories                        | GET    | `/products/categories`                                            | ✅ Ready   |
-| List products                          | GET    | `/products`                                                       | ✅ Ready   |
-| Product detail                         | GET    | `/products/:id`                                                   | ✅ Ready   |
-| Register / login                       | —      | See [auth-web.md](auth-web.md) / [auth-mobile.md](auth-mobile.md) | ✅ Ready   |
-| Get cart                               | GET    | `/cart`                                                           | ✅ Ready   |
-| Add / update cart item                 | POST   | `/cart/items`                                                     | ✅ Ready   |
-| Remove cart item                       | DELETE | `/cart/items/:variantId`                                          | ✅ Ready   |
-| Clear cart                             | DELETE | `/cart`                                                           | ✅ Ready   |
-| Create order from cart                 | POST   | `/orders`                                                         | ✅ Ready   |
-| List my orders                         | GET    | `/orders`                                                         | ✅ Ready   |
-| Get order                              | GET    | `/orders/:id`                                                     | ✅ Ready   |
-| List priced delivery options           | GET    | `/delivery/options`                                               | ✅ Ready   |
-| Attach shipping + fee to pending order | POST   | `/orders/:id/delivery`                                            | ✅ Ready   |
-| Start VNPay checkout                   | POST   | `/payments/checkout`                                              | ✅ Ready   |
-| Payment status                         | GET    | `/payments/:id`                                                   | ✅ Ready   |
-| Get delivery / tracking                | GET    | `/orders/:id/delivery`                                            | ✅ Ready   |
-| Staff update delivery                  | PATCH  | `/deliveries/:id`                                                 | ❌ Missing |
+| Step                    | Method | Path                                                              | Status   |
+| ----------------------- | ------ | ----------------------------------------------------------------- | -------- |
+| List categories         | GET    | `/products/categories`                                            | ✅ Ready |
+| List products           | GET    | `/products`                                                       | ✅ Ready |
+| Product detail          | GET    | `/products/:id`                                                   | ✅ Ready |
+| Register / login        | —      | See [auth-web.md](auth-web.md) / [auth-mobile.md](auth-mobile.md) | ✅ Ready |
+| Get cart                | GET    | `/cart`                                                           | ✅ Ready |
+| Add / update cart item  | POST   | `/cart/items`                                                     | ✅ Ready |
+| Remove cart item        | DELETE | `/cart/items/:variantId`                                          | ✅ Ready |
+| Clear cart              | DELETE | `/cart`                                                           | ✅ Ready |
+| List GHN provinces      | GET    | `/delivery/provinces`                                             | ✅ Ready |
+| List GHN districts      | GET    | `/delivery/districts?provinceId=`                                 | ✅ Ready |
+| List GHN wards          | GET    | `/delivery/wards?districtId=`                                     | ✅ Ready |
+| Preview GHN fee         | POST   | `/delivery/fee-quote`                                             | ✅ Ready |
+| Create order + lock fee | POST   | `/orders`                                                         | ✅ Ready |
+| List my orders          | GET    | `/orders`                                                         | ✅ Ready |
+| Get order               | GET    | `/orders/:id`                                                     | ✅ Ready |
+| Start VNPay checkout    | POST   | `/payments/checkout`                                              | ✅ Ready |
+| Payment status          | GET    | `/payments/:id`                                                   | ✅ Ready |
+| Get delivery / tracking | GET    | `/delivery/order/:orderId`                                        | ✅ Ready |
 
 ### Supporting (optional)
 
@@ -413,37 +475,31 @@ Until staff PATCH exists, tracking numbers / status progression after `PAID` mus
 | GET / PATCH | `/admin/commerce-settings/survey-combo-discount` | ✅ Ready | Admin only                                         |
 | GET         | `/payments/vnpay/return`                         | ✅ Ready | Gateway browser return; not called by app UI       |
 | GET         | `/payments/vnpay/ipn`                            | ✅ Ready | Gateway server callback                            |
+| POST        | `/delivery/ghn/webhook/:secret`                  | ✅ Ready | GHN callback (portal-registered URL)               |
 
 ---
 
 ## 5. Remaining gaps
 
-Checkout-with-shipping and order history are **done**. Still missing for full fulfillment UX:
+Order + GHN fee + payment + carrier tracking are **done**. Still open:
 
-| #   | Method  | Path              | Purpose                                                               | Status     |
-| --- | ------- | ----------------- | --------------------------------------------------------------------- | ---------- |
-| 1   | `PATCH` | `/deliveries/:id` | Staff updates `status`, `trackingNumber`, `shippedAt` / `deliveredAt` | ❌ Missing |
-
-### Optional later
-
-| Method   | Path                     | Purpose                                   |
-| -------- | ------------------------ | ----------------------------------------- |
-| CRUD     | saved customer addresses | Reuse shipping address across orders      |
-| Admin    | `/admin/delivery-fees`   | Manage fee matrix without redeploy        |
-| Webhooks | carrier tracking sync    | Auto-update status instead of staff PATCH |
+| #   | Item                         | Purpose                                                                 | Status     |
+| --- | ---------------------------- | ----------------------------------------------------------------------- | ---------- |
+| 1   | GHN create retry / reconcile | Re-hand off `PAID` orders with null `providerOrderCode` if GHN was down | ❌ Missing |
+| 2   | Saved customer addresses     | Reuse GHN address across orders                                         | ❌ Missing |
+| 3   | Money refund on return/fail  | Delivery can be `FAILED`/`RETURNED` without auto order refund           | ❌ Missing |
 
 ### Happy-path sequence
 
 ```
 POST /cart/items
-POST /orders
+GET  /delivery/provinces → districts → wards
+POST /delivery/fee-quote           ← optional preview
+POST /orders                       ← body.shippingAddress; locks shippingFeeVnd
 GET  /orders                       ← history / unpaid PENDING
-GET  /delivery/options
-POST /orders/:id/delivery          ← locks shippingFeeVnd into totalVnd
 POST /payments/checkout            ← pays products + shipping
 GET  /payments/:id                 ← poll until PAID
-GET  /orders/:id/delivery          ← customer tracking
-PATCH /deliveries/:id              ← staff (not yet): SHIPPED + trackingNumber → …
+GET  /delivery/order/:orderId      ← tracking (webhook updates status)
 ```
 
 ---
@@ -454,11 +510,12 @@ PATCH /deliveries/:id              ← staff (not yet): SHIPPED + trackingNumber
 Empty cart
   └─ POST /cart/items  → sets source (CATALOG | SURVEY)
        └─ more items must keep same source
-            └─ POST /orders  → PENDING order, cart cleared
-                 └─ POST /orders/:id/delivery  → lock shippingFeeVnd
+            └─ (optional) POST /delivery/fee-quote
+                 └─ POST /orders { shippingAddress }  → PENDING + Delivery + fee
                       └─ POST /payments/checkout  → paymentUrl (products + shipping)
-                           └─ IPN → Payment PAID + Order PAID
-                                └─ GET /orders/:id/delivery  (+ staff PATCH still missing)
+                           └─ IPN → Payment PAID + stock + GHN create
+                                └─ webhook → delivery/order status
+                                     └─ GET /delivery/order/:orderId
 ```
 
 | Rule                | Detail                                                                              |
@@ -468,7 +525,8 @@ Empty cart
 | Order ownership     | `GET /orders`, `GET /orders/:id`, and payment checkout only for the owning customer |
 | Mixed sources       | Not allowed in one cart                                                             |
 | Survey combo        | Discount when cart covers **every protocol** with ≥1 ranked variant                 |
-| Shipping before pay | Checkout rejects PENDING orders without a Delivery row                              |
+| Shipping on create  | `shippingAddress` required; checkout rejects orders without a Delivery row          |
+| Address format      | GHN IDs only — not free-text province/district                                      |
 
 ---
 
@@ -477,8 +535,9 @@ Empty cart
 - One order → one payment; retries create new attempts under the same payment (see [payments.md](payments.md)).
 - Browser return URL is **read-only**; only IPN mutates status.
 - Checkout amount is `order.totalVnd` (products − discount + shipping). Missing shipping → `400`.
-- In production, VNPay return/IPN URLs must include the `/api` prefix.
-- Local IPN testing needs a public tunnel (e.g. ngrok) registered in the VNPay portal.
+- After successful IPN: stock deduction + GHN handover (each failure-isolated; payment stays confirmed).
+- In production, VNPay return/IPN URLs **and** the GHN webhook URL must include the `/api` prefix.
+- Local IPN / webhook testing needs a public tunnel (e.g. ngrok) registered in the VNPay / GHN portals.
 
 Minimal poll loop after return:
 
@@ -494,24 +553,19 @@ Wait until `status` is not `PENDING` / `PROCESSING` before showing success / tra
 
 **Ready today**
 
-- Tables: `deliveries`, `delivery_providers`, `delivery_fees`
-- TypeORM entities + HTTP: `GET /delivery/options`, `POST|GET /orders/:id/delivery`
-- Seeded providers: `GHN`, `GHTK`, `VIETTEL_POST`, `JT_EXPRESS`
-- Fee matrix: `(providerId, type)` → `feeVnd` (STANDARD 30k / EXPRESS 50k / SAME_DAY 80k)
-- `Order.shippingFeeVnd` + `Delivery.feeVnd` (snapshot at attach)
-- `Order.delivery` relation (1:1); created **before** payment
-- Fields on `Delivery`: `providerId`, `type`, `shippingAddress`, `feeVnd`, `status`, `trackingNumber`, `shippedAt`, `deliveredAt`
-
-**Still missing**
-
-- Staff `PATCH /deliveries/:id` for fulfillment updates
-- Admin fee CRUD (change rates via seed/DB for MVP)
+- Provider: **GHN** (live quote + create order + webhook). See [shipping.md](shipping.md).
+- `POST /orders` requires structured `shippingAddress`; fee snapshotted to `Order.shippingFeeVnd` + `Delivery`.
+- Tracking: `GET /delivery/order/:orderId` + `DeliveryStatusEvent` audit trail.
+- `providerOrderCode` set after payment when GHN create succeeds.
+- Parcel defaults live in `src/delivery/ghn.constants.ts` (not env).
 
 **Status progression (entity enums):**
 
 `PENDING` → `PROCESSING` → `SHIPPED` → `IN_TRANSIT` → `DELIVERED` (also `FAILED`, `RETURNED`)
 
+Return/fail delivery states do **not** auto-refund the order (money decision still open).
+
 ```
-Ready today:     Discover → Auth → Cart → Order → Shipping fee → Payment (products + shipping)
-Still to build:  Staff delivery status / tracking updates
+Ready today:     Discover → Auth → Cart → GHN address → Order+fee → Payment → GHN ship → Track
+Still open:      GHN create retry, saved addresses, refund on return/fail
 ```
