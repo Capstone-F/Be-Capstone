@@ -168,13 +168,14 @@ Relevant migration for consultation money fields: `1784500000000-ConsultationTre
 
 ### 5.1 Discover clinics & experts ✅ Ready
 
-| Method | Path                   | Auth          | Status   |
-| ------ | ---------------------- | ------------- | -------- |
-| GET    | `/clinics`             | Authenticated | ✅ Ready |
-| GET    | `/clinics/:id`         | Authenticated | ✅ Ready |
-| GET    | `/clinics/:id/experts` | Authenticated | ✅ Ready |
-| GET    | `/experts`             | Authenticated | ✅ Ready |
-| GET    | `/experts/:id`         | Authenticated | ✅ Ready |
+| Method | Path                     | Auth          | Status   |
+| ------ | ------------------------ | ------------- | -------- |
+| GET    | `/clinics`               | Authenticated | ✅ Ready |
+| GET    | `/clinics/:id`           | Authenticated | ✅ Ready |
+| GET    | `/clinics/:id/experts`   | Authenticated | ✅ Ready |
+| GET    | `/experts`               | Authenticated | ✅ Ready |
+| GET    | `/experts/:id`           | Authenticated | ✅ Ready |
+| GET    | `/experts/:id/feedbacks` | Authenticated | ✅ Ready |
 
 **Useful `GET /experts` query params:**
 
@@ -198,6 +199,12 @@ GET /experts?specialization=DERMATOLOGY&minFee=300000&maxFee=500000&page=1&limit
 ```http
 GET /experts/<expertId>
 ```
+
+```http
+GET /experts/<expertId>/feedbacks?page=1&limit=20
+```
+
+Returns paginated feedback items (`rating`, `comment`, `customerName`, `createdAt`) plus `averageRating` and `ratingCount` for the expert.
 
 Only **active** experts with a **non-null, active clinic** appear as bookable in discovery.
 
@@ -696,14 +703,15 @@ After feedback: `feedback: { "rating": 5, "comment": "..." }`.
 
 ### Discovery
 
-| Method | Path                   | Actor  | Status |
-| ------ | ---------------------- | ------ | ------ |
-| GET    | `/clinics`             | Auth   | ✅     |
-| GET    | `/clinics/:id`         | Auth   | ✅     |
-| GET    | `/clinics/:id/experts` | Auth   | ✅     |
-| GET    | `/experts`             | Auth   | ✅     |
-| GET    | `/experts/:id`         | Auth   | ✅     |
-| GET    | `/experts/me`          | Expert | ✅     |
+| Method | Path                     | Actor  | Status |
+| ------ | ------------------------ | ------ | ------ |
+| GET    | `/clinics`               | Auth   | ✅     |
+| GET    | `/clinics/:id`           | Auth   | ✅     |
+| GET    | `/clinics/:id/experts`   | Auth   | ✅     |
+| GET    | `/experts`               | Auth   | ✅     |
+| GET    | `/experts/:id`           | Auth   | ✅     |
+| GET    | `/experts/:id/feedbacks` | Auth   | ✅     |
+| GET    | `/experts/me`            | Expert | ✅     |
 
 ### Booking lifecycle
 

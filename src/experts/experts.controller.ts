@@ -35,6 +35,8 @@ import { CreateExpertDto } from './dto/create-expert.dto';
 import { UpdateExpertDto } from './dto/update-expert.dto';
 import { UpdateOwnExpertAvatarDto } from './dto/update-own-expert-avatar.dto';
 import { ListExpertsQueryDto } from './dto/list-experts.dto';
+import { ListExpertFeedbacksQueryDto } from './dto/list-expert-feedbacks.dto';
+import { PaginatedExpertFeedbacksDto } from './dto/expert-feedback-response.dto';
 import {
   ExpertResponseDto,
   PaginatedExpertsDto,
@@ -118,6 +120,21 @@ export class ExpertsController {
   @ApiNotFoundResponse({ description: 'Expert not found' })
   getById(@Param('id') id: string) {
     return this.expertsService.findOne(id);
+  }
+
+  @Get(':id/feedbacks')
+  @ApiOperation({
+    summary: 'Get feedbacks and ratings by expert id',
+    description:
+      'Returns paginated customer feedback for consultations with this expert, plus average rating and rating count.',
+  })
+  @ApiOkResponse({ type: PaginatedExpertFeedbacksDto })
+  @ApiNotFoundResponse({ description: 'Expert not found' })
+  getFeedbacks(
+    @Param('id') id: string,
+    @Query() query: ListExpertFeedbacksQueryDto,
+  ) {
+    return this.expertsService.findFeedbacksByExpertId(id, query);
   }
 
   @Patch(':id')

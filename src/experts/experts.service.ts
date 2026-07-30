@@ -9,12 +9,18 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Role, hasAnyRole } from '../auth/roles.enum';
 import { ClinicsService } from '../clinics/clinics.service';
+import { Feedback } from '../consultations/feedback.entity';
 import { Expert } from '../users/expert.entity';
 import { User } from '../users/user.entity';
 import { CallerContext } from '../users/users.service';
 import { CreateExpertDto } from './dto/create-expert.dto';
 import { UpdateExpertDto } from './dto/update-expert.dto';
 import { ListExpertsQueryDto } from './dto/list-experts.dto';
+import { ListExpertFeedbacksQueryDto } from './dto/list-expert-feedbacks.dto';
+import {
+  ExpertFeedbackItemDto,
+  PaginatedExpertFeedbacksDto,
+} from './dto/expert-feedback-response.dto';
 import {
   ExpertResponseDto,
   PaginatedExpertsDto,
@@ -28,6 +34,8 @@ export class ExpertsService {
     private readonly expertRepository: Repository<Expert>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(Feedback)
+    private readonly feedbackRepository: Repository<Feedback>,
     private readonly clinicsService: ClinicsService,
   ) {}
 
@@ -100,6 +108,54 @@ export class ExpertsService {
   async findOne(id: string): Promise<ExpertResponseDto> {
     const expert = await this.requireExpert(id);
     return this.toResponse(expert, null);
+  }
+
+  async findFeedbacksByExpertId(
+    expertId: string,
+    query: ListExpertFeedbacksQueryDto,
+  ): Promise<PaginatedExpertFeedbacksDto> {
+    await this.requireExpert(expertId);
+
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 20));
+    const skip = (page - 1) * limit;
+
+    const qb = this.feedbackRepository
+      .createQueryBuilder('f')
+      .innerJoinAndSelect('f.consultation', 'c')
+      .leftJoinAndSelect('c.customer', 'customer')
+      .leftJoinAndSelect('customer.user', 'customerUser')
+      .where('c.expertId = :expertId', { expertId })
+      .orderBy('f.createdAt', 'DESC')
+      .skip(skip)
+      .take(limit);
+
+    const [feedbacks, total] = await qb.getManyAndCount();
+
+    const agg = await this.feedbackRepository
+      .createQueryBuilder('f')
+      .innerJoin('f.consultation', 'c')
+      .select('AVG(f.rating)', 'avg')
+      .addSelect('COUNT(f.id)', 'count')
+      .where('c.expertId = :expertId', { expertId })
+      .getRawOne<{ avg: string | null; count: string }>();
+
+    const ratingCount = Number(agg?.count ?? 0);
+    const averageRating =
+      agg?.avg != null && agg.avg !== ''
+        ? Number(Number(agg.avg).toFixed(2))
+        : 0;
+
+    const items = feedbacks.map((feedback) => this.toFeedbackItem(feedback));
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      averageRating,
+      ratingCount,
+    };
   }
 
   async getOwnProfile(userId: string): Promise<ExpertResponseDto> {
@@ -414,6 +470,17 @@ export class ExpertsService {
       isActive: expert.isActive,
       createdAt: expert.createdAt,
       updatedAt: expert.updatedAt,
+    };
+  }
+
+  private toFeedbackItem(feedback: Feedback): ExpertFeedbackItemDto {
+    return {
+      id: feedback.id,
+      consultationId: feedback.consultationId,
+      rating: feedback.rating,
+      comment: feedback.comment,
+      customerName: feedback.consultation?.customer?.user?.name ?? null,
+      createdAt: feedback.createdAt,
     };
   }
 }

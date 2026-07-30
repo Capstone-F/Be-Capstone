@@ -130,11 +130,12 @@ Start is **required** before complete (completing from `CONFIRMED` returns `400`
 
 Owning **customer** only, when status is `COMPLETED`. Body: `{ rating: 1–5, comment?: string }`.
 
-| Rule           | Detail                                                          |
-| -------------- | --------------------------------------------------------------- |
-| Duplicate      | One feedback per consultation (`409`)                           |
-| Invalid status | PENDING / CANCELLED / etc. → `400`                              |
-| Expert rating  | Recalculated as average of all feedback ratings for that expert |
+| Rule           | Detail                                                                            |
+| -------------- | --------------------------------------------------------------------------------- |
+| Duplicate      | One feedback per consultation (`409`)                                             |
+| Invalid status | PENDING / CANCELLED / etc. → `400`                                                |
+| Expert rating  | Recalculated as average of all feedback ratings for that expert                   |
+| List by expert | `GET /experts/:id/feedbacks` (paginated; includes `averageRating`, `ratingCount`) |
 
 Also available on `GET /bookings/me`, `GET /bookings/me/:id` as nested `feedback { rating, comment }` when present.
 
