@@ -157,6 +157,16 @@ export class AppConfigService {
     };
   }
 
+  /** ZegoCloud App ID for consultation video Token04. Empty when not configured. */
+  get zegoAppId(): string {
+    return this.env.ZEGO_APP_ID;
+  }
+
+  /** ZegoCloud Server Secret (32 chars). Empty when not configured. */
+  get zegoServerSecret(): string {
+    return this.env.ZEGO_SERVER_SECRET;
+  }
+
   getMissingRequiredKeys(): string[] {
     return getMissingRequiredEnv();
   }
