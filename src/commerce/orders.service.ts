@@ -226,7 +226,7 @@ export class OrdersService {
     const customer = await this.requireCustomer(userId);
     const order = await this.orderRepository.findOne({
       where: { id: orderId, customerId: customer.id },
-      relations: ['items'],
+      relations: ['items', 'delivery'],
     });
     if (!order) {
       throw new NotFoundException(`Order ${orderId} not found`);
@@ -250,7 +250,7 @@ export class OrdersService {
 
     const [orders, total] = await this.orderRepository.findAndCount({
       where,
-      relations: ['items'],
+      relations: ['items', 'delivery'],
       order: { createdAt: 'DESC' },
       skip,
       take: limit,
@@ -337,6 +337,9 @@ export class OrdersService {
         lineTotalVnd: item.lineTotalVnd,
         surveyRecommendationItemId: item.surveyRecommendationItemId,
       })),
+      provinceId: order.delivery?.provinceId ?? null,
+      districtId: order.delivery?.districtId ?? null,
+      wardCode: order.delivery?.wardCode ?? null,
       createdAt: order.createdAt,
     };
   }
