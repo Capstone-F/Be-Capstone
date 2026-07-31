@@ -55,6 +55,24 @@ export class OrderResponseDto {
   @ApiProperty({ type: [OrderItemResponseDto] })
   items!: OrderItemResponseDto[];
 
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'GHN ProvinceID from the order delivery address.',
+  })
+  provinceId!: number | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'GHN DistrictID from the order delivery address.',
+  })
+  districtId!: number | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'GHN WardCode from the order delivery address.',
+  })
+  wardCode!: string | null;
+
   @ApiProperty()
   createdAt!: Date;
 }

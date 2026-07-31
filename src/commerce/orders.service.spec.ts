@@ -71,6 +71,12 @@ describe('OrdersService', () => {
     },
   };
 
+  const deliveryFixture = {
+    provinceId: 202,
+    districtId: 1449,
+    wardCode: '21211',
+  };
+
   beforeEach(async () => {
     savedOrders = [];
     savedDeliveries = [];
@@ -217,6 +223,7 @@ describe('OrdersService', () => {
       shippingFeeVnd: 32000,
       totalVnd: 302000,
       items: [],
+      delivery: deliveryFixture,
       createdAt: new Date(),
     });
 
@@ -226,6 +233,9 @@ describe('OrdersService', () => {
     // 300000 - 30000 + 32000 shipping
     expect(savedOrders[0].totalVnd).toBe(302000);
     expect(order.totalVnd).toBe(302000);
+    expect(order.provinceId).toBe(202);
+    expect(order.districtId).toBe(1449);
+    expect(order.wardCode).toBe('21211');
     expect(cartService.clearCartByCustomerId).toHaveBeenCalledWith('cust-1');
   });
 
@@ -255,6 +265,7 @@ describe('OrdersService', () => {
       shippingFeeVnd: 32000,
       totalVnd: 132000,
       items: [],
+      delivery: deliveryFixture,
       createdAt: new Date(),
     });
 
@@ -281,6 +292,7 @@ describe('OrdersService', () => {
       shippingFeeVnd: 32000,
       totalVnd: 232000,
       items: [],
+      delivery: deliveryFixture,
       createdAt: new Date(),
     });
 
@@ -326,6 +338,7 @@ describe('OrdersService', () => {
       shippingFeeVnd: 32000,
       totalVnd: 132000,
       items: [],
+      delivery: deliveryFixture,
       createdAt: new Date(),
     });
 
@@ -335,6 +348,9 @@ describe('OrdersService', () => {
     expect(savedOrders[0].shippingFeeVnd).toBe(32000);
     expect(savedOrders[0].totalVnd).toBe(132000);
     expect(order.shippingFeeVnd).toBe(32000);
+    expect(order.provinceId).toBe(202);
+    expect(order.districtId).toBe(1449);
+    expect(order.wardCode).toBe('21211');
     // Weights come from the variants, not the cart.
     expect(deliveryService.quoteFee).toHaveBeenCalledWith(DTO.shippingAddress, [
       { weightGram: 200, quantity: 1 },
@@ -359,6 +375,7 @@ describe('OrdersService', () => {
       shippingFeeVnd: 32000,
       totalVnd: 132000,
       items: [],
+      delivery: deliveryFixture,
       createdAt: new Date(),
     });
 
@@ -375,6 +392,28 @@ describe('OrdersService', () => {
     });
     // No GHN order exists until payment succeeds.
     expect(savedDeliveries[0].providerOrderCode).toBeUndefined();
+  });
+
+  it('returns null address IDs when delivery is missing', async () => {
+    orderRepository.findOne.mockResolvedValue({
+      id: 'order-1',
+      status: OrderStatus.PENDING,
+      source: OrderSource.CATALOG,
+      customerSurveyId: null,
+      surveyRecommendationId: null,
+      subtotalVnd: 100000,
+      discountVnd: 0,
+      discountType: null,
+      shippingFeeVnd: 0,
+      totalVnd: 100000,
+      items: [],
+      createdAt: new Date(),
+    });
+
+    const order = await service.getOrderForUser('user-1', 'order-1');
+    expect(order.provinceId).toBeNull();
+    expect(order.districtId).toBeNull();
+    expect(order.wardCode).toBeNull();
   });
 
   it('rejects when the GHN provider row is missing', async () => {

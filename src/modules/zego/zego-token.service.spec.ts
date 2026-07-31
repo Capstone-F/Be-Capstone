@@ -131,20 +131,34 @@ describe('ZegoTokenService', () => {
   });
 
   describe('generateChatToken', () => {
+    const zimCustomerUserId = customerUserId.replace(/-/g, '');
+    const zimExpertUserId = expertUserId.replace(/-/g, '');
+
     it('returns a chat token with peer expert for the customer', async () => {
       const result = await service.generateChatToken(customerUserId, bookingId);
 
       expect(result).toEqual({
         appID: 123456,
         token: '04AAAA_test_token',
-        userID: customerUserId,
+        peerToken: '04AAAA_test_token',
+        userID: zimCustomerUserId,
         userName: 'Nguyen Van A',
-        peerUserID: expertUserId,
+        peerUserID: zimExpertUserId,
         peerUserName: 'Dr. Tran B',
       });
-      expect(generateToken04Spy).toHaveBeenCalledWith(
+      expect(generateToken04Spy).toHaveBeenCalledTimes(2);
+      expect(generateToken04Spy).toHaveBeenNthCalledWith(
+        1,
         123456,
-        customerUserId,
+        zimCustomerUserId,
+        config.zegoServerSecret,
+        7200,
+        '',
+      );
+      expect(generateToken04Spy).toHaveBeenNthCalledWith(
+        2,
+        123456,
+        zimExpertUserId,
         config.zegoServerSecret,
         7200,
         '',
@@ -157,14 +171,25 @@ describe('ZegoTokenService', () => {
       expect(result).toEqual({
         appID: 123456,
         token: '04AAAA_test_token',
-        userID: expertUserId,
+        peerToken: '04AAAA_test_token',
+        userID: zimExpertUserId,
         userName: 'Dr. Tran B',
-        peerUserID: customerUserId,
+        peerUserID: zimCustomerUserId,
         peerUserName: 'Nguyen Van A',
       });
-      expect(generateToken04Spy).toHaveBeenCalledWith(
+      expect(generateToken04Spy).toHaveBeenCalledTimes(2);
+      expect(generateToken04Spy).toHaveBeenNthCalledWith(
+        1,
         123456,
-        expertUserId,
+        zimExpertUserId,
+        config.zegoServerSecret,
+        7200,
+        '',
+      );
+      expect(generateToken04Spy).toHaveBeenNthCalledWith(
+        2,
+        123456,
+        zimCustomerUserId,
         config.zegoServerSecret,
         7200,
         '',
