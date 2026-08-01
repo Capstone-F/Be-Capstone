@@ -7,6 +7,7 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Query,
   Req,
   UnauthorizedException,
   UseGuards,
@@ -19,6 +20,7 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiQuery,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -70,20 +72,31 @@ export class CustomersController {
   @Get(':id/consultation-context')
   @Roles(Role.Expert)
   @ApiOperation({
-    summary: 'Get customer profile + survey history for consultation prep',
+    summary:
+      'Get customer profile, survey history, and treatment history for consultation prep',
     description:
-      'Assigned expert only (must share a booking or treatment with the customer).',
+      'Requires an accepted booking (CONFIRMED or IN_PROGRESS) where consultationId is assigned to the current expert and matches this customer. Returns treatment summaries only; use GET /treatments/:id/chart for full chart (read-only).',
+  })
+  @ApiQuery({
+    name: 'consultationId',
+    required: true,
+    description: 'ConsultationRequest / booking id',
+    type: String,
   })
   @ApiOkResponse({ type: CustomerProfileResponseDto })
-  @ApiForbiddenResponse({ description: 'No relationship with customer' })
-  @ApiNotFoundResponse({ description: 'Customer not found' })
+  @ApiForbiddenResponse({
+    description: 'No accepted booking for this expert and customer',
+  })
+  @ApiNotFoundResponse({ description: 'Customer or consultation not found' })
   getConsultationContext(
     @Req() req: Request,
     @Param('id', ParseUUIDPipe) id: string,
+    @Query('consultationId', ParseUUIDPipe) consultationId: string,
   ): Promise<CustomerProfileResponseDto> {
     return this.customersService.getConsultationContext(
       this.requireUserId(req),
       id,
+      consultationId,
     );
   }
 

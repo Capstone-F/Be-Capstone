@@ -7,9 +7,11 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { ConsultationRequest } from '../consultations/consultation-request.entity';
+import { ConsultationStatus } from '../consultations/enums';
 import { CustomerSurvey } from '../survey/customer-survey.entity';
 import { Label } from '../survey/label.entity';
 import { LabelCategory } from '../survey/label-category.entity';
+import { TreatmentPhaseStatus, TreatmentStatus } from '../treatments/enums';
 import { Treatment } from '../treatments/treatment.entity';
 import { CustomerAllergy } from '../users/customer-allergy.entity';
 import { Customer } from '../users/customer.entity';
@@ -21,10 +23,23 @@ import {
   CustomerProfileResponseDto,
   SurveyAnswerDto,
   SurveyHistoryItemDto,
+  TreatmentHistoryItemDto,
 } from './dto/customer-profile-response.dto';
 import { UpdateCustomerProfileDto } from './dto/update-customer-profile.dto';
 
 const ALLERGY_CATEGORY_CODE = 'ALLERGY';
+
+const CONSULTATION_CONTEXT_STATUSES = [
+  ConsultationStatus.CONFIRMED,
+  ConsultationStatus.IN_PROGRESS,
+] as const;
+
+const TREATMENT_HISTORY_STATUSES = [
+  TreatmentStatus.ACTIVE,
+  TreatmentStatus.PAUSED,
+  TreatmentStatus.COMPLETED,
+  TreatmentStatus.CANCELLED,
+];
 
 @Injectable()
 export class CustomersService {
@@ -61,6 +76,7 @@ export class CustomersService {
         customer: null,
         allergies: [],
         surveyHistory: [],
+        treatmentHistory: [],
       };
     }
 
@@ -73,22 +89,50 @@ export class CustomersService {
       customer: this.toCustomerDto(customer),
       allergies,
       surveyHistory,
+      treatmentHistory: [],
     };
   }
 
   /**
-   * Expert prep context: profile + surveys for a customer they have a booking
-   * or treatment relationship with.
+   * Expert prep context: profile + surveys + treatment history summaries.
+   * Requires an accepted booking (CONFIRMED / IN_PROGRESS) assigned to this expert.
    */
   async getConsultationContext(
     expertUserId: string,
     customerId: string,
+    consultationId: string,
   ): Promise<CustomerProfileResponseDto> {
     const expert = await this.expertRepository.findOne({
       where: { userId: expertUserId },
     });
     if (!expert) {
       throw new ForbiddenException('Expert profile required');
+    }
+
+    const consultation = await this.consultationRepository.findOne({
+      where: { id: consultationId },
+    });
+    if (!consultation) {
+      throw new NotFoundException(`Consultation ${consultationId} not found`);
+    }
+    if (consultation.expertId !== expert.id) {
+      throw new ForbiddenException(
+        'Consultation is not assigned to the current expert',
+      );
+    }
+    if (consultation.customerId !== customerId) {
+      throw new ForbiddenException(
+        'Consultation customer does not match the requested customer',
+      );
+    }
+    if (
+      !CONSULTATION_CONTEXT_STATUSES.includes(
+        consultation.status as (typeof CONSULTATION_CONTEXT_STATUSES)[number],
+      )
+    ) {
+      throw new ForbiddenException(
+        'Consultation must be CONFIRMED or IN_PROGRESS',
+      );
     }
 
     const customer = await this.customerRepository.findOne({
@@ -99,29 +143,17 @@ export class CustomersService {
       throw new NotFoundException(`Customer ${customerId} not found`);
     }
 
-    const [hasBooking, hasTreatment] = await Promise.all([
-      this.consultationRepository.exists({
-        where: { customerId, expertId: expert.id },
-      }),
-      this.treatmentRepository.exists({
-        where: { customerId, expertId: expert.id },
-      }),
-    ]);
-    if (!hasBooking && !hasTreatment) {
-      throw new ForbiddenException(
-        'No booking or treatment relationship with this customer',
-      );
-    }
-
-    const [allergies, surveyHistory] = await Promise.all([
+    const [allergies, surveyHistory, treatmentHistory] = await Promise.all([
       this.loadAllergies(customer.id),
       this.loadSurveyHistory(customer.id),
+      this.loadTreatmentHistory(customer.id),
     ]);
 
     return {
       customer: this.toCustomerDto(customer),
       allergies,
       surveyHistory,
+      treatmentHistory,
     };
   }
 
@@ -254,6 +286,60 @@ export class CustomersService {
         }),
       ),
     }));
+  }
+
+  private async loadTreatmentHistory(
+    customerId: string,
+  ): Promise<TreatmentHistoryItemDto[]> {
+    const treatments = await this.treatmentRepository.find({
+      where: {
+        customerId,
+        status: In(TREATMENT_HISTORY_STATUSES),
+      },
+      relations: ['phases', 'expert', 'expert.user', 'clinic'],
+      order: { updatedAt: 'DESC' },
+    });
+
+    return treatments.map((treatment) =>
+      this.toTreatmentHistoryItem(treatment),
+    );
+  }
+
+  private toTreatmentHistoryItem(
+    treatment: Treatment,
+  ): TreatmentHistoryItemDto {
+    const phases = [...(treatment.phases ?? [])].sort(
+      (a, b) => a.phaseOrder - b.phaseOrder,
+    );
+    const activePhase =
+      phases.find((p) => p.status === TreatmentPhaseStatus.ACTIVE) ?? null;
+
+    return {
+      treatmentId: treatment.id,
+      title: treatment.title,
+      status: treatment.status,
+      startDate: treatment.startDate,
+      endDate: treatment.endDate,
+      expert: {
+        id: treatment.expertId,
+        name: treatment.expert?.user?.name ?? null,
+      },
+      clinic: treatment.clinic
+        ? { id: treatment.clinic.id, name: treatment.clinic.name }
+        : null,
+      currentPhase: activePhase
+        ? {
+            id: activePhase.id,
+            phaseOrder: activePhase.phaseOrder,
+            title: activePhase.title,
+            status: activePhase.status,
+            noteByExpert: activePhase.noteByExpert,
+          }
+        : null,
+      phaseCount: phases.length,
+      createdAt: treatment.createdAt,
+      updatedAt: treatment.updatedAt,
+    };
   }
 
   private toCustomerDto(customer: Customer): CustomerDetailsDto {

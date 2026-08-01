@@ -319,7 +319,7 @@ These are the **ongoing treatment** surfaces after the originating consult is do
 GET /treatments/:id/chart
 ```
 
-Auth: owning customer or assigned expert.
+Auth: owning customer, assigned expert, or an expert with a `CONFIRMED`/`IN_PROGRESS` booking for the same customer (read-only; mutations stay assigned-expert / owning-customer only).
 
 | Chart section          | Source                                                                       |
 | ---------------------- | ---------------------------------------------------------------------------- |
