@@ -65,11 +65,23 @@ describe('CustomersController', () => {
       session: {},
     } as any;
 
-    await controller.updateMySkinType(req, { skinTypeCode: 'OSPT' });
+    await controller.updateMySkinType(req, {
+      skinTypeCode: 'OSPT',
+      oilyDryScore: 72,
+      sensitiveResistantScore: 65,
+      pigmentedNonPigmentedScore: 58,
+      wrinkledTightScore: 30,
+    });
 
     expect(customersService.updateOwnSkinType).toHaveBeenCalledWith(
       'u-customer',
-      { skinTypeCode: 'OSPT' },
+      {
+        skinTypeCode: 'OSPT',
+        oilyDryScore: 72,
+        sensitiveResistantScore: 65,
+        pigmentedNonPigmentedScore: 58,
+        wrinkledTightScore: 30,
+      },
     );
   });
 

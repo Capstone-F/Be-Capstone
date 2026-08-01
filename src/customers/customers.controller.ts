@@ -123,10 +123,12 @@ export class CustomersController {
   @ApiOperation({
     summary: 'Update own Baumann skin type',
     description:
-      'Sets the customer profile Baumann skin type by 16-type code (e.g. OSPT). Axis scores from a prior survey are cleared; assessedAt is refreshed.',
+      'Sets the customer profile Baumann skin type by 16-type code (e.g. OSPT) and optional axis scores. Omitted scores are cleared; assessedAt is refreshed.',
   })
   @ApiOkResponse({ type: CustomerProfileResponseDto })
-  @ApiBadRequestResponse({ description: 'Invalid or unknown skin type code' })
+  @ApiBadRequestResponse({
+    description: 'Invalid skin type code or axis scores',
+  })
   async updateMySkinType(
     @Req() req: Request,
     @Body() body: UpdateCustomerSkinTypeDto,
