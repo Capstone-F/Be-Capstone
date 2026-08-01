@@ -26,6 +26,7 @@ import {
   SurveyQuestionDto,
   SurveyResponseDto,
 } from './dto/survey-response.dto';
+import { buildAskWhenContext, matchesAskWhen } from './ask-when.util';
 import { Label } from './label.entity';
 import { Question, QuestionPriority } from './question.entity';
 import { QuestionOption } from './question-option.entity';
@@ -148,8 +149,10 @@ export class SurveyService {
     surveyId?: string,
   ): Promise<SurveyQuestionDto[]> {
     let answeredLabelCodes = new Set<string>();
+    let dateOfBirth: Date | null = null;
     if (surveyId) {
       const customer = await this.requireCustomer(userId);
+      dateOfBirth = customer.dateOfBirth ?? null;
       const survey = await this.surveyRepository.findOne({
         where: { id: surveyId, customerId: customer.id },
         relations: [
@@ -170,6 +173,7 @@ export class SurveyService {
       );
     }
 
+    const askWhenCtx = buildAskWhenContext(answeredLabelCodes, dateOfBirth);
     const questions = await this.questionRepository.find({
       where: { isActive: true },
       relations: ['options', 'options.label'],
@@ -178,14 +182,28 @@ export class SurveyService {
     return questions
       .filter((question) => {
         if (question.priority === QuestionPriority.CORE) return true;
-        if (question.priority !== QuestionPriority.CONDITIONAL || !surveyId) {
-          return false;
+        if (!surveyId) return false;
+
+        if (question.priority === QuestionPriority.OPTIONAL) {
+          // Optional with no askWhen / empty gates: show in-session.
+          if (
+            !question.askWhen ||
+            (question.askWhen.always !== true &&
+              !question.askWhen.anyLabelCodes?.length &&
+              !question.askWhen.allLabelCodes?.length &&
+              !question.askWhen.anyAgeGroupCodes?.length &&
+              question.askWhen.minAge == null &&
+              question.askWhen.maxAge == null &&
+              !question.askWhen.noneLabelCodes?.length)
+          ) {
+            return true;
+          }
+          return matchesAskWhen(question.askWhen, askWhenCtx);
         }
-        const requiredCodes = question.askWhen?.anyLabelCodes ?? [];
-        return (
-          question.askWhen?.always === true ||
-          requiredCodes.some((code) => answeredLabelCodes.has(code))
-        );
+        if (question.priority === QuestionPriority.CONDITIONAL) {
+          return matchesAskWhen(question.askWhen, askWhenCtx);
+        }
+        return false;
       })
       .map((q) => ({
         id: q.id,
@@ -204,7 +222,8 @@ export class SurveyService {
             description: option.label.description,
             vietnameseNormalized: option.label.vietnameseNormalized ?? null,
           })),
-      }));
+      }))
+      .filter((question) => question.options.length > 0);
   }
 
   async startSurvey(userId: string): Promise<SurveyResponseDto> {
@@ -355,11 +374,14 @@ export class SurveyService {
     // 1. Oily vs Dry (O vs D)
     let oilyScore = 0;
     let dryScore = 0;
+    if (labelCodes.has('OILY_TENDENCY')) oilyScore += 40;
+    if (labelCodes.has('COMBINATION_TENDENCY')) oilyScore += 20;
     if (labelCodes.has('OIL_CONTROL')) oilyScore += 30;
     if (labelCodes.has('ACNE')) oilyScore += 25;
     if (labelCodes.has('BLACKHEADS')) oilyScore += 20;
     if (labelCodes.has('ENLARGED_PORES')) oilyScore += 25;
 
+    if (labelCodes.has('DRY_TENDENCY')) dryScore += 40;
     if (labelCodes.has('DEHYDRATED_SKIN')) dryScore += 30;
     if (labelCodes.has('HYDRATION')) dryScore += 25;
     if (labelCodes.has('BARRIER_DAMAGE')) dryScore += 20;
@@ -370,11 +392,14 @@ export class SurveyService {
 
     // 2. Sensitive vs Resistant (S vs R) - BR-03 tie-break: R when unclear
     let sensitiveScore = 0;
+    if (labelCodes.has('SENSITIVE_TENDENCY')) sensitiveScore += 40;
     if (labelCodes.has('REDNESS') || labelCodes.has('REDUCE_REDNESS'))
       sensitiveScore += 30;
     if (labelCodes.has('ROSACEA')) sensitiveScore += 40;
     if (labelCodes.has('BARRIER_DAMAGE') || labelCodes.has('BARRIER_REPAIR'))
       sensitiveScore += 30;
+    if (labelCodes.has('ACTIVE_IRRITATION')) sensitiveScore += 25;
+    if (labelCodes.has('RESISTANT_TENDENCY')) sensitiveScore -= 20;
 
     const allergyLabels = [
       'FRAGRANCE',
@@ -393,6 +418,7 @@ export class SurveyService {
 
     // 3. Pigmented vs Non-pigmented (P vs N) - BR-03 tie-break: N when unclear
     let pigmentedScore = 0;
+    if (labelCodes.has('PIGMENTED_TENDENCY')) pigmentedScore += 40;
     if (
       labelCodes.has('HYPERPIGMENTATION') ||
       labelCodes.has('REDUCE_PIGMENTATION')
@@ -411,10 +437,12 @@ export class SurveyService {
       labelCodes.has('EVEN_SKIN_TONE')
     )
       pigmentedScore += 20;
+    if (labelCodes.has('NON_PIGMENTED_TENDENCY')) pigmentedScore -= 20;
     const pigmentedLetter = pigmentedScore > 0 ? 'P' : 'N';
 
     // 4. Wrinkled vs Tight (W vs T) - BR-03 tie-break: T when unclear
     let wrinkledScore = 0;
+    if (labelCodes.has('WRINKLED_TENDENCY')) wrinkledScore += 40;
     if (labelCodes.has('WRINKLES') || labelCodes.has('REDUCE_WRINKLES'))
       wrinkledScore += 40;
     if (labelCodes.has('FINE_LINES') || labelCodes.has('ANTI_AGING'))
@@ -422,6 +450,7 @@ export class SurveyService {
     if (labelCodes.has('AGE_36_45')) wrinkledScore += 15;
     if (labelCodes.has('AGE_46_60') || labelCodes.has('ABOVE_60'))
       wrinkledScore += 30;
+    if (labelCodes.has('TIGHT_TENDENCY')) wrinkledScore -= 20;
     const wrinkledLetter = wrinkledScore > 0 ? 'W' : 'T';
 
     const baumannCode = `${oilyLetter}${sensitiveLetter}${pigmentedLetter}${wrinkledLetter}`;

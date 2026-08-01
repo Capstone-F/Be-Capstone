@@ -683,15 +683,19 @@ allergies → safety (suggest + recommendations)
 | `Routine`                  | AI / expert routine; `sourceOrderId` is many-to-one (nullable)         |
 | `Order`                    | `source: SURVEY \| CATALOG`, optional combo discount                   |
 
-### 6.3 Seeded survey questions (MVP today)
+### 6.3 Seeded survey questions (question bank)
 
-| Code              | Type         | Intent                          |
-| ----------------- | ------------ | ------------------------------- |
-| `PRIMARY_CONCERN` | MULTI_SELECT | Main skin concerns              |
-| `SKIN_GOALS`      | MULTI_SELECT | Treatment / care goals          |
-| `LIFESTYLE`       | MULTI_SELECT | Lifestyle / environment factors |
+Seed source: `src/database/seeds/seed.ts` (`SURVEY_QUESTIONS`). Age/gender stay on the base profile (`/customers/me`); the bank focuses on concern, Baumann signals, environment, routine, actives, safety, and personality.
 
-Label taxonomy is much richer (concerns, goals, allergies, contraindications, age, gender, lifestyle, experience, product preference). Expanding the **question bank** mainly means adding questions that map cleanly onto these labels — not inventing a parallel tagging system.
+| Layer              | Codes (examples)                                                                                                                                                                                                                                               | Priority                                        |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| **L1 Core**        | `PRIMARY_CONCERN`, `SKIN_GOALS`, `POST_CLEANSE_FEEL`, `TZONE_OIL`, `PRODUCT_CHANGE_REACTION`, `SENSITIVITY_TRIGGERS`, `ENVIRONMENT_EXPOSURE`, `LIFESTYLE`, `HAS_ROUTINE`, `SUNSCREEN_HABIT`, `CURRENT_ACTIVES`, `COSMETIC_REACTION`, `ROUTINE_COMPLEXITY_PREF` | `CORE`                                          |
+| **L2 Conditional** | Concern/env modules + **age-gated** `AGE_U18_*`, `AGE_1825_*`, `AGE_2635_*`, `AGE_3645_*`, `AGE_4660_*`, `AGE_60_*`                                                                                                                                            | `CONDITIONAL` via enriched `askWhen`            |
+| **L3 Optional**    | `PERSONALITY_TYPES` (all 12 types) + preference probes (`RISK_TOLERANCE`, `LOW_MAINTENANCE_PREF`, `EVIDENCE_PREF`, texture/budget/…)                                                                                                                           | `OPTIONAL` (shown once a survey session exists) |
+
+`askWhen` supports `always`, `anyLabelCodes`, `allLabelCodes`, `noneLabelCodes`, `anyAgeGroupCodes`, `minAge`/`maxAge`, and `match: 'any' \| 'all'`. Age gates use the customer profile `dateOfBirth` (same bands as rule-engine: `UNDER_18` … `ABOVE_60`).
+
+Label taxonomy includes concerns, goals, allergies, contraindications, age, gender, lifestyle, experience, product preference, plus bank extensions: `SKIN_TYPE_SIGNAL`, `ROUTINE`, `ACTIVE_USAGE`, `PERSONALITY` (12 `PERSONALITY_*` types), `SAFETY_CONTEXT`.
 
 ### 6.4 Baumann in this flow
 
@@ -706,7 +710,7 @@ GlowScan uses Baumann as a **classification layer**, not as a quiz that asks for
 
 **In recommendations:** protocols with `ProtocolSkinType = AVOID` for the customer’s type are dropped; `RECOMMENDED` can boost score.
 
-**In survey UX (shipped):** on `POST /surveys/:id/complete`, the backend scores O/D, S/R, P/N, W/T from answer labels, maps to a Baumann code, and stores it on `CustomerSkinTypeDetails`. Richer axis-specific questions remain a bank-expansion opportunity.
+**In survey UX (shipped):** on `POST /surveys/:id/complete`, the backend scores O/D, S/R, P/N, W/T from answer labels (including `*_TENDENCY` skin-type signals), maps to a Baumann code, and stores it on `CustomerSkinTypeDetails`.
 
 ---
 
@@ -793,13 +797,13 @@ Each question bank row should carry more than display text:
 
 Keep session APIs (`POST /surveys`, answers, complete) stable. Extend question delivery:
 
-| Capability                            | Proposed                                             | Status     |
-| ------------------------------------- | ---------------------------------------------------- | ---------- |
-| Questions + options for current user  | `GET /surveys/questions?surveyId=`                   | ✅ Ready   |
-| Lightweight branching after answers   | CORE + `askWhen.anyLabelCodes` conditional questions | ✅ Ready   |
-| Full next-question engine             | Rich profile/age/environment operators               | ❌ Missing |
-| Question ↔ option label mapping table | `question_options`                                   | ✅ Ready   |
-| Admin CRUD for question bank          | `/admin/survey-questions` (AppAdmin)                 | ✅ Ready   |
+| Capability                            | Proposed                                                                                           | Status   |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------- | -------- |
+| Questions + options for current user  | `GET /surveys/questions?surveyId=`                                                                 | ✅ Ready |
+| Lightweight branching after answers   | CORE + CONDITIONAL (`askWhen`) + OPTIONAL in-session                                               | ✅ Ready |
+| Age / label askWhen operators         | `anyLabelCodes`, `allLabelCodes`, `noneLabelCodes`, `anyAgeGroupCodes`, `minAge`/`maxAge`, `match` | ✅ Ready |
+| Question ↔ option label mapping table | `question_options`                                                                                 | ✅ Ready |
+| Admin CRUD for question bank          | `/admin/survey-questions` (AppAdmin)                                                               | ✅ Ready |
 
 **Compatibility:** answers still submit `labelCodes[]`. Rule engine and recommendation snapshot stay unchanged when the bank grows.
 
@@ -914,15 +918,17 @@ GET   /routines/me                     ← list / refresh routines
 
 ### 10.5 Seeded demo cases (profile → survey → products → routine)
 
-These five answer sets are covered by `src/database/seeds/seed.ts` (products, `product_protocols`, stock batches + `product_instances`). After `npm run seed`, each case should yield non-empty `GET /recommendations/latest` products and support `POST /routines/generate` after a paid SURVEY order.
+Canonical source: `src/database/seeds/survey-demo-cases.ts` (also asserted by `survey-cases.coverage.spec.ts`, rule-engine unit tests, and `test/rule-engine.e2e-spec.ts`). Catalog wiring lives in `seed.ts` (products, `product_protocols`, stock batches + `product_instances`). After `npm run seed`, each case should yield non-empty `GET /recommendations/latest` products and support `POST /routines/generate` after a paid SURVEY order.
 
-| #   | Persona                 | Base profile                      | Survey labels (CORE + L2)                                                                                                                                                          | Expected protocol themes                        | Key SKUs                                                    |
-| --- | ----------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | ----------------------------------------------------------- |
-| 1   | Acne / oily             | DOB ~2001, `FEMALE`, no allergies | Concern `ACNE`; goals `ACNE_TREATMENT`,`OIL_CONTROL`; lifestyle `HEAVY_MAKEUP`; L2 `BLACKHEADS`,`ENLARGED_PORES`; tolerance `INTERMEDIATE`                                         | Acne treatment, BHA, niacinamide, cleanser      | Effaclar Duo, Some By Mi toner, TO Niacinamide, CeraVe foam |
-| 2   | Pigment + sun           | DOB ~1993, `FEMALE`               | Concern `HYPERPIGMENTATION`; goals `REDUCE_PIGMENTATION`,`EVEN_SKIN_TONE`; lifestyle `HIGH_SUN_EXPOSURE`; L2 `MELASMA`,`POST_INFLAMMATORY_HYPERPIGMENTATION`; tolerance `BEGINNER` | Azelaic, niacinamide serum, daily SPF           | Effaclar Duo, TO Niacinamide, Anthelios                     |
-| 3   | Dehydrated / barrier    | DOB ~1998, `MALE`                 | Concern `DEHYDRATED_SKIN`; goals `HYDRATION`,`BARRIER_REPAIR`; lifestyle `AIR_CONDITIONED_ENVIRONMENT`; sensitivity `BARRIER_DAMAGE`                                               | HA, ceramide, moisturizer, gentle cleanser, SPF | CeraVe cream/foam, Anthelios                                |
-| 4   | Anti-aging              | DOB ~1984, `FEMALE`               | Concern `WRINKLES`; goals `ANTI_AGING`,`REDUCE_WRINKLES`; lifestyle `HIGH_STRESS`; tolerance `ADVANCED`                                                                            | Retinol + niacinamide                           | TO Retinol 0.3%, TO Niacinamide, CeraVe foam                |
-| 5   | Redness / rosacea-prone | DOB ~1996, `FEMALE`               | Concern `REDNESS`; goals `REDUCE_REDNESS`; lifestyle `HIGH_STRESS`; sensitivity `REDNESS`,`ROSACEA`                                                                                | Barrier/ceramide, calming moisturizer, azelaic  | Toleriane Sensitive, CeraVe cream/foam, Effaclar Duo        |
+| #   | Persona              | Base profile                                    | Survey labels (CORE + L2 + signals)                                                                                                                                                                                                           | Expected protocol themes                                                                                                    | Key SKUs                                                                                                          |
+| --- | -------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| 1   | Acne / oily          | DOB ~2001, `FEMALE`, no allergies → `AGE_18_25` | Concern `ACNE`; goals `ACNE_TREATMENT`,`OIL_CONTROL`; env `HOT_HUMID`; lifestyle `HEAVY_MAKEUP`; signals `OILY_TENDENCY`; L2 `BLACKHEADS`,`ENLARGED_PORES`; `INTERMEDIATE`; `PERSONALITY_QUICK_RESULT`                                        | `salicylic_acne`, `benzoyl_acne`, `treatment_acne_spot`, `niacinamide_general`, `toner_exfoliating`, `cleanser_gentle_foam` | `LRP-EFFAC-DUO-40ML`, `SOMEBYMI-MIRACLE-TONER-150ML`, `TO-NIACINAMIDE-10-ZINC-30ML`, `CERAVE-FOAM-CLEANSER-236ML` |
+| 2   | Pigment + sun        | DOB ~1993, `FEMALE` → `AGE_26_35`               | Concern `HYPERPIGMENTATION`; goals `REDUCE_PIGMENTATION`,`EVEN_SKIN_TONE`; lifestyle `HIGH_SUN_EXPOSURE`; L2 `MELASMA`,`POST_INFLAMMATORY_HYPERPIGMENTATION`; `PIGMENTED_TENDENCY`; `BEGINNER`; `SUNSCREEN_DAILY`; `PERSONALITY_SAFETY_FIRST` | `azelaic_pigmentation`, `niacinamide_general`, `serum_niacinamide`, `sunscreen_daily_spf`                                   | `LRP-EFFAC-DUO-40ML`, `TO-NIACINAMIDE-10-ZINC-30ML`, `LRP-ANTHELIOS-UVMUNE-50ML`                                  |
+| 3   | Dehydrated / barrier | DOB ~1998, `MALE` → `AGE_26_35`                 | Concern `DEHYDRATED_SKIN`; goals `HYDRATION`,`BARRIER_REPAIR`; env `AIR_CONDITIONED_ENVIRONMENT`; signals `DRY_TENDENCY`,`SENSITIVE_TENDENCY`,`BARRIER_DAMAGE`; `PERSONALITY_SENSITIVE_CARE`                                                  | `ha_hydration`, `ceramide_barrier`, `moisturizer_barrier`, `cleanser_gentle_foam`, `sunscreen_daily_spf`                    | `CERAVE-MOIST-CREAM-454G`, `CERAVE-FOAM-CLEANSER-236ML`, `LRP-ANTHELIOS-UVMUNE-50ML`                              |
+| 4   | Anti-aging           | DOB ~1984, `FEMALE` → `AGE_36_45`               | Concern `WRINKLES`; goals `ANTI_AGING`,`REDUCE_WRINKLES`; lifestyle `HIGH_STRESS`; signals `WRINKLED_TENDENCY`,`FINE_LINES`; `ADVANCED`; `USING_RETINOID`; `PERSONALITY_TREATMENT_FOCUSED`                                                    | `retinol_0.3_anti_aging`, `niacinamide_general`                                                                             | `TO-RETINOL-0.3-30ML`, `TO-NIACINAMIDE-10-ZINC-30ML`, `CERAVE-FOAM-CLEANSER-236ML`                                |
+| 5   | Redness / sensitive  | DOB ~1996, `FEMALE` → `AGE_26_35`               | Concern `REDNESS`; goals `REDUCE_REDNESS`; lifestyle `HIGH_STRESS`; symptoms `BARRIER_DAMAGE`,`SENSITIVE_TENDENCY` (no self-diagnosis `ROSACEA` ask); `PERSONALITY_SENSITIVE_CARE`; `FRAGRANCE_FREE`                                          | `ceramide_barrier`, `moisturizer_barrier`, `azelaic_pigmentation`                                                           | `LRP-TOLERIANE-SENSITIVE-40ML`, `CERAVE-MOIST-CREAM-454G`, `CERAVE-FOAM-CLEANSER-236ML`, `LRP-EFFAC-DUO-40ML`     |
+
+**Safety check:** anti-aging + `PREGNANCY` must **exclude** `retinol_0.3_anti_aging` while still matching `niacinamide_general`.
 
 **Why seed stock matters:** recommendation mapping drops variants with `remainingQuantity ≤ 0`. Seed creates `SEED-<SKU>` batches with 20 `ON_RACK` instances per catalog SKU.
 
@@ -944,6 +950,7 @@ These five answer sets are covered by `src/database/seeds/seed.ts` (products, `p
 
 ```
 Ready today:     Profile → Survey → Recommendations → SURVEY cart → Order → Pay → Routine
-Build next:      Rich next-question operators → Expanded L2/L3 bank
+Ready today:     Age/label askWhen operators + expanded L2/L3 question bank
 Keep stable:     Label codes → Rule engine → Snapshot → Combo discount → Routine contract
+Demo cases:      src/database/seeds/survey-demo-cases.ts (= docs §10.5)
 ```

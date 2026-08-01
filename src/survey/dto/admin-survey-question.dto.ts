@@ -68,7 +68,18 @@ export class CreateSurveyQuestionDto {
   @MaxLength(500)
   intent?: string;
 
-  @ApiPropertyOptional({ type: Object })
+  @ApiPropertyOptional({
+    type: Object,
+    description:
+      'Branching rules: always, anyLabelCodes, allLabelCodes, noneLabelCodes, anyAgeGroupCodes, minAge, maxAge, match (any|all)',
+    example: {
+      match: 'any',
+      anyLabelCodes: ['ACNE'],
+      anyAgeGroupCodes: ['AGE_26_35'],
+      minAge: 26,
+      maxAge: 35,
+    },
+  })
   @IsOptional()
   @IsObject()
   askWhen?: QuestionAskWhen;

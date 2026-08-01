@@ -17,7 +17,156 @@ import { Customer } from '../users/customer.entity';
 import { CustomerSkinTypeDetails } from '../users/customer-skin-type-details.entity';
 import { Gender } from '../users/gender.enum';
 import { SkinType } from '../users/skin-type.entity';
+import { SURVEY_DEMO_CASES } from '../database/seeds/survey-demo-cases';
 import { RuleEngineService } from './rule-engine.service';
+
+/** Seed-equivalent protocol↔label wiring used by demo persona tests. */
+const SEED_PROTOCOL_LABELS: Array<{
+  protocolCode: string;
+  labelCode: string;
+  matchType: LabelMatchType;
+}> = [
+  {
+    protocolCode: 'retinol_0.3_anti_aging',
+    labelCode: 'ANTI_AGING',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'retinol_0.3_anti_aging',
+    labelCode: 'REDUCE_WRINKLES',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'retinol_0.3_anti_aging',
+    labelCode: 'PREGNANCY',
+    matchType: LabelMatchType.EXCLUDED,
+  },
+  {
+    protocolCode: 'salicylic_acne',
+    labelCode: 'ACNE_TREATMENT',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'azelaic_pigmentation',
+    labelCode: 'REDUCE_PIGMENTATION',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'azelaic_pigmentation',
+    labelCode: 'REDNESS',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'azelaic_pigmentation',
+    labelCode: 'REDUCE_REDNESS',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'ceramide_barrier',
+    labelCode: 'BARRIER_REPAIR',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'ceramide_barrier',
+    labelCode: 'BARRIER_DAMAGE',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'ceramide_barrier',
+    labelCode: 'REDUCE_REDNESS',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'ha_hydration',
+    labelCode: 'HYDRATION',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'niacinamide_general',
+    labelCode: 'ACNE_TREATMENT',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'niacinamide_general',
+    labelCode: 'ANTI_AGING',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'niacinamide_general',
+    labelCode: 'EVEN_SKIN_TONE',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'benzoyl_acne',
+    labelCode: 'ACNE_TREATMENT',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'cleanser_gentle_foam',
+    labelCode: 'BARRIER_REPAIR',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'cleanser_gentle_foam',
+    labelCode: 'OIL_CONTROL',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'cleanser_gentle_foam',
+    labelCode: 'REDUCE_REDNESS',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'toner_exfoliating',
+    labelCode: 'ACNE_TREATMENT',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'serum_niacinamide',
+    labelCode: 'ACNE_TREATMENT',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'serum_niacinamide',
+    labelCode: 'EVEN_SKIN_TONE',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'moisturizer_barrier',
+    labelCode: 'BARRIER_REPAIR',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'moisturizer_barrier',
+    labelCode: 'HYDRATION',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'moisturizer_barrier',
+    labelCode: 'REDUCE_REDNESS',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'sunscreen_daily_spf',
+    labelCode: 'HIGH_SUN_EXPOSURE',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'sunscreen_daily_spf',
+    labelCode: 'HYDRATION',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'sunscreen_daily_spf',
+    labelCode: 'REDUCE_PIGMENTATION',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+  {
+    protocolCode: 'treatment_acne_spot',
+    labelCode: 'ACNE_TREATMENT',
+    matchType: LabelMatchType.OPTIONAL,
+  },
+];
 
 const makeLabel = (overrides: Partial<Label> = {}): Label => ({
   id: 'label-1',
@@ -768,6 +917,96 @@ describe('RuleEngineService', () => {
           id: 'protocol-unmatched',
           matchScore: 1,
         }),
+      );
+    });
+  });
+
+  describe('seeded survey demo cases (docs §10.5)', () => {
+    function buildSeedProtocols(): IngredientProtocol[] {
+      const byCode = new Map<string, IngredientProtocol>();
+      for (const mapping of SEED_PROTOCOL_LABELS) {
+        let protocol = byCode.get(mapping.protocolCode);
+        if (!protocol) {
+          protocol = makeProtocol({
+            id: `protocol-${mapping.protocolCode}`,
+            code: mapping.protocolCode,
+            name: mapping.protocolCode,
+            protocolLabels: [],
+            protocolSkinTypes: [],
+          });
+          byCode.set(mapping.protocolCode, protocol);
+        }
+        protocol.protocolLabels.push(
+          makeProtocolLabel({
+            id: `pl-${mapping.protocolCode}-${mapping.labelCode}`,
+            protocolId: protocol.id,
+            labelId: `label-${mapping.labelCode}`,
+            matchType: mapping.matchType,
+          }),
+        );
+      }
+      return [...byCode.values()];
+    }
+
+    for (const demoCase of SURVEY_DEMO_CASES) {
+      it(`${demoCase.name}: rule engine returns expected protocol themes`, async () => {
+        const labels = demoCase.labels.map((code) =>
+          makeLabel({ id: `label-${code}`, code, name: code }),
+        );
+        labelRepository.find.mockResolvedValue(labels);
+        protocolRepository.find.mockResolvedValue(buildSeedProtocols());
+
+        const result = await service.buildRoutineContext(
+          labels.map((label) => label.id),
+        );
+
+        const matchedCodes = result.protocols.map((p) => p.code);
+        expect(matchedCodes.length).toBeGreaterThan(0);
+        for (const code of demoCase.expectedProtocolCodes) {
+          expect(matchedCodes).toContain(code);
+        }
+      });
+    }
+
+    it('anti-aging + PREGNANCY excludes retinol but keeps other matches', async () => {
+      const antiAging = SURVEY_DEMO_CASES.find((c) => c.name === 'Anti-aging')!;
+      const codes = [...antiAging.labels, 'PREGNANCY'];
+      const labels = codes.map((code) =>
+        makeLabel({ id: `label-${code}`, code, name: code }),
+      );
+      labelRepository.find.mockResolvedValue(labels);
+      protocolRepository.find.mockResolvedValue(buildSeedProtocols());
+
+      const result = await service.buildRoutineContext(
+        labels.map((label) => label.id),
+      );
+      const matchedCodes = result.protocols.map((p) => p.code);
+
+      expect(matchedCodes).not.toContain('retinol_0.3_anti_aging');
+      expect(matchedCodes).toContain('niacinamide_general');
+    });
+
+    it('personality / skin-type signal labels do not prevent concern matching', async () => {
+      const acne = SURVEY_DEMO_CASES.find((c) => c.name === 'Acne / oily')!;
+      expect(acne.labels).toEqual(
+        expect.arrayContaining([
+          'OILY_TENDENCY',
+          'PERSONALITY_QUICK_RESULT',
+          'ACNE_TREATMENT',
+        ]),
+      );
+
+      const labels = acne.labels.map((code) =>
+        makeLabel({ id: `label-${code}`, code, name: code }),
+      );
+      labelRepository.find.mockResolvedValue(labels);
+      protocolRepository.find.mockResolvedValue(buildSeedProtocols());
+
+      const result = await service.buildRoutineContext(
+        labels.map((label) => label.id),
+      );
+      expect(result.protocols.map((p) => p.code)).toEqual(
+        expect.arrayContaining(['salicylic_acne', 'benzoyl_acne']),
       );
     });
   });

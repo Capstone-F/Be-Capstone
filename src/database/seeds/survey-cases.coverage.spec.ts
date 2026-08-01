@@ -1,9 +1,13 @@
 /**
- * Static coverage check: five survey personas must map to ≥1 protocol with a
- * linked product SKU (seed catalog). Stock is asserted separately via seed
+ * Static coverage check: demo personas must map to expected protocols with
+ * linked product SKUs (seed catalog). Stock is asserted separately via seed
  * creating SEED-<SKU> batches.
+ *
+ * Keep PROTOCOL_LABEL_MAPPINGS / PRODUCT_PROTOCOL_MAPPINGS in sync with seed.ts
+ * (duplicated lightly so this test does not import the side-effecting seed module).
  */
 import { LabelMatchType } from '../../ingredients/enums';
+import { SURVEY_DEMO_CASES } from './survey-demo-cases';
 
 type Mapping = {
   protocolCode: string;
@@ -11,8 +15,6 @@ type Mapping = {
   matchType: LabelMatchType;
 };
 
-// Keep in sync with PROTOCOL_LABEL_MAPPINGS / PRODUCT_PROTOCOL_MAPPINGS in seed.ts
-// (duplicated lightly so this test does not import the side-effecting seed module).
 const PROTOCOL_LABEL_MAPPINGS: Mapping[] = [
   {
     protocolCode: 'retinol_0.3_anti_aging',
@@ -224,72 +226,6 @@ const PRODUCT_PROTOCOL_MAPPINGS: Array<{ sku: string; protocolCode: string }> =
     },
   ];
 
-const CASES: Array<{ name: string; labels: string[] }> = [
-  {
-    name: 'Acne / oily',
-    labels: [
-      'ACNE',
-      'ACNE_TREATMENT',
-      'OIL_CONTROL',
-      'HEAVY_MAKEUP',
-      'BLACKHEADS',
-      'ENLARGED_PORES',
-      'INTERMEDIATE',
-      'FEMALE',
-      'AGE_18_25',
-    ],
-  },
-  {
-    name: 'Pigment + sun',
-    labels: [
-      'HYPERPIGMENTATION',
-      'REDUCE_PIGMENTATION',
-      'EVEN_SKIN_TONE',
-      'HIGH_SUN_EXPOSURE',
-      'MELASMA',
-      'POST_INFLAMMATORY_HYPERPIGMENTATION',
-      'BEGINNER',
-      'FEMALE',
-      'AGE_26_35',
-    ],
-  },
-  {
-    name: 'Dehydrated / barrier',
-    labels: [
-      'DEHYDRATED_SKIN',
-      'HYDRATION',
-      'BARRIER_REPAIR',
-      'AIR_CONDITIONED_ENVIRONMENT',
-      'BARRIER_DAMAGE',
-      'MALE',
-      'AGE_18_25',
-    ],
-  },
-  {
-    name: 'Anti-aging',
-    labels: [
-      'WRINKLES',
-      'ANTI_AGING',
-      'REDUCE_WRINKLES',
-      'HIGH_STRESS',
-      'ADVANCED',
-      'FEMALE',
-      'AGE_36_45',
-    ],
-  },
-  {
-    name: 'Redness / rosacea-prone',
-    labels: [
-      'REDNESS',
-      'REDUCE_REDNESS',
-      'HIGH_STRESS',
-      'ROSACEA',
-      'FEMALE',
-      'AGE_26_35',
-    ],
-  },
-];
-
 function matchProtocols(labelCodes: string[]): string[] {
   const labels = new Set(labelCodes);
   const byProtocol = new Map<string, Mapping[]>();
@@ -323,10 +259,17 @@ function matchProtocols(labelCodes: string[]): string[] {
 }
 
 describe('seed survey case coverage', () => {
-  for (const c of CASES) {
-    it(`${c.name}: matches protocols with linked products`, () => {
+  it('defines five demo personas (docs §10.5)', () => {
+    expect(SURVEY_DEMO_CASES).toHaveLength(5);
+  });
+
+  for (const c of SURVEY_DEMO_CASES) {
+    it(`${c.name}: matches expected protocols with linked products`, () => {
       const protocols = matchProtocols(c.labels);
       expect(protocols.length).toBeGreaterThan(0);
+      for (const code of c.expectedProtocolCodes) {
+        expect(protocols).toContain(code);
+      }
 
       const skus = new Set(
         protocols.flatMap((protocolCode) =>
@@ -336,12 +279,15 @@ describe('seed survey case coverage', () => {
         ),
       );
       expect(skus.size).toBeGreaterThan(0);
+      for (const sku of c.expectedSkus) {
+        expect(skus.has(sku)).toBe(true);
+      }
     });
   }
 
   it('anti-aging case includes retinol product SKU', () => {
     const protocols = matchProtocols(
-      CASES.find((c) => c.name === 'Anti-aging')!.labels,
+      SURVEY_DEMO_CASES.find((c) => c.name === 'Anti-aging')!.labels,
     );
     expect(protocols).toContain('retinol_0.3_anti_aging');
     expect(
@@ -351,5 +297,24 @@ describe('seed survey case coverage', () => {
           m.sku === 'TO-RETINOL-0.3-30ML',
       ),
     ).toBe(true);
+  });
+
+  it('pregnancy EXCLUDED still blocks retinol even with anti-aging goals', () => {
+    const antiAging = SURVEY_DEMO_CASES.find((c) => c.name === 'Anti-aging')!;
+    const protocols = matchProtocols([...antiAging.labels, 'PREGNANCY']);
+    expect(protocols).not.toContain('retinol_0.3_anti_aging');
+    expect(protocols).toContain('niacinamide_general');
+  });
+
+  it('new bank signals alone do not break acne matching', () => {
+    const acne = SURVEY_DEMO_CASES.find((c) => c.name === 'Acne / oily')!;
+    const protocols = matchProtocols(acne.labels);
+    expect(protocols).toEqual(
+      expect.arrayContaining([
+        'salicylic_acne',
+        'benzoyl_acne',
+        'niacinamide_general',
+      ]),
+    );
   });
 });
