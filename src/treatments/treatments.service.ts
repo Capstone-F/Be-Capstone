@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { Brackets, DataSource, In, Repository } from 'typeorm';
 import { TransactionType } from '../commerce/enums';
 import { ConsultationRequest } from '../consultations/consultation-request.entity';
 import { Feedback } from '../consultations/feedback.entity';
@@ -15,6 +15,7 @@ import { TimeOfUse } from '../ingredients/enums';
 import { ProductIngredient } from '../products/product-ingredient.entity';
 import { ProductProtocol } from '../products/product-protocol.entity';
 import { ProductVariant } from '../products/product-variant.entity';
+import { buildIlikePattern } from '../products/utils/ilike.util';
 import {
   RoutinePeriod,
   RoutineStatus,
@@ -37,6 +38,10 @@ import {
   TreatmentPhaseStatus,
   TreatmentStatus,
 } from './enums';
+import {
+  DateSortOrder,
+  ListMyTreatmentsQueryDto,
+} from './dto/list-my-treatments.dto';
 import {
   CancelTreatmentDto,
   CreateTreatmentDto,
@@ -247,22 +252,10 @@ export class TreatmentsService {
   async listMyTreatments(
     userId: string,
     asExpert: boolean,
+    query: ListMyTreatmentsQueryDto = {},
   ): Promise<TreatmentResponseDto[]> {
     if (asExpert) {
-      const expert = await this.requireExpert(userId);
-      const rows = await this.treatmentRepo.find({
-        where: { expertId: expert.id },
-        relations: [
-          'phases',
-          'phases.phaseIngredients',
-          'phases.phaseIngredients.ingredient',
-          'phases.phaseProducts',
-          'phases.phaseProducts.productVariant',
-          'phases.routines',
-        ],
-        order: { createdAt: 'DESC' },
-      });
-      return rows.map((t) => this.toTreatmentDto(t));
+      return this.listExpertTreatments(userId, query);
     }
 
     const customer = await this.customerRepo.findOne({ where: { userId } });
@@ -280,6 +273,69 @@ export class TreatmentsService {
       order: { createdAt: 'DESC' },
     });
     return rows.map((t) => this.toTreatmentDto(t));
+  }
+
+  private async listExpertTreatments(
+    userId: string,
+    query: ListMyTreatmentsQueryDto,
+  ): Promise<TreatmentResponseDto[]> {
+    const expert = await this.requireExpert(userId);
+    const dateOrder = query.dateOrder === DateSortOrder.ASC ? 'ASC' : 'DESC';
+
+    const idQb = this.treatmentRepo
+      .createQueryBuilder('treatment')
+      .select('treatment.id', 'id')
+      .where('treatment.expertId = :expertId', { expertId: expert.id });
+
+    const searchTerm = buildIlikePattern(query.search ?? '');
+    if (searchTerm) {
+      idQb
+        .leftJoin('treatment.customer', 'customer')
+        .leftJoin('customer.user', 'customerUser')
+        .andWhere(
+          new Brackets((sub) => {
+            sub
+              .where(`treatment.title ILIKE :searchTerm ESCAPE '\\'`)
+              .orWhere(`treatment.description ILIKE :searchTerm ESCAPE '\\'`)
+              .orWhere(`customerUser.name ILIKE :searchTerm ESCAPE '\\'`)
+              .orWhere(`customerUser.email ILIKE :searchTerm ESCAPE '\\'`);
+          }),
+          { searchTerm },
+        );
+    }
+
+    if (query.phaseCount !== undefined) {
+      idQb.andWhere(
+        `(SELECT COUNT(*)::int FROM treatment_phases p WHERE p."treatmentId" = treatment.id) = :phaseCount`,
+        { phaseCount: query.phaseCount },
+      );
+    }
+
+    idQb.orderBy('treatment.createdAt', dateOrder);
+
+    const rawIds = await idQb.getRawMany<{ id: string }>();
+    const ids = rawIds.map((row) => row.id);
+    if (ids.length === 0) {
+      return [];
+    }
+
+    const rows = await this.treatmentRepo.find({
+      where: { id: In(ids) },
+      relations: [
+        'phases',
+        'phases.phaseIngredients',
+        'phases.phaseIngredients.ingredient',
+        'phases.phaseProducts',
+        'phases.phaseProducts.productVariant',
+        'phases.routines',
+      ],
+    });
+
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    return ids
+      .map((id) => byId.get(id))
+      .filter((row): row is Treatment => row != null)
+      .map((row) => this.toTreatmentDto(row));
   }
 
   async getTreatmentForUser(

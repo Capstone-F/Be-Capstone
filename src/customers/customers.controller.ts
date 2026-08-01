@@ -75,7 +75,7 @@ export class CustomersController {
     summary:
       'Get customer profile, survey history, and treatment history for consultation prep',
     description:
-      'Requires an accepted booking (CONFIRMED or IN_PROGRESS) where consultationId is assigned to the current expert and matches this customer. Returns treatment summaries only; use GET /treatments/:id/chart for full chart (read-only).',
+      'Requires a booking in CONFIRMED, IN_PROGRESS, COMPLETED, or CANCELLED where consultationId is assigned to the current expert and matches this customer. Returns treatment summaries only; use GET /treatments/:id/chart for full chart (read-only).',
   })
   @ApiQuery({
     name: 'consultationId',

@@ -524,16 +524,44 @@ describe('CustomersService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('rejects CANCELLED consultation', async () => {
+    it('allows COMPLETED consultation', async () => {
+      jest.spyOn(expertRepository, 'findOne').mockResolvedValue(expert);
+      jest.spyOn(consultationRepository, 'findOne').mockResolvedValue({
+        ...acceptedConsultation,
+        status: ConsultationStatus.COMPLETED,
+      } as ConsultationRequest);
+      jest.spyOn(customerRepository, 'findOne').mockResolvedValue(customer);
+      jest.spyOn(customerAllergyRepository, 'find').mockResolvedValue([]);
+      jest.spyOn(customerSurveyRepository, 'find').mockResolvedValue([]);
+      jest.spyOn(treatmentRepository, 'find').mockResolvedValue([]);
+
+      const result = await service.getConsultationContext(
+        'u-expert-b',
+        'customer-1',
+        'booking-1',
+      );
+
+      expect(result.customer.id).toBe('customer-1');
+    });
+
+    it('allows CANCELLED consultation', async () => {
       jest.spyOn(expertRepository, 'findOne').mockResolvedValue(expert);
       jest.spyOn(consultationRepository, 'findOne').mockResolvedValue({
         ...acceptedConsultation,
         status: ConsultationStatus.CANCELLED,
       } as ConsultationRequest);
+      jest.spyOn(customerRepository, 'findOne').mockResolvedValue(customer);
+      jest.spyOn(customerAllergyRepository, 'find').mockResolvedValue([]);
+      jest.spyOn(customerSurveyRepository, 'find').mockResolvedValue([]);
+      jest.spyOn(treatmentRepository, 'find').mockResolvedValue([]);
 
-      await expect(
-        service.getConsultationContext('u-expert-b', 'customer-1', 'booking-1'),
-      ).rejects.toThrow(ForbiddenException);
+      const result = await service.getConsultationContext(
+        'u-expert-b',
+        'customer-1',
+        'booking-1',
+      );
+
+      expect(result.customer.id).toBe('customer-1');
     });
 
     it('rejects when consultation is assigned to another expert', async () => {

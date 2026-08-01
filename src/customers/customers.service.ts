@@ -32,6 +32,8 @@ const ALLERGY_CATEGORY_CODE = 'ALLERGY';
 const CONSULTATION_CONTEXT_STATUSES = [
   ConsultationStatus.CONFIRMED,
   ConsultationStatus.IN_PROGRESS,
+  ConsultationStatus.COMPLETED,
+  ConsultationStatus.CANCELLED,
 ] as const;
 
 const TREATMENT_HISTORY_STATUSES = [
@@ -131,7 +133,7 @@ export class CustomersService {
       )
     ) {
       throw new ForbiddenException(
-        'Consultation must be CONFIRMED or IN_PROGRESS',
+        'Consultation must be CONFIRMED, IN_PROGRESS, COMPLETED, or CANCELLED',
       );
     }
 

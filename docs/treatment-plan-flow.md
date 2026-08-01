@@ -260,6 +260,19 @@ GET /treatments/me?as=customer
 GET /treatments/:id
 ```
 
+Expert list (search / date sort / phase count):
+
+```http
+GET /treatments/me?as=expert&search=acne&dateOrder=desc&phaseCount=3
+```
+
+| Query        | Behavior                                                     |
+| ------------ | ------------------------------------------------------------ |
+| `as`         | `customer` \| `expert` (required when user has both roles)   |
+| `search`     | Expert view: title, description, customer name/email         |
+| `dateOrder`  | Expert view: `asc` \| `desc` (default `desc`) on `createdAt` |
+| `phaseCount` | Expert view: exact number of phases                          |
+
 ---
 
 ## 6. Step-by-step — after pay (configure & activate)
@@ -613,35 +626,35 @@ Money fields (`priceVnd`, `totalPriceVnd`, `refundedAmountVnd`) are **bigint str
 
 ## 14. Endpoint checklist
 
-| Method | Path                                             | Auth              | Status   | When in flow                              |
-| ------ | ------------------------------------------------ | ----------------- | -------- | ----------------------------------------- |
-| PATCH  | `/bookings/:id/start`                            | Expert            | ✅ Ready | Start live session                        |
-| GET    | `/consultations/:id/video-token`                 | Both              | ✅ Ready | Join video                                |
-| GET    | `/consultations/:id/chat-token`                  | Both              | ✅ Ready | Join chat                                 |
-| POST   | `/treatments`                                    | Expert            | ✅ Ready | Create DRAFT during `IN_PROGRESS`         |
-| POST   | `/treatments/:id/phases`                         | Expert            | ✅ Ready | Add phase + `noteByExpert`                |
-| PATCH  | `/treatments/phases/:phaseId`                    | Expert            | ✅ Ready | Edit DRAFT phase                          |
-| DELETE | `/treatments/phases/:phaseId`                    | Expert            | ✅ Ready | Delete DRAFT phase                        |
-| POST   | `/treatments/:id/submit`                         | Expert            | ✅ Ready | Set `submittedAt` + `totalPriceVnd`       |
-| POST   | `/treatments/:id/pay`                            | Customer          | ✅ Ready | Requires `submittedAt`; wallet → ACTIVE   |
-| POST   | `/treatments/phases/:phaseId/ingredients`        | Expert            | ✅ Ready | After pay                                 |
-| GET    | `/treatments/phases/:phaseId/product-candidates` | Expert            | ✅ Ready | After pay                                 |
-| POST   | `/treatments/phases/:phaseId/products`           | Expert            | ✅ Ready | After pay                                 |
-| POST   | `/treatments/phases/:phaseId/routines/generate`  | Expert            | ✅ Ready | After pay                                 |
-| POST   | `/treatments/routines/:routineId/save`           | Expert            | ✅ Ready | After pay                                 |
-| PATCH  | `/treatments/routines/:routineId`                | Expert            | ✅ Ready | After pay                                 |
-| POST   | `/treatments/phases/:phaseId/activate`           | Expert            | ✅ Ready | After pay; before/around consult complete |
-| PATCH  | `/bookings/:id/complete`                         | Expert            | ✅ Ready | End originating consultation              |
-| GET    | `/treatments/me`                                 | Customer / Expert | ✅ Ready | List                                      |
-| GET    | `/treatments/:id`                                | Customer / Expert | ✅ Ready | Detail                                    |
-| GET    | `/treatments/:id/chart`                          | Customer / Expert | ✅ Ready | Post-session hồ sơ                        |
-| GET    | `/treatments/:id/events`                         | Customer / Expert | ✅ Ready | Timeline                                  |
-| POST   | `/treatments/:id/events`                         | Customer / Expert | ✅ Ready | Progress photos                           |
-| PATCH  | `/treatments/:id/events/:eventId`                | Customer / Expert | ✅ Ready | Update PROGRESS_PHOTO `photoUrl`          |
-| POST   | `/uploads/images`                                | Any authenticated | ✅ Ready | Multipart → R2 public URL                 |
-| POST   | `/treatments/:id/cancel`                         | Customer / Expert | ✅ Ready | Mid-plan cancel                           |
-| GET    | `/wallet/me`                                     | Authenticated     | ✅ Ready | Balance                                   |
-| POST   | `/wallet/top-up`                                 | Customer          | ✅ Ready | Top-up                                    |
+| Method | Path                                             | Auth              | Status   | When in flow                                   |
+| ------ | ------------------------------------------------ | ----------------- | -------- | ---------------------------------------------- |
+| PATCH  | `/bookings/:id/start`                            | Expert            | ✅ Ready | Start live session                             |
+| GET    | `/consultations/:id/video-token`                 | Both              | ✅ Ready | Join video                                     |
+| GET    | `/consultations/:id/chat-token`                  | Both              | ✅ Ready | Join chat                                      |
+| POST   | `/treatments`                                    | Expert            | ✅ Ready | Create DRAFT during `IN_PROGRESS`              |
+| POST   | `/treatments/:id/phases`                         | Expert            | ✅ Ready | Add phase + `noteByExpert`                     |
+| PATCH  | `/treatments/phases/:phaseId`                    | Expert            | ✅ Ready | Edit DRAFT phase                               |
+| DELETE | `/treatments/phases/:phaseId`                    | Expert            | ✅ Ready | Delete DRAFT phase                             |
+| POST   | `/treatments/:id/submit`                         | Expert            | ✅ Ready | Set `submittedAt` + `totalPriceVnd`            |
+| POST   | `/treatments/:id/pay`                            | Customer          | ✅ Ready | Requires `submittedAt`; wallet → ACTIVE        |
+| POST   | `/treatments/phases/:phaseId/ingredients`        | Expert            | ✅ Ready | After pay                                      |
+| GET    | `/treatments/phases/:phaseId/product-candidates` | Expert            | ✅ Ready | After pay                                      |
+| POST   | `/treatments/phases/:phaseId/products`           | Expert            | ✅ Ready | After pay                                      |
+| POST   | `/treatments/phases/:phaseId/routines/generate`  | Expert            | ✅ Ready | After pay                                      |
+| POST   | `/treatments/routines/:routineId/save`           | Expert            | ✅ Ready | After pay                                      |
+| PATCH  | `/treatments/routines/:routineId`                | Expert            | ✅ Ready | After pay                                      |
+| POST   | `/treatments/phases/:phaseId/activate`           | Expert            | ✅ Ready | After pay; before/around consult complete      |
+| PATCH  | `/bookings/:id/complete`                         | Expert            | ✅ Ready | End originating consultation                   |
+| GET    | `/treatments/me`                                 | Customer / Expert | ✅ Ready | List; expert view: search/dateOrder/phaseCount |
+| GET    | `/treatments/:id`                                | Customer / Expert | ✅ Ready | Detail                                         |
+| GET    | `/treatments/:id/chart`                          | Customer / Expert | ✅ Ready | Post-session hồ sơ                             |
+| GET    | `/treatments/:id/events`                         | Customer / Expert | ✅ Ready | Timeline                                       |
+| POST   | `/treatments/:id/events`                         | Customer / Expert | ✅ Ready | Progress photos                                |
+| PATCH  | `/treatments/:id/events/:eventId`                | Customer / Expert | ✅ Ready | Update PROGRESS_PHOTO `photoUrl`               |
+| POST   | `/uploads/images`                                | Any authenticated | ✅ Ready | Multipart → R2 public URL                      |
+| POST   | `/treatments/:id/cancel`                         | Customer / Expert | ✅ Ready | Mid-plan cancel                                |
+| GET    | `/wallet/me`                                     | Authenticated     | ✅ Ready | Balance                                        |
+| POST   | `/wallet/top-up`                                 | Customer          | ✅ Ready | Top-up                                         |
 
 ---
 
