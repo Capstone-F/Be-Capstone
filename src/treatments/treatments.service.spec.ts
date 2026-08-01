@@ -1052,3 +1052,145 @@ describe('TreatmentsService cross-expert read access', () => {
     );
   });
 });
+
+describe('TreatmentsService listMyTreatments (expert filters)', () => {
+  function makeQb(rawIds: Array<{ id: string }>) {
+    const qb = {
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      leftJoin: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getRawMany: jest.fn().mockResolvedValue(rawIds),
+    };
+    return qb;
+  }
+
+  it('searches, sorts asc, and filters by phaseCount', async () => {
+    const qb = makeQb([{ id: 't-2' }, { id: 't-1' }]);
+    const treatmentRepo = {
+      createQueryBuilder: jest.fn().mockReturnValue(qb),
+      find: jest.fn().mockResolvedValue([
+        {
+          id: 't-1',
+          customerId: 'c-1',
+          expertId: 'expert-1',
+          clinicId: null,
+          title: 'Acne plan',
+          description: null,
+          status: TreatmentStatus.ACTIVE,
+          startDate: null,
+          endDate: null,
+          totalPriceVnd: null,
+          submittedAt: null,
+          paidAt: null,
+          paidTransactionId: null,
+          sourceConsultationId: null,
+          cancelledAt: null,
+          cancelReason: null,
+          cancelledBy: null,
+          refundTransactionId: null,
+          refundedAmountVnd: null,
+          phases: [],
+          createdAt: new Date('2026-01-01'),
+          updatedAt: new Date('2026-01-01'),
+        },
+        {
+          id: 't-2',
+          customerId: 'c-2',
+          expertId: 'expert-1',
+          clinicId: null,
+          title: 'Older acne',
+          description: null,
+          status: TreatmentStatus.DRAFT,
+          startDate: null,
+          endDate: null,
+          totalPriceVnd: null,
+          submittedAt: null,
+          paidAt: null,
+          paidTransactionId: null,
+          sourceConsultationId: null,
+          cancelledAt: null,
+          cancelReason: null,
+          cancelledBy: null,
+          refundTransactionId: null,
+          refundedAmountVnd: null,
+          phases: [],
+          createdAt: new Date('2025-12-01'),
+          updatedAt: new Date('2025-12-01'),
+        },
+      ]),
+    };
+    const service = new TreatmentsService(
+      treatmentRepo as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {
+        findOne: jest.fn().mockResolvedValue({ id: 'expert-1', userId: 'u-e' }),
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    const result = await service.listMyTreatments('u-e', true, {
+      search: 'acne',
+      dateOrder: 'asc' as never,
+      phaseCount: 2,
+    });
+
+    expect(treatmentRepo.createQueryBuilder).toHaveBeenCalledWith('treatment');
+    expect(qb.andWhere).toHaveBeenCalled();
+    expect(qb.orderBy).toHaveBeenCalledWith('treatment.createdAt', 'ASC');
+    expect(result.map((t) => t.id)).toEqual(['t-2', 't-1']);
+  });
+
+  it('returns empty list when no treatments match', async () => {
+    const qb = makeQb([]);
+    const treatmentRepo = {
+      createQueryBuilder: jest.fn().mockReturnValue(qb),
+      find: jest.fn(),
+    };
+    const service = new TreatmentsService(
+      treatmentRepo as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {
+        findOne: jest.fn().mockResolvedValue({ id: 'expert-1', userId: 'u-e' }),
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    const result = await service.listMyTreatments('u-e', true, {});
+
+    expect(result).toEqual([]);
+    expect(treatmentRepo.find).not.toHaveBeenCalled();
+    expect(qb.orderBy).toHaveBeenCalledWith('treatment.createdAt', 'DESC');
+  });
+});

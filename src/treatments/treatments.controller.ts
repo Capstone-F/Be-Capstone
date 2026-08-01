@@ -38,6 +38,7 @@ import {
   TreatmentChartResponseDto,
   TreatmentEventResponseDto,
 } from './dto/treatment-chart-response.dto';
+import { ListMyTreatmentsQueryDto } from './dto/list-my-treatments.dto';
 import {
   ProductCandidateDto,
   TreatmentPhaseResponseDto,
@@ -81,21 +82,26 @@ export class TreatmentsController {
 
   @Get('me')
   @Roles(Role.Customer, Role.Expert)
-  @ApiOperation({ summary: 'List my treatments' })
-  @ApiQuery({
-    name: 'as',
-    required: false,
-    enum: ['customer', 'expert'],
+  @ApiOperation({
+    summary: 'List my treatments',
+    description:
+      'Use as=expert for the expert view. Expert view supports search, dateOrder (createdAt asc/desc), and phaseCount filter.',
   })
   @ApiOkResponse({ type: [TreatmentResponseDto] })
-  listMine(@Req() req: Request, @Query('as') as?: 'customer' | 'expert') {
+  listMine(@Req() req: Request, @Query() query: ListMyTreatmentsQueryDto) {
     const auth = getAuthContext(req);
     if (!auth?.userId) throw new UnauthorizedException('Not authenticated');
     const roles = auth.roles ?? [];
     const asExpert =
-      as === 'expert' ||
-      (!as && roles.includes(Role.Expert) && !roles.includes(Role.Customer));
-    return this.treatmentsService.listMyTreatments(auth.userId, asExpert);
+      query.as === 'expert' ||
+      (!query.as &&
+        roles.includes(Role.Expert) &&
+        !roles.includes(Role.Customer));
+    return this.treatmentsService.listMyTreatments(
+      auth.userId,
+      asExpert,
+      query,
+    );
   }
 
   @Get(':id/chart')
