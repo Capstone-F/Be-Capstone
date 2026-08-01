@@ -3,6 +3,7 @@ import {
   RoutinePeriod,
   SessionState,
   StepCompletionStatus,
+  StockWarningLevel,
 } from './enums';
 import {
   aggregateSessionState,
@@ -13,7 +14,9 @@ import {
   deriveDayHistoryStatus,
   deriveSessionState,
   eachDateInclusive,
+  estimateStepStock,
   getVnDateParts,
+  parseMlVolume,
   progressFromStatuses,
   shiftDate,
 } from './routine-tracking.rules';
@@ -235,6 +238,115 @@ describe('routine-tracking.rules', () => {
 
     it('shifts dates', () => {
       expect(shiftDate('2026-07-01', -1)).toBe('2026-06-30');
+    });
+  });
+
+  describe('parseMlVolume', () => {
+    it('parses ml volumes', () => {
+      expect(parseMlVolume('30ml')).toBe(30);
+      expect(parseMlVolume('236 mL')).toBe(236);
+      expect(parseMlVolume('1.5ml')).toBe(1.5);
+    });
+
+    it('rejects non-ml or empty', () => {
+      expect(parseMlVolume('454g')).toBeNull();
+      expect(parseMlVolume(null)).toBeNull();
+      expect(parseMlVolume('')).toBeNull();
+    });
+  });
+
+  describe('estimateStepStock', () => {
+    it('returns null when volume or amount missing', () => {
+      expect(
+        estimateStepStock({
+          bottleMl: null,
+          purchasedQty: 1,
+          amountMl: 1,
+          completedCount: 0,
+          dailyMlForVariant: 1,
+        }),
+      ).toEqual({ warning: null, remainingMl: null });
+    });
+
+    it('returns no warning when plenty remaining', () => {
+      expect(
+        estimateStepStock({
+          bottleMl: 30,
+          purchasedQty: 1,
+          amountMl: 1,
+          completedCount: 5,
+          dailyMlForVariant: 1,
+        }),
+      ).toEqual({ warning: null, remainingMl: 25 });
+    });
+
+    it('returns LOW at or below 20%', () => {
+      expect(
+        estimateStepStock({
+          bottleMl: 30,
+          purchasedQty: 1,
+          amountMl: 1,
+          completedCount: 24,
+          dailyMlForVariant: 1,
+        }),
+      ).toEqual({ warning: StockWarningLevel.LOW, remainingMl: 6 });
+    });
+
+    it('returns EMPTY when depleted', () => {
+      expect(
+        estimateStepStock({
+          bottleMl: 30,
+          purchasedQty: 1,
+          amountMl: 1,
+          completedCount: 30,
+          dailyMlForVariant: 1,
+        }),
+      ).toEqual({ warning: StockWarningLevel.EMPTY, remainingMl: 0 });
+    });
+
+    it('splits shared bottle across morning+evening steps', () => {
+      // 30ml bottle shared 1ml AM + 1ml PM → each step gets 15ml share
+      expect(
+        estimateStepStock({
+          bottleMl: 30,
+          purchasedQty: 1,
+          amountMl: 1,
+          completedCount: 0,
+          dailyMlForVariant: 2,
+        }),
+      ).toEqual({ warning: null, remainingMl: 15 });
+
+      expect(
+        estimateStepStock({
+          bottleMl: 30,
+          purchasedQty: 1,
+          amountMl: 1,
+          completedCount: 12,
+          dailyMlForVariant: 2,
+        }),
+      ).toEqual({ warning: StockWarningLevel.LOW, remainingMl: 3 });
+    });
+
+    it('clears warning after repurchase increases purchased qty', () => {
+      expect(
+        estimateStepStock({
+          bottleMl: 30,
+          purchasedQty: 1,
+          amountMl: 1,
+          completedCount: 30,
+          dailyMlForVariant: 1,
+        }),
+      ).toEqual({ warning: StockWarningLevel.EMPTY, remainingMl: 0 });
+
+      expect(
+        estimateStepStock({
+          bottleMl: 30,
+          purchasedQty: 2,
+          amountMl: 1,
+          completedCount: 30,
+          dailyMlForVariant: 1,
+        }),
+      ).toEqual({ warning: null, remainingMl: 30 });
     });
   });
 });

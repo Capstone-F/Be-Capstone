@@ -184,7 +184,27 @@ Top-level Today aggregation when routines exist:
 
 **Multiple ACTIVE routines:** Today returns an **array** of all of them for the period (AI + expert).
 
-### 4.6 History day status
+### 4.6 Stock warning (Today steps)
+
+On-the-fly estimate (no forecast table writes):
+
+```
+purchasedMl = parseMl(variant.volume) × Σ qty from customer PAID+ orders
+              for that productVariantId since routine.createdAt
+usedMl      = COMPLETED completions for the step × amountMl
+              (shared variants: bottle split by daily amountMl share)
+remainingMl = max(0, purchasedForStep - usedForStep)
+```
+
+| `warning` | When                                           |
+| --------- | ---------------------------------------------- |
+| `null`    | Cannot estimate, or remaining > 20% of share   |
+| `LOW`     | Remaining ≤ 20% of this step’s purchased share |
+| `EMPTY`   | Remaining ≤ 0                                  |
+
+`productVariant.productId` is the catalog product id for `GET /products/:id`. `productVariant.id` is the variant id for `POST /cart/items`.
+
+### 4.7 History day status
 
 Derived **on read** (no cron job).
 
@@ -199,7 +219,7 @@ Days **before** the routine became active are **omitted** (no false MISSED).
 
 Streak (`summary.currentStreak`): consecutive `COMPLETED` days ending at today if today is completed, otherwise ending at yesterday.
 
-### 4.7 Completions vs check-ins (decoupled)
+### 4.8 Completions vs check-ins (decoupled)
 
 | Entity                  | Role                                                                                              |
 | ----------------------- | ------------------------------------------------------------------------------------------------- |
@@ -231,6 +251,15 @@ Authorization: Bearer <accessToken>
 2. If `sessionState === EMPTY` → empty CTA.
 3. Else render each `routines[]` card: title, progress bar (`completedCount/totalCount`), step list with status chips.
 4. “Bắt đầu” / tap step → Step Detail (local navigation using step payload: `instructions`, `dosageText`, `waitMinutes`, `productVariant`).
+5. **Stock / buy-again warning** — for each step, read `warning` and `remainingMl`:
+   - `warning === null` → no reorder UI (estimate unavailable, or stock is fine).
+   - `warning === "LOW"` → show soft “sắp hết / mua lại” prompt (optional: show `remainingMl`).
+   - `warning === "EMPTY"` → show stronger empty / reorder CTA.
+6. **Buy-again flow** (reuse ecommerce APIs — see [ecommerce-flow.md](ecommerce-flow.md)):
+   1. Use `steps[].productVariant.productId` → `GET /products/:id` to open product detail / suggest repurchase.
+   2. Use `steps[].productVariant.id` (variant id) → `POST /cart/items` with `source: "CATALOG"`.
+   3. Checkout with `POST /orders` + payment as usual.
+   4. After payment (`PAID`), the next `GET /routines/me/today` recomputes remaining volume from all PAID+ orders since the routine started — warning clears or softens automatically (no extra inventory API).
 
 ### 5.2 Complete a step
 
@@ -374,11 +403,14 @@ Returns step outcomes + optional check-in snapshot for that date/period.
           "amountMl": 1.5,
           "protocolId": "uuid-or-null",
           "productVariant": {
-            "id": "uuid",
+            "id": "uuid-variant",
+            "productId": "uuid-product",
             "name": "Gentle Cleanser",
             "sku": "SKU-1",
             "imageUrl": "https://placehold.co/400"
           },
+          "warning": "LOW",
+          "remainingMl": 4.5,
           "status": "COMPLETED",
           "completedAt": "2026-07-22T03:15:00.000Z",
           "skipReason": null,
@@ -445,13 +477,13 @@ Returns step outcomes + optional check-in snapshot for that date/period.
 
 ## 9. Screen mapping
 
-| Screen (Doc2)        | Primary API                                 | Notes                                               |
-| -------------------- | ------------------------------------------- | --------------------------------------------------- |
-| Today Routine (Home) | `GET /routines/me/today`                    | Drive Empty / Not Started / In Progress / Completed |
-| Routine Step Detail  | Payload from Today (+ complete/skip)        | Images may be null until catalog media exists       |
-| Daily Check-in       | `POST /routines/:id/check-ins`              | Partial progress allowed                            |
-| Routine History      | `GET .../history` + `GET .../history/:date` | Calendar dots = `date` + `status`                   |
-| Analytics (streak)   | `history.summary`                           | `currentStreak`, `averageCompletionRate`            |
+| Screen (Doc2)        | Primary API                                 | Notes                                                                                               |
+| -------------------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Today Routine (Home) | `GET /routines/me/today`                    | Drive Empty / Not Started / In Progress / Completed; show buy-again when `warning` is `LOW`/`EMPTY` |
+| Routine Step Detail  | Payload from Today (+ complete/skip)        | Images may be null until catalog media exists                                                       |
+| Daily Check-in       | `POST /routines/:id/check-ins`              | Partial progress allowed                                                                            |
+| Routine History      | `GET .../history` + `GET .../history/:date` | Calendar dots = `date` + `status`                                                                   |
+| Analytics (streak)   | `history.summary`                           | `currentStreak`, `averageCompletionRate`                                                            |
 
 Suggested FE state machine for Today card:
 
@@ -467,13 +499,14 @@ EMPTY ──(has ACTIVE)──▶ NOT_STARTED ──(first tick)──▶ IN_PRO
 
 ## 10. Out of scope / later
 
-| Topic                                                     | Status                                         |
-| --------------------------------------------------------- | ---------------------------------------------- |
-| Cron job to materialize MISSED rows                       | ❌ On-read derivation is enough for MVP        |
-| Backdating completions / check-ins                        | ❌ Rejected in MVP                             |
-| Expert override / locked ingredients alerts from check-in | ❌ Treatment module later                      |
-| Support habits / reorder forecasts                        | ❌ Schema exists; no tracking APIs yet         |
-| Product images on steps                                   | ✅ `imageUrl` from `product_variants.imageUrl` |
+| Topic                                                     | Status                                                                             |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Cron job to materialize MISSED rows                       | ❌ On-read derivation is enough for MVP                                            |
+| Backdating completions / check-ins                        | ❌ Rejected in MVP                                                                 |
+| Expert override / locked ingredients alerts from check-in | ❌ Treatment module later                                                          |
+| Support habits / reorder forecasts table                  | ❌ Schema exists; unused — Today uses on-the-fly `warning` / `remainingMl` instead |
+| Product images on steps                                   | ✅ `imageUrl` from `product_variants.imageUrl`                                     |
+| Low-stock / buy-again on Today                            | ✅ `warning` + `remainingMl` + `productVariant.productId`                          |
 
 ---
 

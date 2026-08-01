@@ -303,6 +303,7 @@ export class RoutineGeneratorService {
     if (detail?.productVariantId) {
       productVariant = {
         id: detail.productVariantId,
+        productId: variant?.productId ?? variant?.product?.id ?? '',
         name: variant?.product?.name ?? detail.productVariantId,
         sku: variant?.sku ?? null,
         imageUrl: variant?.imageUrl ?? null,

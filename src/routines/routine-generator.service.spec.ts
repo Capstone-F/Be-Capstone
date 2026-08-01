@@ -73,9 +73,10 @@ describe('RoutineGeneratorService', () => {
             amountMl: '2.00',
             productVariant: {
               id: 'v1',
+              productId: 'prod-1',
               sku: 'SKU-1',
               imageUrl: 'https://placehold.co/400',
-              product: { name: 'Serum A' },
+              product: { id: 'prod-1', name: 'Serum A' },
             },
           },
         ],
@@ -95,9 +96,10 @@ describe('RoutineGeneratorService', () => {
             amountMl: 2,
             productVariant: {
               id: 'v1',
+              productId: 'prod-1',
               sku: 'SKU-1',
               imageUrl: 'https://placehold.co/400',
-              product: { name: 'Serum A' },
+              product: { id: 'prod-1', name: 'Serum A' },
             },
           },
         ],
@@ -234,6 +236,7 @@ describe('RoutineGeneratorService', () => {
     expect(morning.protocolId).toBe('p1');
     expect(morning.productVariant).toEqual({
       id: 'v1',
+      productId: 'prod-1',
       name: 'Serum A',
       sku: 'SKU-1',
       imageUrl: 'https://placehold.co/400',
