@@ -132,6 +132,13 @@ export class TreatmentResponseDto {
   @ApiPropertyOptional({ nullable: true })
   totalPriceVnd!: string | null;
 
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Set when expert submits for payment; null while editing. Customer can pay only when set.',
+  })
+  submittedAt!: Date | null;
+
   @ApiPropertyOptional({ nullable: true })
   paidAt!: Date | null;
 
