@@ -1,11 +1,13 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ConsultationStatus } from '../consultations/enums';
-import { StepCompletionStatus } from '../routines/enums';
+import { RoutineStatus, StepCompletionStatus } from '../routines/enums';
+import { Routine } from '../routines/routine.entity';
 import {
   TreatmentEventType,
   TreatmentPhaseStatus,
   TreatmentStatus,
 } from './enums';
+import { TreatmentPhase } from './treatment-phase.entity';
 import { TreatmentsService } from './treatments.service';
 
 describe('TreatmentsService phase activation rules', () => {
@@ -13,6 +15,7 @@ describe('TreatmentsService phase activation rules', () => {
     phase?: Record<string, unknown>;
     routines?: Array<Record<string, unknown>>;
     activeOthers?: Array<Record<string, unknown>>;
+    prevPhaseRoutines?: Array<Record<string, unknown>>;
   }) {
     const phase = {
       id: 'phase-1',
@@ -58,11 +61,20 @@ describe('TreatmentsService phase activation rules', () => {
       findOne: jest.fn().mockResolvedValue(phase.treatment),
     };
 
+    const savedRows: Array<{ entity: unknown; row: Record<string, unknown> }> =
+      [];
+
     const dataSource = {
       transaction: jest.fn(async (cb: (m: unknown) => Promise<unknown>) => {
         const manager = {
-          find: jest.fn().mockResolvedValue(overrides.activeOthers ?? []),
-          save: jest.fn((_e, row) => Promise.resolve(row)),
+          find: jest
+            .fn()
+            .mockResolvedValueOnce(overrides.activeOthers ?? [])
+            .mockResolvedValue(overrides.prevPhaseRoutines ?? []),
+          save: jest.fn((entity: unknown, row: Record<string, unknown>) => {
+            savedRows.push({ entity, row });
+            return Promise.resolve(row);
+          }),
         };
         return cb(manager);
       }),
@@ -104,7 +116,7 @@ describe('TreatmentsService phase activation rules', () => {
     (service as unknown as { toPhaseDto: (p: unknown) => unknown }).toPhaseDto =
       (p) => p;
 
-    return { service, dataSource, phase };
+    return { service, dataSource, phase, savedRows };
   }
 
   it('rejects activate when DRAFT routines exist', async () => {
@@ -129,6 +141,44 @@ describe('TreatmentsService phase activation rules', () => {
     });
     await service.activatePhase('u-e', 'phase-1');
     expect(dataSource.transaction).toHaveBeenCalled();
+  });
+
+  it('completes ACTIVE routines on previous phase when activating next', async () => {
+    const prevRoutine = {
+      id: 'r-prev',
+      status: RoutineStatus.ACTIVE,
+      treatmentPhaseId: 'phase-0',
+    };
+    const { service, savedRows } = makeService({
+      routines: [{ id: 'r-1', status: RoutineStatus.ACTIVE }],
+      activeOthers: [
+        {
+          id: 'phase-0',
+          status: TreatmentPhaseStatus.ACTIVE,
+          treatmentId: 't-1',
+        },
+      ],
+      prevPhaseRoutines: [prevRoutine],
+    });
+
+    await service.activatePhase('u-e', 'phase-1');
+
+    expect(
+      savedRows.some(
+        (s) =>
+          s.entity === TreatmentPhase &&
+          s.row.id === 'phase-0' &&
+          s.row.status === TreatmentPhaseStatus.COMPLETED,
+      ),
+    ).toBe(true);
+    expect(
+      savedRows.some(
+        (s) =>
+          s.entity === Routine &&
+          s.row.id === 'r-prev' &&
+          s.row.status === RoutineStatus.COMPLETED,
+      ),
+    ).toBe(true);
   });
 });
 

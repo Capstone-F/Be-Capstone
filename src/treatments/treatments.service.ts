@@ -934,6 +934,17 @@ export class TreatmentsService {
         if (other.id === phaseId) continue;
         other.status = TreatmentPhaseStatus.COMPLETED;
         await manager.save(TreatmentPhase, other);
+
+        const prevActiveRoutines = await manager.find(Routine, {
+          where: {
+            treatmentPhaseId: other.id,
+            status: RoutineStatus.ACTIVE,
+          },
+        });
+        for (const prevRoutine of prevActiveRoutines) {
+          prevRoutine.status = RoutineStatus.COMPLETED;
+          await manager.save(Routine, prevRoutine);
+        }
       }
 
       phase.status = TreatmentPhaseStatus.ACTIVE;
