@@ -36,6 +36,7 @@ import {
   CustomerProfileResponseDto,
 } from './dto/customer-profile-response.dto';
 import { UpdateCustomerProfileDto } from './dto/update-customer-profile.dto';
+import { UpdateCustomerSkinTypeDto } from './dto/update-customer-skin-type.dto';
 
 @ApiTags('Customers')
 @Controller('customers')
@@ -115,6 +116,23 @@ export class CustomersController {
   ): Promise<CustomerProfileResponseDto> {
     const userId = this.requireUserId(req);
     return this.customersService.updateOwnCustomerProfile(userId, body);
+  }
+
+  @Patch('me/skin-type')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update own Baumann skin type',
+    description:
+      'Sets the customer profile Baumann skin type by 16-type code (e.g. OSPT). Axis scores from a prior survey are cleared; assessedAt is refreshed.',
+  })
+  @ApiOkResponse({ type: CustomerProfileResponseDto })
+  @ApiBadRequestResponse({ description: 'Invalid or unknown skin type code' })
+  async updateMySkinType(
+    @Req() req: Request,
+    @Body() body: UpdateCustomerSkinTypeDto,
+  ): Promise<CustomerProfileResponseDto> {
+    const userId = this.requireUserId(req);
+    return this.customersService.updateOwnSkinType(userId, body);
   }
 
   private requireUserId(req: Request): string {

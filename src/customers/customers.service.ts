@@ -15,7 +15,9 @@ import { TreatmentPhaseStatus, TreatmentStatus } from '../treatments/enums';
 import { Treatment } from '../treatments/treatment.entity';
 import { CustomerAllergy } from '../users/customer-allergy.entity';
 import { Customer } from '../users/customer.entity';
+import { CustomerSkinTypeDetails } from '../users/customer-skin-type-details.entity';
 import { Expert } from '../users/expert.entity';
+import { SkinType } from '../users/skin-type.entity';
 import {
   AllergyLabelDto,
   BaumannScoresDto,
@@ -26,6 +28,7 @@ import {
   TreatmentHistoryItemDto,
 } from './dto/customer-profile-response.dto';
 import { UpdateCustomerProfileDto } from './dto/update-customer-profile.dto';
+import { UpdateCustomerSkinTypeDto } from './dto/update-customer-skin-type.dto';
 
 const ALLERGY_CATEGORY_CODE = 'ALLERGY';
 
@@ -62,6 +65,10 @@ export class CustomersService {
     private readonly consultationRepository: Repository<ConsultationRequest>,
     @InjectRepository(Treatment)
     private readonly treatmentRepository: Repository<Treatment>,
+    @InjectRepository(SkinType)
+    private readonly skinTypeRepository: Repository<SkinType>,
+    @InjectRepository(CustomerSkinTypeDetails)
+    private readonly customerSkinTypeDetailsRepository: Repository<CustomerSkinTypeDetails>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -224,6 +231,43 @@ export class CustomersService {
     if (hasAllergyUpdate) {
       await this.replaceAllergies(customer.id, dto.allergyLabelCodes ?? []);
     }
+
+    return this.getOwnCustomerProfile(userId);
+  }
+
+  async updateOwnSkinType(
+    userId: string,
+    dto: UpdateCustomerSkinTypeDto,
+  ): Promise<CustomerProfileResponseDto> {
+    const code = dto.skinTypeCode.trim().toUpperCase();
+    const skinType = await this.skinTypeRepository.findOne({
+      where: { code },
+    });
+    if (!skinType) {
+      throw new BadRequestException(`Unknown Baumann skin type code: ${code}`);
+    }
+
+    const customer = await this.getOrCreateCustomerByUserId(userId);
+
+    let details = await this.customerSkinTypeDetailsRepository.findOne({
+      where: { customerId: customer.id },
+    });
+    if (!details) {
+      details = this.customerSkinTypeDetailsRepository.create({
+        customerId: customer.id,
+      });
+    }
+
+    details.skinTypeId = skinType.id;
+    details.skinType = skinType;
+    // Manual selection has no survey-derived axis scores.
+    details.oilyDryScore = null;
+    details.sensitiveResistantScore = null;
+    details.pigmentedNonPigmentedScore = null;
+    details.wrinkledTightScore = null;
+    details.assessedAt = new Date();
+
+    await this.customerSkinTypeDetailsRepository.save(details);
 
     return this.getOwnCustomerProfile(userId);
   }

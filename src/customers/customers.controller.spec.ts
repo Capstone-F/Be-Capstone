@@ -6,6 +6,7 @@ describe('CustomersController', () => {
   const customersService = {
     getOwnCustomerProfile: jest.fn(),
     updateOwnCustomerProfile: jest.fn(),
+    updateOwnSkinType: jest.fn(),
     getAllergyOptions: jest.fn(),
     getConsultationContext: jest.fn(),
   } as unknown as jest.Mocked<CustomersService>;
@@ -49,6 +50,26 @@ describe('CustomersController', () => {
     const req = { session: {} } as any;
     await expect(controller.getMe(req)).rejects.toBeInstanceOf(
       UnauthorizedException,
+    );
+  });
+
+  it('updateMySkinType should pass skin type dto', async () => {
+    customersService.updateOwnSkinType.mockResolvedValue({
+      customer: null,
+      allergies: [],
+      surveyHistory: [],
+      treatmentHistory: [],
+    } as any);
+    const req = {
+      authContext: { userId: 'u-customer', roles: ['customer'] },
+      session: {},
+    } as any;
+
+    await controller.updateMySkinType(req, { skinTypeCode: 'OSPT' });
+
+    expect(customersService.updateOwnSkinType).toHaveBeenCalledWith(
+      'u-customer',
+      { skinTypeCode: 'OSPT' },
     );
   });
 
