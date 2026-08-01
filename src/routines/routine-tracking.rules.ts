@@ -10,8 +10,8 @@ import {
 export const ROUTINE_TIMEZONE = 'Asia/Ho_Chi_Minh';
 /** Local hour (0–23) at which default period switches to EVENING. */
 export const PERIOD_SWITCH_HOUR = 14;
-/** Remaining ratio at or below this triggers LOW stock warning. */
-export const LOW_STOCK_RATIO = 0.2;
+/** Days of use left at or below this triggers LOW stock warning. */
+export const LOW_STOCK_DAYS_LEFT = 5;
 
 export type ProgressCounts = {
   completedCount: number;
@@ -261,24 +261,33 @@ export function parseMlVolume(
 export type StepStockEstimate = {
   warning: StockWarningLevel | null;
   remainingMl: number | null;
+  daysLeft: number | null;
 };
 
 /**
- * On-the-fly remaining volume for a product variant (shared across AM/PM steps).
- * Same productVariantId → same warning / remainingMl on every linked step.
+ * On-the-fly remaining volume / days for a product variant (shared across AM/PM steps).
+ * Same productVariantId → same warning / remainingMl / daysLeft on every linked step.
  */
 export function estimateVariantStock(params: {
   bottleMl: number | null;
   purchasedQty: number;
   /** Total ml used across all routine steps for this variant. */
   usedMl: number;
+  /** Planned daily ml for this variant (sum of linked steps' amountMl). */
+  dailyUsageMl: number;
   /** True when at least one step has a measurable amountMl. */
   canTrackUsage: boolean;
 }): StepStockEstimate {
-  const { bottleMl, purchasedQty, usedMl, canTrackUsage } = params;
+  const { bottleMl, purchasedQty, usedMl, dailyUsageMl, canTrackUsage } =
+    params;
 
-  if (bottleMl == null || purchasedQty <= 0 || !canTrackUsage) {
-    return { warning: null, remainingMl: null };
+  if (
+    bottleMl == null ||
+    purchasedQty <= 0 ||
+    !canTrackUsage ||
+    dailyUsageMl <= 0
+  ) {
+    return { warning: null, remainingMl: null, daysLeft: null };
   }
 
   const purchasedMl = bottleMl * purchasedQty;
@@ -286,13 +295,19 @@ export function estimateVariantStock(params: {
     0,
     Math.round((purchasedMl - usedMl) * 100) / 100,
   );
-  const remainingRatio = purchasedMl > 0 ? remainingMl / purchasedMl : 0;
 
   if (remainingMl <= 0) {
-    return { warning: StockWarningLevel.EMPTY, remainingMl: 0 };
+    return {
+      warning: StockWarningLevel.EMPTY,
+      remainingMl: 0,
+      daysLeft: 0,
+    };
   }
-  if (remainingRatio <= LOW_STOCK_RATIO) {
-    return { warning: StockWarningLevel.LOW, remainingMl };
+
+  const daysLeft = Math.floor(remainingMl / dailyUsageMl);
+
+  if (daysLeft <= LOW_STOCK_DAYS_LEFT) {
+    return { warning: StockWarningLevel.LOW, remainingMl, daysLeft };
   }
-  return { warning: null, remainingMl };
+  return { warning: null, remainingMl, daysLeft };
 }

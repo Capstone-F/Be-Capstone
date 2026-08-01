@@ -256,46 +256,90 @@ describe('routine-tracking.rules', () => {
   });
 
   describe('estimateVariantStock', () => {
-    it('returns null when volume missing or usage not trackable', () => {
+    it('returns null when volume missing, usage not trackable, or dailyUsage invalid', () => {
       expect(
         estimateVariantStock({
           bottleMl: null,
           purchasedQty: 1,
           usedMl: 0,
+          dailyUsageMl: 1,
           canTrackUsage: true,
         }),
-      ).toEqual({ warning: null, remainingMl: null });
+      ).toEqual({ warning: null, remainingMl: null, daysLeft: null });
 
       expect(
         estimateVariantStock({
           bottleMl: 30,
           purchasedQty: 1,
           usedMl: 0,
+          dailyUsageMl: 1,
           canTrackUsage: false,
         }),
-      ).toEqual({ warning: null, remainingMl: null });
+      ).toEqual({ warning: null, remainingMl: null, daysLeft: null });
+
+      expect(
+        estimateVariantStock({
+          bottleMl: 30,
+          purchasedQty: 1,
+          usedMl: 0,
+          dailyUsageMl: 0,
+          canTrackUsage: true,
+        }),
+      ).toEqual({ warning: null, remainingMl: null, daysLeft: null });
     });
 
-    it('returns no warning when plenty remaining', () => {
+    it('returns no warning when daysLeft > 5', () => {
       expect(
         estimateVariantStock({
           bottleMl: 30,
           purchasedQty: 1,
           usedMl: 5,
+          dailyUsageMl: 1,
           canTrackUsage: true,
         }),
-      ).toEqual({ warning: null, remainingMl: 25 });
-    });
+      ).toEqual({ warning: null, remainingMl: 25, daysLeft: 25 });
 
-    it('returns LOW at or below 20%', () => {
+      // 6ml left at 1ml/day → 6 days → not LOW
       expect(
         estimateVariantStock({
           bottleMl: 30,
           purchasedQty: 1,
           usedMl: 24,
+          dailyUsageMl: 1,
           canTrackUsage: true,
         }),
-      ).toEqual({ warning: StockWarningLevel.LOW, remainingMl: 6 });
+      ).toEqual({ warning: null, remainingMl: 6, daysLeft: 6 });
+    });
+
+    it('returns LOW when daysLeft ≤ 5', () => {
+      expect(
+        estimateVariantStock({
+          bottleMl: 30,
+          purchasedQty: 1,
+          usedMl: 25,
+          dailyUsageMl: 1,
+          canTrackUsage: true,
+        }),
+      ).toEqual({
+        warning: StockWarningLevel.LOW,
+        remainingMl: 5,
+        daysLeft: 5,
+      });
+
+      // Less than one full day of use left
+      expect(
+        estimateVariantStock({
+          bottleMl: 30,
+          purchasedQty: 1,
+          usedMl: 29.5,
+          dailyUsageMl: 1,
+          canTrackUsage: true,
+        }),
+      ).toEqual({
+        warning: StockWarningLevel.LOW,
+        remainingMl: 0.5,
+        daysLeft: 0,
+      });
     });
 
     it('returns EMPTY when depleted', () => {
@@ -304,30 +348,45 @@ describe('routine-tracking.rules', () => {
           bottleMl: 30,
           purchasedQty: 1,
           usedMl: 30,
+          dailyUsageMl: 1,
           canTrackUsage: true,
         }),
-      ).toEqual({ warning: StockWarningLevel.EMPTY, remainingMl: 0 });
+      ).toEqual({
+        warning: StockWarningLevel.EMPTY,
+        remainingMl: 0,
+        daysLeft: 0,
+      });
     });
 
     it('uses shared bottle remaining for AM+PM total usage', () => {
-      // 30ml bottle, AM used 10 + PM used 10 = 20 used → 10 remaining
+      // 30ml bottle, AM 1 + PM 1 = 2ml/day; 20 used → 10 remaining → 5 days → LOW
       expect(
         estimateVariantStock({
           bottleMl: 30,
           purchasedQty: 1,
           usedMl: 20,
+          dailyUsageMl: 2,
           canTrackUsage: true,
         }),
-      ).toEqual({ warning: null, remainingMl: 10 });
+      ).toEqual({
+        warning: StockWarningLevel.LOW,
+        remainingMl: 10,
+        daysLeft: 5,
+      });
 
       expect(
         estimateVariantStock({
           bottleMl: 30,
           purchasedQty: 1,
           usedMl: 25,
+          dailyUsageMl: 2,
           canTrackUsage: true,
         }),
-      ).toEqual({ warning: StockWarningLevel.LOW, remainingMl: 5 });
+      ).toEqual({
+        warning: StockWarningLevel.LOW,
+        remainingMl: 5,
+        daysLeft: 2,
+      });
     });
 
     it('clears warning after repurchase increases purchased qty', () => {
@@ -336,18 +395,24 @@ describe('routine-tracking.rules', () => {
           bottleMl: 30,
           purchasedQty: 1,
           usedMl: 30,
+          dailyUsageMl: 1,
           canTrackUsage: true,
         }),
-      ).toEqual({ warning: StockWarningLevel.EMPTY, remainingMl: 0 });
+      ).toEqual({
+        warning: StockWarningLevel.EMPTY,
+        remainingMl: 0,
+        daysLeft: 0,
+      });
 
       expect(
         estimateVariantStock({
           bottleMl: 30,
           purchasedQty: 2,
           usedMl: 30,
+          dailyUsageMl: 1,
           canTrackUsage: true,
         }),
-      ).toEqual({ warning: null, remainingMl: 30 });
+      ).toEqual({ warning: null, remainingMl: 30, daysLeft: 30 });
     });
   });
 });
