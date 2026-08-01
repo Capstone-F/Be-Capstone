@@ -34,6 +34,7 @@ describe('RoutineTrackingService', () => {
   let routineRepository: {
     find: jest.Mock;
     findOne: jest.Mock;
+    save: jest.Mock;
   };
   let stepRepository: { find: jest.Mock };
   let completionRepository: {
@@ -112,6 +113,7 @@ describe('RoutineTrackingService', () => {
     routineRepository = {
       find: jest.fn(),
       findOne: jest.fn(),
+      save: jest.fn(async (x) => x),
     };
     stepRepository = { find: jest.fn() };
     completionRepository = {
@@ -207,6 +209,41 @@ describe('RoutineTrackingService', () => {
       expect(result.routines[0].steps[0].warning).toBeNull();
       expect(result.routines[0].steps[0].remainingMl).toBeNull();
       expect(result.routines[0].steps[0].daysLeft).toBeNull();
+    });
+
+    it('completes phase routines past endDate and excludes them from today', async () => {
+      const expired = {
+        ...activeRoutine,
+        id: 'routine-exp',
+        type: RoutineType.EXPERT_PRESCRIBED,
+        treatmentPhaseId: 'phase-1',
+        treatmentPhase: { endDate: new Date('2026-07-01T00:00:00.000Z') },
+      };
+      const stillOk = {
+        ...activeRoutine,
+        id: 'routine-ok',
+        type: RoutineType.EXPERT_PRESCRIBED,
+        treatmentPhaseId: 'phase-2',
+        treatmentPhase: { endDate: new Date('2026-08-01T00:00:00.000Z') },
+      };
+      routineRepository.find
+        .mockResolvedValueOnce([expired, stillOk])
+        .mockResolvedValueOnce([stillOk]);
+
+      const result = await service.getToday(
+        'user-1',
+        RoutinePeriod.MORNING,
+        now,
+      );
+
+      expect(routineRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'routine-exp',
+          status: RoutineStatus.COMPLETED,
+        }),
+      );
+      expect(result.routines).toHaveLength(1);
+      expect(result.routines[0].id).toBe('routine-ok');
     });
 
     it('warns LOW from on-the-fly stock estimate and clears after repurchase', async () => {
@@ -589,6 +626,21 @@ describe('RoutineTrackingService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
+    it('rejects complete when phase endDate has passed', async () => {
+      routineRepository.findOne.mockResolvedValue({
+        ...activeRoutine,
+        type: RoutineType.EXPERT_PRESCRIBED,
+        treatmentPhaseId: 'phase-1',
+        treatmentPhase: { endDate: new Date('2026-07-01T00:00:00.000Z') },
+      });
+      await expect(
+        service.completeStep('user-1', 'routine-1', 'step-1', now),
+      ).rejects.toThrow(BadRequestException);
+      expect(routineRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: RoutineStatus.COMPLETED }),
+      );
+    });
+
     it('404 when step missing', async () => {
       await expect(
         service.completeStep('user-1', 'routine-1', 'missing', now),
@@ -651,6 +703,49 @@ describe('RoutineTrackingService', () => {
       await expect(
         service.createCheckIn('user-1', 'routine-1', {}, now),
       ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('cancelAiRoutine', () => {
+    it('sets owned ACTIVE AI_RECOMMENDED to COMPLETED', async () => {
+      routineRepository.findOne.mockResolvedValue({ ...activeRoutine });
+      await service.cancelAiRoutine('user-1', 'routine-1');
+      expect(routineRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'routine-1',
+          status: RoutineStatus.COMPLETED,
+        }),
+      );
+    });
+
+    it('rejects EXPERT_PRESCRIBED', async () => {
+      routineRepository.findOne.mockResolvedValue({
+        ...activeRoutine,
+        type: RoutineType.EXPERT_PRESCRIBED,
+      });
+      await expect(
+        service.cancelAiRoutine('user-1', 'routine-1'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects non-ACTIVE', async () => {
+      routineRepository.findOne.mockResolvedValue({
+        ...activeRoutine,
+        status: RoutineStatus.COMPLETED,
+      });
+      await expect(
+        service.cancelAiRoutine('user-1', 'routine-1'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('forbids other customer routine', async () => {
+      routineRepository.findOne.mockResolvedValue({
+        ...activeRoutine,
+        customerId: 'other',
+      });
+      await expect(
+        service.cancelAiRoutine('user-1', 'routine-1'),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 });

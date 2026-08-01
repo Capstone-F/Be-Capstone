@@ -353,6 +353,23 @@ GET /routines/:routineId/history/2026-07-21?period=MORNING
 
 Returns step outcomes + optional check-in snapshot for that date/period.
 
+### 5.8 Cancel AI routine ✅ Ready
+
+```http
+POST /routines/:routineId/cancel
+```
+
+Sets an owned **ACTIVE** `AI_RECOMMENDED` routine to **`COMPLETED`**. After cancel it no longer appears in `GET /routines/me/today`.
+
+| Rule                                          | Result                                               |
+| --------------------------------------------- | ---------------------------------------------------- |
+| Not owner                                     | `403`                                                |
+| Not `AI_RECOMMENDED` (e.g. expert-prescribed) | `400` — expert routines end with the treatment phase |
+| Not `ACTIVE`                                  | `400`                                                |
+| Success                                       | `200` + routine DTO with `status: COMPLETED`         |
+
+**Expert / phase routines:** completed when the previous phase is activated, or lazily when `phase.endDate` is before today (Asia/Ho_Chi_Minh) on Today / step mutations — see [treatment-plan-flow.md](treatment-plan-flow.md).
+
 ---
 
 ## 6. Endpoint checklist
@@ -360,6 +377,7 @@ Returns step outcomes + optional check-in snapshot for that date/period.
 | Method | Path                                          | Auth     | Status   | Purpose                          |
 | ------ | --------------------------------------------- | -------- | -------- | -------------------------------- |
 | GET    | `/routines/me/today`                          | Customer | ✅ Ready | Today sessions (all ACTIVE)      |
+| POST   | `/routines/:routineId/cancel`                 | Customer | ✅ Ready | Cancel AI routine → COMPLETED    |
 | POST   | `/routines/:routineId/steps/:stepId/complete` | Customer | ✅ Ready | Mark step done                   |
 | POST   | `/routines/:routineId/steps/:stepId/skip`     | Customer | ✅ Ready | Skip with reason                 |
 | POST   | `/routines/:routineId/check-ins`              | Customer | ✅ Ready | Submit skin check-in             |

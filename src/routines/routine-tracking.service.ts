@@ -25,6 +25,7 @@ import {
   EmptyRoutineReason,
   RoutinePeriod,
   RoutineStatus,
+  RoutineType,
   SessionState,
   StepCompletionStatus,
   StepSessionStatus,
@@ -98,6 +99,21 @@ export class RoutineTrackingService {
     private readonly orderRepository: Repository<Order>,
   ) {}
 
+  async cancelAiRoutine(userId: string, routineId: string): Promise<void> {
+    const customer = await this.requireCustomer(userId);
+    const routine = await this.requireOwnedRoutine(customer.id, routineId);
+    if (routine.type !== RoutineType.AI_RECOMMENDED) {
+      throw new BadRequestException(
+        'Only AI_RECOMMENDED routines can be cancelled',
+      );
+    }
+    if (routine.status !== RoutineStatus.ACTIVE) {
+      throw new BadRequestException('Routine is not ACTIVE');
+    }
+    routine.status = RoutineStatus.COMPLETED;
+    await this.routineRepository.save(routine);
+  }
+
   async getToday(
     userId: string,
     period?: RoutinePeriod,
@@ -106,6 +122,8 @@ export class RoutineTrackingService {
     const customer = await this.requireCustomer(userId);
     const resolvedPeriod = period ?? defaultPeriodForNow(now);
     const today = getVnToday(now);
+
+    await this.completeExpiredPhaseRoutines(customer.id, now);
 
     const routines = await this.routineRepository.find({
       where: { customerId: customer.id, status: RoutineStatus.ACTIVE },
@@ -238,6 +256,8 @@ export class RoutineTrackingService {
     const routine = await this.requireOwnedActiveRoutine(
       customer.id,
       routineId,
+      [],
+      now,
     );
     const today = getVnToday(now);
     const date = dto.date ?? today;
@@ -531,6 +551,7 @@ export class RoutineTrackingService {
       customer.id,
       routineId,
       [...ROUTINE_STEP_RELATIONS],
+      now,
     );
     const step = (routine.steps ?? []).find((s) => s.id === stepId);
     if (!step) {
@@ -888,15 +909,72 @@ export class RoutineTrackingService {
     customerId: string,
     routineId: string,
     relations: string[] = [],
+    now: Date = new Date(),
   ): Promise<Routine> {
     const routine = await this.requireOwnedRoutine(
       customerId,
       routineId,
       relations,
     );
+    await this.expireRoutineIfPhaseEnded(routine, now);
     if (routine.status !== RoutineStatus.ACTIVE) {
       throw new BadRequestException('Routine is not ACTIVE');
     }
     return routine;
+  }
+
+  /**
+   * Completes ACTIVE expert routines whose linked phase endDate is before today
+   * (Asia/Ho_Chi_Minh). Phases without endDate are not calendar-expired.
+   */
+  private async completeExpiredPhaseRoutines(
+    customerId: string,
+    now: Date = new Date(),
+  ): Promise<void> {
+    const today = getVnToday(now);
+    const routines = await this.routineRepository.find({
+      where: { customerId, status: RoutineStatus.ACTIVE },
+      relations: ['treatmentPhase'],
+    });
+    for (const routine of routines) {
+      if (this.shouldCompleteForPhaseEndDate(routine, today)) {
+        routine.status = RoutineStatus.COMPLETED;
+        await this.routineRepository.save(routine);
+      }
+    }
+  }
+
+  private async expireRoutineIfPhaseEnded(
+    routine: Routine,
+    now: Date = new Date(),
+  ): Promise<void> {
+    if (routine.status !== RoutineStatus.ACTIVE || !routine.treatmentPhaseId) {
+      return;
+    }
+    let phase = routine.treatmentPhase;
+    if (!phase) {
+      const loaded = await this.routineRepository.findOne({
+        where: { id: routine.id },
+        relations: ['treatmentPhase'],
+      });
+      phase = loaded?.treatmentPhase ?? null;
+      if (loaded) {
+        routine.treatmentPhase = phase;
+      }
+    }
+    const today = getVnToday(now);
+    if (this.shouldCompleteForPhaseEndDate(routine, today)) {
+      routine.status = RoutineStatus.COMPLETED;
+      await this.routineRepository.save(routine);
+    }
+  }
+
+  private shouldCompleteForPhaseEndDate(
+    routine: Routine,
+    today: string,
+  ): boolean {
+    const endDate = routine.treatmentPhase?.endDate;
+    if (!endDate) return false;
+    return toDateString(endDate) < today;
   }
 }

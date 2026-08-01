@@ -149,7 +149,7 @@ npm run migration:run
 7. **Edit unsubmits:** any unpaid `DRAFT` phase add/update/delete clears `submittedAt` (and `totalPriceVnd`). Expert must submit again before the customer can pay.
 8. **Dates:** treatment `startDate` / `endDate` required before submit and pay (follow-up window).
 9. **Complete consultation after handoff:** prefer completing the booking once the plan is paid (and ideally first phase activated / customer understands next steps). Completing earlier is allowed by the booking API, but product UX should keep the session open through plan pay when possible.
-10. **One ACTIVE phase:** activating auto-completes the previous ACTIVE phase; save DRAFT routines first.
+10. **One ACTIVE phase:** activating auto-completes the previous ACTIVE phase **and** its ACTIVE routines (`COMPLETED`); save DRAFT routines first. Phase routines also complete when `endDate` is before today (lazy on Today / tracking writes).
 11. **Chart products used:** from routine **COMPLETED** step completions only (not prescribed-unused).
 12. **Progress photos:** upload via `POST /uploads/images`, then send returned `url` as `photoUrl` (create or patch event). See [uploads.md](uploads.md).
 13. **Cancel:** only treatment `ACTIVE` / `PAUSED`. Refund = sum of **PENDING** phase fees; COMPLETED + ACTIVE fees kept.
@@ -302,8 +302,10 @@ All require treatment `ACTIVE` + paid, assigned expert.
 **Activate rules:**
 
 - Only one phase `ACTIVE` at a time (previous ACTIVE → `COMPLETED`).
-- If routines exist, none may remain `DRAFT` (save first).
+- Previous phase’s **ACTIVE** routines → **`COMPLETED`** in the same transaction (so they leave Care Plan / Today).
+- If routines exist on the phase being activated, none may remain `DRAFT` (save first).
 - Phase may have **no routine** if it has dates and/or `notes`.
+- **Calendar end:** if a phase has `endDate` and that date is before today (`Asia/Ho_Chi_Minh`), its ACTIVE routines are completed lazily on `GET /routines/me/today` and on complete/skip/check-in (no cron). Phases without `endDate` only end routines via the next activate (or treatment cancel → `PAUSED`).
 
 ### 6.1 Complete the consultation ✅ Ready
 
@@ -476,6 +478,9 @@ DRAFT (editing, submittedAt=null)
 
 ```
 PENDING ──(activate)──▶ ACTIVE ──(next phase activate)──▶ COMPLETED
+                              │
+                              └── linked ACTIVE routines → COMPLETED
+                                  (also lazy when phase endDate < today VN)
 ```
 
 | Status      | On mid-plan cancel        |

@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiBadRequestResponse,
   ApiConflictResponse,
   ApiCookieAuth,
   ApiCreatedResponse,
@@ -102,7 +103,8 @@ export class RoutinesController {
       'Timezone: Asia/Ho_Chi_Minh (UTC+7). Period defaults by local hour (<14 → MORNING, else EVENING). ' +
       'Returns all ACTIVE routines for the period. Empty → sessionState EMPTY + reason NO_ACTIVE_ROUTINE. ' +
       'Per-routine sessionState: NOT_STARTED (0 acted), IN_PROGRESS (some acted), COMPLETED (every step COMPLETED or SKIPPED). ' +
-      'completionRate = completedCount/totalCount (skips do not inflate %).',
+      'completionRate = completedCount/totalCount (skips do not inflate %). ' +
+      'ACTIVE expert routines whose phase endDate is before today are completed lazily before the response.',
   })
   @ApiOkResponse({ type: TodayRoutinesResponseDto })
   getToday(
@@ -113,6 +115,31 @@ export class RoutinesController {
       this.requireUserId(req),
       query.period,
     );
+  }
+
+  @Post(':routineId/cancel')
+  @Roles(Role.Customer)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Cancel an AI_RECOMMENDED routine',
+    description:
+      'Sets an owned ACTIVE AI_RECOMMENDED routine to COMPLETED. ' +
+      'EXPERT_PRESCRIBED routines cannot be cancelled here — they end when the treatment phase ends. ' +
+      'After cancel, the routine no longer appears in GET /routines/me/today.',
+  })
+  @ApiOkResponse({ type: RoutineResponseDto })
+  @ApiBadRequestResponse({
+    description: 'Not AI_RECOMMENDED, or routine is not ACTIVE',
+  })
+  @ApiForbiddenResponse({ description: 'Routine belongs to another customer' })
+  @ApiNotFoundResponse({ description: 'Routine not found' })
+  async cancelAiRoutine(
+    @Req() req: Request,
+    @Param('routineId', ParseUUIDPipe) routineId: string,
+  ): Promise<RoutineResponseDto> {
+    const userId = this.requireUserId(req);
+    await this.routineTrackingService.cancelAiRoutine(userId, routineId);
+    return this.routineGeneratorService.getMyRoutineById(userId, routineId);
   }
 
   @Post(':routineId/steps/:stepId/complete')
