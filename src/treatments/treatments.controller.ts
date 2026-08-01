@@ -103,7 +103,7 @@ export class TreatmentsController {
   @ApiOperation({
     summary: 'Treatment chart (hồ sơ bệnh án) while plan is in progress',
     description:
-      'Aggregates progress photos, products used from routine completions, in-person sessions, and consultation results.',
+      'Aggregates progress photos, products used from routine completions, in-person sessions, and consultation results. Readable by owning customer, assigned expert, or an expert with a CONFIRMED/IN_PROGRESS booking for the same customer (read-only).',
   })
   @ApiOkResponse({ type: TreatmentChartResponseDto })
   getChart(@Req() req: Request, @Param('id', ParseUUIDPipe) id: string) {
@@ -122,7 +122,11 @@ export class TreatmentsController {
 
   @Get(':id/events')
   @Roles(Role.Customer, Role.Expert)
-  @ApiOperation({ summary: 'List treatment timeline events' })
+  @ApiOperation({
+    summary: 'List treatment timeline events',
+    description:
+      'Readable by owning customer, assigned expert, or an expert with a CONFIRMED/IN_PROGRESS booking for the same customer.',
+  })
   @ApiQuery({ name: 'type', required: false, enum: TreatmentEventType })
   @ApiOkResponse({ type: [TreatmentEventResponseDto] })
   listEvents(
@@ -150,7 +154,7 @@ export class TreatmentsController {
   @ApiOperation({
     summary: 'Add a treatment event (e.g. progress photo)',
     description:
-      'PROGRESS_PHOTO requires photoUrl. Upload via POST /uploads/images first, then pass the returned URL.',
+      'PROGRESS_PHOTO requires photoUrl. Upload via POST /uploads/images first, then pass the returned URL. Only owning customer or assigned expert may create events.',
   })
   @ApiCreatedResponse({ type: TreatmentEventResponseDto })
   createEvent(
@@ -178,7 +182,7 @@ export class TreatmentsController {
   @ApiOperation({
     summary: 'Update PROGRESS_PHOTO event photo URL',
     description:
-      'Replaces photoUrl on a PROGRESS_PHOTO event. Upload via POST /uploads/images first.',
+      'Replaces photoUrl on a PROGRESS_PHOTO event. Upload via POST /uploads/images first. Only owning customer or assigned expert may update events.',
   })
   @ApiOkResponse({ type: TreatmentEventResponseDto })
   updateEventPhoto(
@@ -234,7 +238,11 @@ export class TreatmentsController {
 
   @Get(':id')
   @Roles(Role.Customer, Role.Expert)
-  @ApiOperation({ summary: 'Get treatment detail' })
+  @ApiOperation({
+    summary: 'Get treatment detail',
+    description:
+      'Readable by owning customer, assigned expert, or an expert with a CONFIRMED/IN_PROGRESS booking for the same customer (read-only).',
+  })
   @ApiOkResponse({ type: TreatmentResponseDto })
   getOne(@Req() req: Request, @Param('id', ParseUUIDPipe) id: string) {
     const auth = getAuthContext(req);

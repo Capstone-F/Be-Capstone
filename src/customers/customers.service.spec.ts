@@ -1,9 +1,15 @@
-import { BadRequestException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { ConsultationRequest } from '../consultations/consultation-request.entity';
+import { ConsultationStatus } from '../consultations/enums';
 import { CustomerSurvey } from '../survey/customer-survey.entity';
 import { Label } from '../survey/label.entity';
 import { LabelCategory } from '../survey/label-category.entity';
+import { TreatmentPhaseStatus, TreatmentStatus } from '../treatments/enums';
 import { Treatment } from '../treatments/treatment.entity';
 import { CustomerAllergy } from '../users/customer-allergy.entity';
 import { Customer } from '../users/customer.entity';
@@ -19,6 +25,7 @@ const makeRepo = <T extends object>(overrides: Partial<Repository<T>> = {}) =>
     create: jest.fn(),
     save: jest.fn(),
     delete: jest.fn(),
+    exists: jest.fn(),
     ...overrides,
   }) as unknown as Repository<T>;
 
@@ -117,6 +124,7 @@ describe('CustomersService', () => {
         customer: null,
         allergies: [],
         surveyHistory: [],
+        treatmentHistory: [],
       });
     });
 
@@ -377,6 +385,192 @@ describe('CustomersService', () => {
           allergyLabelCodes: ['UNKNOWN_ALLERGEN'],
         }),
       ).rejects.toThrow('Invalid allergy label codes: UNKNOWN_ALLERGEN');
+    });
+  });
+
+  describe('getConsultationContext', () => {
+    const expert = { id: 'expert-b', userId: 'u-expert-b' } as Expert;
+    const customer = {
+      id: 'customer-1',
+      userId: 'u-customer',
+      phone: null,
+      avatarUrl: null,
+      dateOfBirth: null,
+      gender: Gender.FEMALE,
+      skinTypeDetails: null,
+    } as Customer;
+    const acceptedConsultation = {
+      id: 'booking-1',
+      expertId: 'expert-b',
+      customerId: 'customer-1',
+      status: ConsultationStatus.CONFIRMED,
+    } as ConsultationRequest;
+
+    it('returns treatmentHistory including other experts COMPLETED/CANCELLED', async () => {
+      jest.spyOn(expertRepository, 'findOne').mockResolvedValue(expert);
+      jest
+        .spyOn(consultationRepository, 'findOne')
+        .mockResolvedValue(acceptedConsultation);
+      jest.spyOn(customerRepository, 'findOne').mockResolvedValue(customer);
+      jest.spyOn(customerAllergyRepository, 'find').mockResolvedValue([]);
+      jest.spyOn(customerSurveyRepository, 'find').mockResolvedValue([]);
+      jest.spyOn(treatmentRepository, 'find').mockResolvedValue([
+        {
+          id: 't-completed',
+          title: 'Plan A',
+          status: TreatmentStatus.COMPLETED,
+          startDate: new Date('2026-01-01'),
+          endDate: new Date('2026-03-01'),
+          expertId: 'expert-a',
+          clinicId: 'clinic-1',
+          clinic: { id: 'clinic-1', name: 'Skin Clinic' },
+          expert: { id: 'expert-a', user: { name: 'Expert A' } },
+          phases: [
+            {
+              id: 'phase-1',
+              phaseOrder: 0,
+              title: 'Phase 1',
+              status: TreatmentPhaseStatus.COMPLETED,
+              noteByExpert: 'Old note',
+            },
+          ],
+          createdAt: new Date('2026-01-01'),
+          updatedAt: new Date('2026-03-01'),
+        },
+        {
+          id: 't-cancelled',
+          title: 'Plan C',
+          status: TreatmentStatus.CANCELLED,
+          startDate: null,
+          endDate: null,
+          expertId: 'expert-c',
+          clinicId: null,
+          clinic: null,
+          expert: { id: 'expert-c', user: { name: 'Expert C' } },
+          phases: [
+            {
+              id: 'phase-c',
+              phaseOrder: 0,
+              title: 'Active phase',
+              status: TreatmentPhaseStatus.ACTIVE,
+              noteByExpert: 'Why cancelled',
+            },
+          ],
+          createdAt: new Date('2026-04-01'),
+          updatedAt: new Date('2026-05-01'),
+        },
+      ] as unknown as Treatment[]);
+
+      const result = await service.getConsultationContext(
+        'u-expert-b',
+        'customer-1',
+        'booking-1',
+      );
+
+      expect(result.treatmentHistory).toHaveLength(2);
+      expect(result.treatmentHistory[0]).toEqual(
+        expect.objectContaining({
+          treatmentId: 't-completed',
+          status: TreatmentStatus.COMPLETED,
+          expert: { id: 'expert-a', name: 'Expert A' },
+          clinic: { id: 'clinic-1', name: 'Skin Clinic' },
+          currentPhase: null,
+          phaseCount: 1,
+        }),
+      );
+      expect(result.treatmentHistory[1]).toEqual(
+        expect.objectContaining({
+          treatmentId: 't-cancelled',
+          status: TreatmentStatus.CANCELLED,
+          expert: { id: 'expert-c', name: 'Expert C' },
+          clinic: null,
+          currentPhase: expect.objectContaining({
+            id: 'phase-c',
+            status: TreatmentPhaseStatus.ACTIVE,
+            noteByExpert: 'Why cancelled',
+          }),
+        }),
+      );
+    });
+
+    it('returns empty treatmentHistory when customer has no non-draft treatments', async () => {
+      jest.spyOn(expertRepository, 'findOne').mockResolvedValue(expert);
+      jest
+        .spyOn(consultationRepository, 'findOne')
+        .mockResolvedValue(acceptedConsultation);
+      jest.spyOn(customerRepository, 'findOne').mockResolvedValue(customer);
+      jest.spyOn(customerAllergyRepository, 'find').mockResolvedValue([]);
+      jest.spyOn(customerSurveyRepository, 'find').mockResolvedValue([]);
+      jest.spyOn(treatmentRepository, 'find').mockResolvedValue([]);
+
+      const result = await service.getConsultationContext(
+        'u-expert-b',
+        'customer-1',
+        'booking-1',
+      );
+
+      expect(result.treatmentHistory).toEqual([]);
+    });
+
+    it('rejects PENDING consultation', async () => {
+      jest.spyOn(expertRepository, 'findOne').mockResolvedValue(expert);
+      jest.spyOn(consultationRepository, 'findOne').mockResolvedValue({
+        ...acceptedConsultation,
+        status: ConsultationStatus.PENDING,
+      } as ConsultationRequest);
+
+      await expect(
+        service.getConsultationContext('u-expert-b', 'customer-1', 'booking-1'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects CANCELLED consultation', async () => {
+      jest.spyOn(expertRepository, 'findOne').mockResolvedValue(expert);
+      jest.spyOn(consultationRepository, 'findOne').mockResolvedValue({
+        ...acceptedConsultation,
+        status: ConsultationStatus.CANCELLED,
+      } as ConsultationRequest);
+
+      await expect(
+        service.getConsultationContext('u-expert-b', 'customer-1', 'booking-1'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects when consultation is assigned to another expert', async () => {
+      jest.spyOn(expertRepository, 'findOne').mockResolvedValue(expert);
+      jest.spyOn(consultationRepository, 'findOne').mockResolvedValue({
+        ...acceptedConsultation,
+        expertId: 'expert-other',
+      } as ConsultationRequest);
+
+      await expect(
+        service.getConsultationContext('u-expert-b', 'customer-1', 'booking-1'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects when consultation customer mismatches path customerId', async () => {
+      jest.spyOn(expertRepository, 'findOne').mockResolvedValue(expert);
+      jest.spyOn(consultationRepository, 'findOne').mockResolvedValue({
+        ...acceptedConsultation,
+        customerId: 'customer-other',
+      } as ConsultationRequest);
+
+      await expect(
+        service.getConsultationContext('u-expert-b', 'customer-1', 'booking-1'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('returns 404 when consultation is missing', async () => {
+      jest.spyOn(expertRepository, 'findOne').mockResolvedValue(expert);
+      jest.spyOn(consultationRepository, 'findOne').mockResolvedValue(null);
+
+      await expect(
+        service.getConsultationContext(
+          'u-expert-b',
+          'customer-1',
+          'booking-missing',
+        ),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });

@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ConsultationStatus } from '../consultations/enums';
 import { StepCompletionStatus } from '../routines/enums';
 import {
@@ -633,5 +633,195 @@ describe('TreatmentsService updateEventPhoto', () => {
         'https://placehold.co/400',
       ),
     ).rejects.toThrow(BadRequestException);
+  });
+});
+
+describe('TreatmentsService cross-expert read access', () => {
+  const treatmentOwnedByA = {
+    id: 't-a',
+    expertId: 'expert-a',
+    customerId: 'cust-1',
+    status: TreatmentStatus.ACTIVE,
+    title: 'Plan A',
+    description: null,
+    clinicId: null,
+    startDate: null,
+    endDate: null,
+    totalPriceVnd: null,
+    paidAt: new Date(),
+    paidTransactionId: null,
+    sourceConsultationId: null,
+    cancelledAt: null,
+    cancelReason: null,
+    cancelledBy: null,
+    refundTransactionId: null,
+    refundedAmountVnd: null,
+    phases: [
+      {
+        id: 'phase-1',
+        phaseType: 'ACTIVE_TREATMENT',
+        phaseOrder: 0,
+        title: 'Phase 1',
+        status: TreatmentPhaseStatus.ACTIVE,
+        noteByExpert: 'From Expert A',
+        startDate: null,
+        endDate: null,
+        phaseIngredients: [],
+        phaseProducts: [],
+        routines: [],
+      },
+    ],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  function buildService(deps: {
+    treatmentRepo?: Record<string, unknown>;
+    eventRepo?: Record<string, unknown>;
+    expertRepo?: Record<string, unknown>;
+    customerRepo?: Record<string, unknown>;
+    consultationRepo?: Record<string, unknown>;
+    completionRepo?: Record<string, unknown>;
+  }) {
+    return new TreatmentsService(
+      (deps.treatmentRepo ?? {
+        findOne: jest.fn().mockResolvedValue(treatmentOwnedByA),
+      }) as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      (deps.eventRepo ?? { find: jest.fn().mockResolvedValue([]) }) as never,
+      (deps.expertRepo ?? {
+        findOne: jest.fn().mockResolvedValue({ id: 'expert-b', userId: 'u-b' }),
+      }) as never,
+      (deps.customerRepo ?? {}) as never,
+      (deps.consultationRepo ?? {
+        exists: jest.fn().mockResolvedValue(true),
+        find: jest.fn().mockResolvedValue([]),
+        findOne: jest.fn(),
+      }) as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { find: jest.fn().mockResolvedValue([]) } as never,
+      {} as never,
+      (deps.completionRepo ?? {
+        find: jest.fn().mockResolvedValue([]),
+      }) as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+  }
+
+  it('allows Expert B with CONFIRMED booking to getChart for Expert A treatment', async () => {
+    const consultationRepo = {
+      exists: jest.fn().mockResolvedValue(true),
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn(),
+    };
+    const service = buildService({ consultationRepo });
+
+    const chart = await service.getChart(
+      'u-b',
+      { isExpert: true, isCustomer: false },
+      't-a',
+    );
+
+    expect(chart.treatmentId).toBe('t-a');
+    expect(chart.phases[0].noteByExpert).toBe('From Expert A');
+    expect(consultationRepo.exists).toHaveBeenCalled();
+  });
+
+  it('allows Expert B with accepted booking to getTreatmentForUser and listEvents', async () => {
+    const service = buildService({
+      consultationRepo: {
+        exists: jest.fn().mockResolvedValue(true),
+        find: jest.fn().mockResolvedValue([]),
+        findOne: jest.fn(),
+      },
+      eventRepo: {
+        find: jest.fn().mockResolvedValue([
+          {
+            id: 'e-1',
+            treatmentId: 't-a',
+            type: TreatmentEventType.PROGRESS_PHOTO,
+            title: 'Photo',
+            note: null,
+            photoUrl: 'https://cdn.example/p.jpg',
+            occurredAt: new Date(),
+            createdByExpertId: 'expert-a',
+            createdAt: new Date(),
+          },
+        ]),
+      },
+    });
+
+    const detail = await service.getTreatmentForUser('u-b', 't-a', {
+      isExpert: true,
+      isCustomer: false,
+    });
+    const events = await service.listEvents(
+      'u-b',
+      { isExpert: true, isCustomer: false },
+      't-a',
+    );
+
+    expect(detail.id).toBe('t-a');
+    expect(events).toHaveLength(1);
+  });
+
+  it('forbids Expert B without accepted booking from viewing chart', async () => {
+    const service = buildService({
+      consultationRepo: {
+        exists: jest.fn().mockResolvedValue(false),
+        find: jest.fn().mockResolvedValue([]),
+        findOne: jest.fn(),
+      },
+    });
+
+    await expect(
+      service.getChart('u-b', { isExpert: true, isCustomer: false }, 't-a'),
+    ).rejects.toThrow(/do not have access/);
+  });
+
+  it('forbids Expert B from creating events on Expert A treatment', async () => {
+    const service = buildService({
+      consultationRepo: {
+        exists: jest.fn().mockResolvedValue(true),
+      },
+    });
+
+    await expect(
+      service.createEvent('u-b', { isExpert: true, isCustomer: false }, 't-a', {
+        type: TreatmentEventType.PROGRESS_PHOTO,
+        title: 'Hack',
+        photoUrl: 'https://cdn.example/x.jpg',
+      }),
+    ).rejects.toThrow(/do not have permission to modify events/);
+  });
+
+  it('forbids Expert B from activating a phase on Expert A treatment', async () => {
+    const service = buildService({
+      expertRepo: {
+        findOne: jest.fn().mockResolvedValue({ id: 'expert-b', userId: 'u-b' }),
+      },
+      treatmentRepo: {
+        findOne: jest.fn().mockResolvedValue(treatmentOwnedByA),
+      },
+    });
+    (
+      service as unknown as { loadPhase: (id: string) => Promise<unknown> }
+    ).loadPhase = async () => ({
+      id: 'phase-1',
+      treatmentId: 't-a',
+      treatment: treatmentOwnedByA,
+    });
+
+    await expect(service.activatePhase('u-b', 'phase-1')).rejects.toThrow(
+      ForbiddenException,
+    );
   });
 });

@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { TreatmentPhaseStatus, TreatmentStatus } from '../../treatments/enums';
 import { Gender } from '../../users/gender.enum';
 
 export class SkinTypeSummaryDto {
@@ -102,6 +103,77 @@ export class SurveyHistoryItemDto {
   answers: SurveyAnswerDto[];
 }
 
+export class TreatmentHistoryExpertDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  name: string | null;
+}
+
+export class TreatmentHistoryClinicDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty()
+  name: string;
+}
+
+export class TreatmentHistoryCurrentPhaseDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty()
+  phaseOrder: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  title: string | null;
+
+  @ApiProperty({ enum: TreatmentPhaseStatus })
+  status: TreatmentPhaseStatus;
+
+  @ApiPropertyOptional({ nullable: true })
+  noteByExpert: string | null;
+}
+
+export class TreatmentHistoryItemDto {
+  @ApiProperty()
+  treatmentId: string;
+
+  @ApiProperty()
+  title: string;
+
+  @ApiProperty({ enum: TreatmentStatus })
+  status: TreatmentStatus;
+
+  @ApiPropertyOptional({ nullable: true })
+  startDate: Date | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  endDate: Date | null;
+
+  @ApiProperty({ type: TreatmentHistoryExpertDto })
+  expert: TreatmentHistoryExpertDto;
+
+  @ApiPropertyOptional({ type: TreatmentHistoryClinicDto, nullable: true })
+  clinic: TreatmentHistoryClinicDto | null;
+
+  @ApiPropertyOptional({
+    type: TreatmentHistoryCurrentPhaseDto,
+    nullable: true,
+  })
+  currentPhase: TreatmentHistoryCurrentPhaseDto | null;
+
+  @ApiProperty()
+  phaseCount: number;
+
+  @ApiProperty()
+  createdAt: Date;
+
+  @ApiProperty()
+  updatedAt: Date;
+}
+
 export class CustomerProfileResponseDto {
   @ApiPropertyOptional({ type: CustomerDetailsDto, nullable: true })
   customer: CustomerDetailsDto | null;
@@ -111,4 +183,7 @@ export class CustomerProfileResponseDto {
 
   @ApiProperty({ type: [SurveyHistoryItemDto] })
   surveyHistory: SurveyHistoryItemDto[];
+
+  @ApiProperty({ type: [TreatmentHistoryItemDto] })
+  treatmentHistory: TreatmentHistoryItemDto[];
 }

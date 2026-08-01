@@ -159,7 +159,7 @@ Relevant migration for consultation money fields: `1784500000000-ConsultationTre
 6. **Session order:** expert must `start` before `complete`. Customer feedback only after `COMPLETED`.
 7. **One feedback:** one rating per booking; duplicate → `409`.
 8. **Perspective:** when a user has both roles, pass `as=customer` or `as=expert` on `GET /bookings/me`.
-9. **Expert prep:** use `GET /customers/:id/consultation-context` only when the expert already shares a booking or treatment with that customer.
+9. **Expert prep:** use `GET /customers/:id/consultation-context?consultationId=<bookingId>` only when the booking is assigned to the current expert and status is `CONFIRMED` or `IN_PROGRESS`. Response includes `treatmentHistory` summaries (not full charts). Open a past plan via `GET /treatments/:id/chart` (read-only for non-assigned experts).
 10. **Realtime:** only the booking’s customer or expert may fetch video/chat tokens. Use `userID` / `peerUserID` from the BE response as Zego user IDs (app `User.id` UUIDs). Do **not** invent room IDs — video uses `roomID` from the video-token response. Chat has no shared room; message only `peerUserID`. See [realtime-communication-flow.md](realtime-communication-flow.md).
 
 ---
@@ -462,10 +462,10 @@ GET /experts/me
 | ------ | ------------------------------------- | ------ | -------- |
 | GET    | `/customers/:id/consultation-context` | Expert | ✅ Ready |
 
-Requires a shared booking **or** treatment with that customer. Returns profile + allergies + survey history for session prep.
+Requires query `consultationId` = booking id. Booking must be assigned to the current expert, match path `customerId`, and be `CONFIRMED` or `IN_PROGRESS`. Returns profile + allergies + survey history + `treatmentHistory` summaries (exclude `DRAFT`). Full chart remains `GET /treatments/:id/chart` (read-only for consulting expert).
 
 ```http
-GET /customers/<customerId>/consultation-context
+GET /customers/<customerId>/consultation-context?consultationId=<bookingId>
 ```
 
 ---

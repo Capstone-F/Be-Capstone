@@ -969,7 +969,7 @@ export class TreatmentsService {
     dto: CreateTreatmentEventDto,
   ): Promise<TreatmentEventResponseDto> {
     const treatment = await this.loadTreatment(treatmentId);
-    await this.assertCanView(userId, treatment, roles);
+    await this.assertCanMutateEvents(userId, treatment, roles);
 
     if (
       dto.type === TreatmentEventType.PROGRESS_PHOTO &&
@@ -1011,7 +1011,7 @@ export class TreatmentsService {
     photoUrl: string,
   ): Promise<TreatmentEventResponseDto> {
     const treatment = await this.loadTreatment(treatmentId);
-    await this.assertCanView(userId, treatment, roles);
+    await this.assertCanMutateEvents(userId, treatment, roles);
 
     const event = await this.eventRepo.findOne({
       where: { id: eventId, treatmentId },
@@ -1325,12 +1325,44 @@ export class TreatmentsService {
     if (roles.isExpert) {
       const expert = await this.expertRepo.findOne({ where: { userId } });
       if (expert && treatment.expertId === expert.id) return;
+      if (expert) {
+        const hasAcceptedBooking = await this.consultationRepo.exists({
+          where: {
+            expertId: expert.id,
+            customerId: treatment.customerId,
+            status: In([
+              ConsultationStatus.CONFIRMED,
+              ConsultationStatus.IN_PROGRESS,
+            ]),
+          },
+        });
+        if (hasAcceptedBooking) return;
+      }
     }
     if (roles.isCustomer) {
       const customer = await this.customerRepo.findOne({ where: { userId } });
       if (customer && treatment.customerId === customer.id) return;
     }
     throw new ForbiddenException('You do not have access to this treatment');
+  }
+
+  /** Assigned expert or owning customer only — not consultation read-only viewers. */
+  private async assertCanMutateEvents(
+    userId: string,
+    treatment: Treatment,
+    roles: { isExpert: boolean; isCustomer: boolean },
+  ): Promise<void> {
+    if (roles.isExpert) {
+      const expert = await this.expertRepo.findOne({ where: { userId } });
+      if (expert && treatment.expertId === expert.id) return;
+    }
+    if (roles.isCustomer) {
+      const customer = await this.customerRepo.findOne({ where: { userId } });
+      if (customer && treatment.customerId === customer.id) return;
+    }
+    throw new ForbiddenException(
+      'You do not have permission to modify events on this treatment',
+    );
   }
 
   private async getTreatmentDetail(

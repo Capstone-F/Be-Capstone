@@ -7,6 +7,7 @@ describe('CustomersController', () => {
     getOwnCustomerProfile: jest.fn(),
     updateOwnCustomerProfile: jest.fn(),
     getAllergyOptions: jest.fn(),
+    getConsultationContext: jest.fn(),
   } as unknown as jest.Mocked<CustomersService>;
 
   const controller = new CustomersController(customersService);
@@ -48,6 +49,27 @@ describe('CustomersController', () => {
     const req = { session: {} } as any;
     await expect(controller.getMe(req)).rejects.toBeInstanceOf(
       UnauthorizedException,
+    );
+  });
+
+  it('getConsultationContext should pass consultationId query', async () => {
+    customersService.getConsultationContext.mockResolvedValue({
+      customer: null,
+      allergies: [],
+      surveyHistory: [],
+      treatmentHistory: [],
+    } as any);
+    const req = {
+      authContext: { userId: 'u-expert', roles: ['expert'] },
+      session: {},
+    } as any;
+
+    await controller.getConsultationContext(req, 'customer-1', 'booking-1');
+
+    expect(customersService.getConsultationContext).toHaveBeenCalledWith(
+      'u-expert',
+      'customer-1',
+      'booking-1',
     );
   });
 });
