@@ -5,6 +5,12 @@ export class RoutineStepProductVariantDto {
   @ApiProperty()
   id!: string;
 
+  @ApiProperty({
+    description:
+      'Parent product id — use with GET /products/:id for detail / buy-again',
+  })
+  productId!: string;
+
   @ApiProperty({ description: 'Product display name' })
   name!: string;
 

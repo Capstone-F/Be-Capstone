@@ -73,3 +73,9 @@ export enum DayHistoryStatus {
 export enum EmptyRoutineReason {
   NO_ACTIVE_ROUTINE = 'NO_ACTIVE_ROUTINE',
 }
+
+/** On-the-fly bottle estimate for Care Plan / Today steps. */
+export enum StockWarningLevel {
+  LOW = 'LOW',
+  EMPTY = 'EMPTY',
+}

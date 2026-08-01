@@ -10,6 +10,7 @@ import {
   SideEffectType,
   SkipReason,
   StepSessionStatus,
+  StockWarningLevel,
 } from '../enums';
 import { RoutineStepProductVariantDto } from './routine-response.dto';
 
@@ -60,6 +61,21 @@ export class TodayStepDto {
 
   @ApiPropertyOptional({ type: RoutineStepProductVariantDto, nullable: true })
   productVariant!: RoutineStepProductVariantDto | null;
+
+  @ApiPropertyOptional({
+    enum: StockWarningLevel,
+    nullable: true,
+    description:
+      'LOW when remaining ≤20% of purchased share; EMPTY when depleted. null when estimate unavailable or stock is fine.',
+  })
+  warning!: StockWarningLevel | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Estimated remaining ml for this step share; null when estimate unavailable',
+  })
+  remainingMl!: number | null;
 
   @ApiProperty({ enum: StepSessionStatus })
   status!: StepSessionStatus;

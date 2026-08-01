@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { Order } from '../commerce/order.entity';
+import { OrderStatus } from '../commerce/enums';
 import { Customer } from '../users/customer.entity';
 import {
   CheckInMood,
@@ -18,6 +20,7 @@ import {
   SkipReason,
   StepCompletionStatus,
   StepSessionStatus,
+  StockWarningLevel,
 } from './enums';
 import { RoutineCheckIn } from './routine-check-in.entity';
 import { RoutineSideEffect } from './routine-side-effect.entity';
@@ -48,6 +51,7 @@ describe('RoutineTrackingService', () => {
   };
   let sideEffectRepository: { create: jest.Mock; save: jest.Mock };
   let customerRepository: { findOne: jest.Mock };
+  let orderRepository: { find: jest.Mock };
 
   const now = new Date('2026-07-22T03:00:00.000Z'); // 10:00 VN → MORNING
   const today = '2026-07-22';
@@ -86,6 +90,7 @@ describe('RoutineTrackingService', () => {
     status: RoutineStatus.ACTIVE,
     title: 'AM/PM',
     description: null,
+    sourceOrderId: null as string | null,
     createdAt: new Date('2026-07-01T00:00:00.000Z'),
     steps: [
       ...morningSteps,
@@ -129,6 +134,9 @@ describe('RoutineTrackingService', () => {
     customerRepository = {
       findOne: jest.fn().mockResolvedValue(customer),
     };
+    orderRepository = {
+      find: jest.fn().mockResolvedValue([]),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -153,6 +161,10 @@ describe('RoutineTrackingService', () => {
         {
           provide: getRepositoryToken(Customer),
           useValue: customerRepository,
+        },
+        {
+          provide: getRepositoryToken(Order),
+          useValue: orderRepository,
         },
       ],
     }).compile();
@@ -192,6 +204,169 @@ describe('RoutineTrackingService', () => {
           (s) => s.status === StepSessionStatus.PENDING,
         ),
       ).toBe(true);
+      expect(result.routines[0].steps[0].warning).toBeNull();
+      expect(result.routines[0].steps[0].remainingMl).toBeNull();
+    });
+
+    it('warns LOW from on-the-fly stock estimate and clears after repurchase', async () => {
+      const stockStep = {
+        id: 'step-stock',
+        name: 'Serum',
+        period: RoutinePeriod.MORNING,
+        stepOrder: 1,
+        instructions: 'Apply',
+        waitMinutes: 0,
+        dosageText: '1ml',
+        details: [
+          {
+            productVariantId: 'var-1',
+            amountMl: 1,
+            productVariant: {
+              id: 'var-1',
+              productId: 'prod-1',
+              volume: '30ml',
+              sku: 'SKU-1',
+              imageUrl: null,
+              product: { id: 'prod-1', name: 'Serum A' },
+            },
+          },
+        ],
+        stepProtocols: [],
+      };
+      const routine = {
+        ...activeRoutine,
+        sourceOrderId: 'order-1',
+        steps: [stockStep],
+      };
+      routineRepository.find.mockResolvedValue([routine]);
+
+      // 24 completed uses of 1ml on 30ml → 6ml left → LOW
+      completionRepository.find
+        .mockResolvedValueOnce([]) // session completions
+        .mockResolvedValueOnce(
+          Array.from({ length: 24 }, (_, i) => ({
+            routineStepId: 'step-stock',
+            status: StepCompletionStatus.COMPLETED,
+            id: `c-${i}`,
+          })),
+        );
+
+      orderRepository.find.mockResolvedValue([
+        {
+          id: 'order-1',
+          createdAt: new Date('2026-07-01T01:00:00.000Z'),
+          status: OrderStatus.PAID,
+          items: [{ productVariantId: 'var-1', quantity: 1 }],
+        },
+      ]);
+
+      const low = await service.getToday('user-1', RoutinePeriod.MORNING, now);
+      expect(low.routines[0].steps[0].warning).toBe(StockWarningLevel.LOW);
+      expect(low.routines[0].steps[0].remainingMl).toBe(6);
+      expect(low.routines[0].steps[0].productVariant).toEqual({
+        id: 'var-1',
+        productId: 'prod-1',
+        name: 'Serum A',
+        sku: 'SKU-1',
+        imageUrl: null,
+      });
+
+      // Second PAID order restores stock
+      routineRepository.find.mockResolvedValue([routine]);
+      completionRepository.find.mockResolvedValueOnce([]).mockResolvedValueOnce(
+        Array.from({ length: 24 }, (_, i) => ({
+          routineStepId: 'step-stock',
+          status: StepCompletionStatus.COMPLETED,
+          id: `c-${i}`,
+        })),
+      );
+      orderRepository.find.mockResolvedValue([
+        {
+          id: 'order-1',
+          createdAt: new Date('2026-07-01T01:00:00.000Z'),
+          status: OrderStatus.PAID,
+          items: [{ productVariantId: 'var-1', quantity: 1 }],
+        },
+        {
+          id: 'order-2',
+          createdAt: new Date('2026-07-20T01:00:00.000Z'),
+          status: OrderStatus.PAID,
+          items: [{ productVariantId: 'var-1', quantity: 1 }],
+        },
+      ]);
+
+      const ok = await service.getToday('user-1', RoutinePeriod.MORNING, now);
+      expect(ok.routines[0].steps[0].warning).toBeNull();
+      expect(ok.routines[0].steps[0].remainingMl).toBe(36);
+    });
+
+    it('does not double-count shared morning+evening bottle', async () => {
+      const sharedVariant = {
+        id: 'var-shared',
+        productId: 'prod-shared',
+        volume: '30ml',
+        sku: 'SKU-S',
+        imageUrl: null,
+        product: { id: 'prod-shared', name: 'Shared' },
+      };
+      const am = {
+        id: 'step-am',
+        name: 'AM',
+        period: RoutinePeriod.MORNING,
+        stepOrder: 1,
+        instructions: null,
+        waitMinutes: null,
+        dosageText: null,
+        details: [
+          {
+            productVariantId: 'var-shared',
+            amountMl: 1,
+            productVariant: sharedVariant,
+          },
+        ],
+        stepProtocols: [],
+      };
+      const pm = {
+        id: 'step-pm',
+        name: 'PM',
+        period: RoutinePeriod.EVENING,
+        stepOrder: 1,
+        instructions: null,
+        waitMinutes: null,
+        dosageText: null,
+        details: [
+          {
+            productVariantId: 'var-shared',
+            amountMl: 1,
+            productVariant: sharedVariant,
+          },
+        ],
+        stepProtocols: [],
+      };
+      routineRepository.find.mockResolvedValue([
+        {
+          ...activeRoutine,
+          sourceOrderId: 'order-1',
+          steps: [am, pm],
+        },
+      ]);
+      orderRepository.find.mockResolvedValue([
+        {
+          id: 'order-1',
+          createdAt: new Date('2026-07-01T01:00:00.000Z'),
+          status: OrderStatus.PAID,
+          items: [{ productVariantId: 'var-shared', quantity: 1 }],
+        },
+      ]);
+
+      const result = await service.getToday(
+        'user-1',
+        RoutinePeriod.MORNING,
+        now,
+      );
+      // Full bottle 30ml shared 50/50 → morning step starts at 15ml remaining
+      expect(result.routines[0].steps[0].remainingMl).toBe(15);
+      expect(result.routines[0].steps[0].warning).toBeNull();
     });
   });
 
@@ -308,10 +483,7 @@ describe('RoutineTrackingService', () => {
         { routineStepId: 'step-1', status: StepCompletionStatus.COMPLETED },
         { routineStepId: 'step-2', status: StepCompletionStatus.SKIPPED },
       ]);
-    });
-
-    it('stores completionRate and side effects', async () => {
-      const saved = {
+      checkInRepository.findOneOrFail.mockResolvedValue({
         id: 'ci-1',
         routineId: 'routine-1',
         checkInDate: today,
@@ -322,49 +494,41 @@ describe('RoutineTrackingService', () => {
         rednessLevel: null,
         moistureLevel: null,
         completionRate: 50,
-        note: 'fine',
-        createdAt: now,
+        note: null,
         sideEffects: [
           {
             id: 'se-1',
-            type: SideEffectType.REDNESS,
-            severity: 2,
+            type: SideEffectType.ITCHING,
+            severity: 1,
             note: null,
           },
         ],
-      };
-      checkInRepository.findOneOrFail.mockResolvedValue(saved);
+        createdAt: now,
+      });
+    });
 
+    it('stores computed completionRate and side effects', async () => {
       const result = await service.createCheckIn(
         'user-1',
         'routine-1',
         {
-          period: RoutinePeriod.MORNING,
           overallMood: CheckInMood.OK,
           acneLevel: 1,
-          note: 'fine',
-          sideEffects: [{ type: SideEffectType.REDNESS, severity: 2 }],
+          sideEffects: [{ type: SideEffectType.ITCHING, severity: 1 }],
         },
         now,
       );
-
       expect(checkInRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({ completionRate: 50 }),
       );
       expect(sideEffectRepository.save).toHaveBeenCalled();
-      expect(result.completionRate).toBe(50);
       expect(result.sideEffects).toHaveLength(1);
     });
 
-    it('409 on duplicate check-in', async () => {
-      checkInRepository.findOne.mockResolvedValue({ id: 'existing' });
+    it('conflicts on duplicate check-in', async () => {
+      checkInRepository.findOne.mockResolvedValue({ id: 'exists' });
       await expect(
-        service.createCheckIn(
-          'user-1',
-          'routine-1',
-          { period: RoutinePeriod.MORNING },
-          now,
-        ),
+        service.createCheckIn('user-1', 'routine-1', {}, now),
       ).rejects.toThrow(ConflictException);
     });
   });

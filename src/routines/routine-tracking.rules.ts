@@ -4,11 +4,14 @@ import {
   SessionState,
   StepCompletionStatus,
   StepSessionStatus,
+  StockWarningLevel,
 } from './enums';
 
 export const ROUTINE_TIMEZONE = 'Asia/Ho_Chi_Minh';
 /** Local hour (0–23) at which default period switches to EVENING. */
 export const PERIOD_SWITCH_HOUR = 14;
+/** Remaining ratio at or below this triggers LOW stock warning. */
+export const LOW_STOCK_RATIO = 0.2;
 
 export type ProgressCounts = {
   completedCount: number;
@@ -239,4 +242,72 @@ export function averageCompletionRate(rates: number[]): number {
   if (rates.length === 0) return 0;
   const sum = rates.reduce((a, b) => a + b, 0);
   return Math.round((sum / rates.length) * 100) / 100;
+}
+
+/**
+ * Parse catalog volume strings like "30ml" / "30 mL".
+ * Non-ml units (e.g. "454g") return null.
+ */
+export function parseMlVolume(
+  volume: string | null | undefined,
+): number | null {
+  if (!volume) return null;
+  const match = /^([\d.]+)\s*ml$/i.exec(volume.trim());
+  if (!match) return null;
+  const n = Number(match[1]);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+export type StepStockEstimate = {
+  warning: StockWarningLevel | null;
+  remainingMl: number | null;
+};
+
+/**
+ * On-the-fly remaining volume for one routine step.
+ * When several steps share a variant, purchased ml is split by daily amountMl share.
+ */
+export function estimateStepStock(params: {
+  bottleMl: number | null;
+  purchasedQty: number;
+  amountMl: number | null;
+  completedCount: number;
+  dailyMlForVariant: number;
+}): StepStockEstimate {
+  const {
+    bottleMl,
+    purchasedQty,
+    amountMl,
+    completedCount,
+    dailyMlForVariant,
+  } = params;
+
+  if (
+    bottleMl == null ||
+    amountMl == null ||
+    amountMl <= 0 ||
+    purchasedQty <= 0 ||
+    dailyMlForVariant <= 0
+  ) {
+    return { warning: null, remainingMl: null };
+  }
+
+  const purchasedMl = bottleMl * purchasedQty;
+  const stepShare = amountMl / dailyMlForVariant;
+  const purchasedForStep = purchasedMl * stepShare;
+  const usedForStep = completedCount * amountMl;
+  const remainingMl = Math.max(
+    0,
+    Math.round((purchasedForStep - usedForStep) * 100) / 100,
+  );
+  const remainingRatio =
+    purchasedForStep > 0 ? remainingMl / purchasedForStep : 0;
+
+  if (remainingMl <= 0) {
+    return { warning: StockWarningLevel.EMPTY, remainingMl: 0 };
+  }
+  if (remainingRatio <= LOW_STOCK_RATIO) {
+    return { warning: StockWarningLevel.LOW, remainingMl };
+  }
+  return { warning: null, remainingMl };
 }

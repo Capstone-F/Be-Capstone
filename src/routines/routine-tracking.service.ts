@@ -6,7 +6,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, In, Repository } from 'typeorm';
+import { Between, In, MoreThanOrEqual, Repository } from 'typeorm';
+import { Order } from '../commerce/order.entity';
+import { OrderStatus } from '../commerce/enums';
 import { Customer } from '../users/customer.entity';
 import {
   CheckInResponseDto,
@@ -42,7 +44,9 @@ import {
   deriveDayHistoryStatus,
   deriveSessionState,
   eachDateInclusive,
+  estimateStepStock,
   getVnToday,
+  parseMlVolume,
   progressFromStatuses,
   toDateString,
   vnDateFromUtcDate,
@@ -59,6 +63,19 @@ const ROUTINE_STEP_RELATIONS = [
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+const PAID_ORDER_STATUSES = [
+  OrderStatus.PAID,
+  OrderStatus.PROCESSING,
+  OrderStatus.SHIPPED,
+  OrderStatus.DELIVERED,
+] as const;
+
+type StockContext = {
+  purchasedQtyByVariant: Map<string, number>;
+  completedCountByStep: Map<string, number>;
+  dailyMlByVariant: Map<string, number>;
+};
+
 @Injectable()
 export class RoutineTrackingService {
   constructor(
@@ -74,6 +91,8 @@ export class RoutineTrackingService {
     private readonly sideEffectRepository: Repository<RoutineSideEffect>,
     @InjectRepository(Customer)
     private readonly customerRepository: Repository<Customer>,
+    @InjectRepository(Order)
+    private readonly orderRepository: Repository<Order>,
   ) {}
 
   async getToday(
@@ -102,16 +121,39 @@ export class RoutineTrackingService {
     }
 
     const routineIds = routines.map((r) => r.id);
-    const completions = await this.completionRepository.find({
-      where: {
-        routineId: In(routineIds),
-        sessionDate: today as unknown as Date,
-        period: resolvedPeriod,
-      },
-    });
-    const completionByStep = new Map(
-      completions.map((c) => [c.routineStepId, c]),
+    const earliestCreated = routines.reduce(
+      (min, r) => (r.createdAt < min ? r.createdAt : min),
+      routines[0].createdAt,
     );
+
+    const [sessionCompletions, usageCompletions, orders] = await Promise.all([
+      this.completionRepository.find({
+        where: {
+          routineId: In(routineIds),
+          sessionDate: today as unknown as Date,
+          period: resolvedPeriod,
+        },
+      }),
+      this.completionRepository.find({
+        where: {
+          routineId: In(routineIds),
+          status: StepCompletionStatus.COMPLETED,
+        },
+      }),
+      this.orderRepository.find({
+        where: {
+          customerId: customer.id,
+          status: In([...PAID_ORDER_STATUSES]),
+          createdAt: MoreThanOrEqual(earliestCreated),
+        },
+        relations: ['items'],
+      }),
+    ]);
+
+    const completionByStep = new Map(
+      sessionCompletions.map((c) => [c.routineStepId, c]),
+    );
+    const completedCountByStep = this.countCompletedByStep(usageCompletions);
 
     const todayRoutines: TodayRoutineDto[] = [];
     for (const routine of routines) {
@@ -119,8 +161,6 @@ export class RoutineTrackingService {
         .filter((s) => s.period === resolvedPeriod)
         .sort(compareRoutineSteps);
 
-      // Skip routines with no steps in this period from the list? Plan says all ACTIVE.
-      // Include them with empty steps / NOT_STARTED.
       todayRoutines.push(
         this.buildTodayRoutineDto(
           routine,
@@ -128,6 +168,7 @@ export class RoutineTrackingService {
           completionByStep,
           today,
           today,
+          this.buildStockContext(routine, orders, completedCountByStep),
         ),
       );
     }
@@ -404,19 +445,41 @@ export class RoutineTrackingService {
       .filter((s) => s.period === resolvedPeriod)
       .sort(compareRoutineSteps);
 
-    const completions = await this.completionRepository.find({
-      where: {
-        routineId: routine.id,
-        sessionDate: date as unknown as Date,
-        period: resolvedPeriod,
-      },
-    });
+    const [sessionCompletions, usageCompletions, orders] = await Promise.all([
+      this.completionRepository.find({
+        where: {
+          routineId: routine.id,
+          sessionDate: date as unknown as Date,
+          period: resolvedPeriod,
+        },
+      }),
+      this.completionRepository.find({
+        where: {
+          routineId: routine.id,
+          status: StepCompletionStatus.COMPLETED,
+        },
+      }),
+      this.orderRepository.find({
+        where: {
+          customerId: customer.id,
+          status: In([...PAID_ORDER_STATUSES]),
+          createdAt: MoreThanOrEqual(routine.createdAt),
+        },
+        relations: ['items'],
+      }),
+    ]);
+
     const completionByStep = new Map(
-      completions.map((c) => [c.routineStepId, c]),
+      sessionCompletions.map((c) => [c.routineStepId, c]),
+    );
+    const stock = this.buildStockContext(
+      routine,
+      orders,
+      this.countCompletedByStep(usageCompletions),
     );
 
     const stepsDto = periodSteps.map((step) =>
-      this.toTodayStepDto(step, completionByStep.get(step.id) ?? null),
+      this.toTodayStepDto(step, completionByStep.get(step.id) ?? null, stock),
     );
     const progress = progressFromStatuses(stepsDto.map((s) => s.status));
     const actedCount = progress.completedCount + progress.skippedCount;
@@ -505,15 +568,33 @@ export class RoutineTrackingService {
     const periodSteps = [...(routine.steps ?? [])]
       .filter((s) => s.period === step.period)
       .sort(compareRoutineSteps);
-    const completions = await this.completionRepository.find({
-      where: {
-        routineId: routine.id,
-        sessionDate: today as unknown as Date,
-        period: step.period,
-      },
-    });
+
+    const [sessionCompletions, usageCompletions, orders] = await Promise.all([
+      this.completionRepository.find({
+        where: {
+          routineId: routine.id,
+          sessionDate: today as unknown as Date,
+          period: step.period,
+        },
+      }),
+      this.completionRepository.find({
+        where: {
+          routineId: routine.id,
+          status: StepCompletionStatus.COMPLETED,
+        },
+      }),
+      this.orderRepository.find({
+        where: {
+          customerId: customer.id,
+          status: In([...PAID_ORDER_STATUSES]),
+          createdAt: MoreThanOrEqual(routine.createdAt),
+        },
+        relations: ['items'],
+      }),
+    ]);
+
     const completionByStep = new Map(
-      completions.map((c) => [c.routineStepId, c]),
+      sessionCompletions.map((c) => [c.routineStepId, c]),
     );
 
     return this.buildTodayRoutineDto(
@@ -522,6 +603,11 @@ export class RoutineTrackingService {
       completionByStep,
       today,
       today,
+      this.buildStockContext(
+        routine,
+        orders,
+        this.countCompletedByStep(usageCompletions),
+      ),
     );
   }
 
@@ -531,9 +617,10 @@ export class RoutineTrackingService {
     completionByStep: Map<string, RoutineStepCompletion>,
     sessionDate: string,
     today: string,
+    stock: StockContext,
   ): TodayRoutineDto {
     const steps = periodSteps.map((step) =>
-      this.toTodayStepDto(step, completionByStep.get(step.id) ?? null),
+      this.toTodayStepDto(step, completionByStep.get(step.id) ?? null, stock),
     );
     const progress = progressFromStatuses(steps.map((s) => s.status));
     const actedCount = progress.completedCount + progress.skippedCount;
@@ -559,8 +646,9 @@ export class RoutineTrackingService {
   private toTodayStepDto(
     step: RoutineStep,
     completion: RoutineStepCompletion | null,
+    stock: StockContext,
   ): TodayStepDto {
-    const base = this.toStepBase(step);
+    const base = this.toStepBase(step, stock);
     if (!completion) {
       return {
         ...base,
@@ -584,6 +672,7 @@ export class RoutineTrackingService {
 
   private toStepBase(
     step: RoutineStep,
+    stock: StockContext,
   ): Omit<TodayStepDto, 'status' | 'completedAt' | 'skipReason' | 'skipNote'> {
     const detail = step.details?.[0];
     const variant = detail?.productVariant;
@@ -591,6 +680,7 @@ export class RoutineTrackingService {
     if (detail?.productVariantId) {
       productVariant = {
         id: detail.productVariantId,
+        productId: variant?.productId ?? variant?.product?.id ?? '',
         name: variant?.product?.name ?? detail.productVariantId,
         sku: variant?.sku ?? null,
         imageUrl: variant?.imageUrl ?? null,
@@ -599,6 +689,26 @@ export class RoutineTrackingService {
     const amountRaw = detail?.amountMl;
     const amountMl =
       amountRaw === null || amountRaw === undefined ? null : Number(amountRaw);
+    const resolvedAmountMl = Number.isFinite(amountMl as number)
+      ? (amountMl as number)
+      : null;
+
+    const bottleMl = parseMlVolume(variant?.volume ?? null);
+    const variantId = detail?.productVariantId;
+    const purchasedQty = variantId
+      ? (stock.purchasedQtyByVariant.get(variantId) ?? 0)
+      : 0;
+    const dailyMlForVariant = variantId
+      ? (stock.dailyMlByVariant.get(variantId) ?? 0)
+      : 0;
+    const completedCount = stock.completedCountByStep.get(step.id) ?? 0;
+    const estimate = estimateStepStock({
+      bottleMl,
+      purchasedQty,
+      amountMl: resolvedAmountMl,
+      completedCount,
+      dailyMlForVariant,
+    });
 
     return {
       id: step.id,
@@ -608,10 +718,75 @@ export class RoutineTrackingService {
       instructions: step.instructions,
       waitMinutes: step.waitMinutes ?? null,
       dosageText: step.dosageText ?? null,
-      amountMl: Number.isFinite(amountMl as number) ? amountMl : null,
+      amountMl: resolvedAmountMl,
       protocolId: step.stepProtocols?.[0]?.protocolId ?? null,
       productVariant,
+      warning: estimate.warning,
+      remainingMl: estimate.remainingMl,
     };
+  }
+
+  private buildStockContext(
+    routine: Routine,
+    orders: Order[],
+    completedCountByStep: Map<string, number>,
+  ): StockContext {
+    const dailyMlByVariant = new Map<string, number>();
+    for (const step of routine.steps ?? []) {
+      const detail = step.details?.[0];
+      const variantId = detail?.productVariantId;
+      if (!variantId) continue;
+      const amountRaw = detail?.amountMl;
+      const amountMl =
+        amountRaw === null || amountRaw === undefined
+          ? null
+          : Number(amountRaw);
+      if (!Number.isFinite(amountMl as number) || (amountMl as number) <= 0) {
+        continue;
+      }
+      dailyMlByVariant.set(
+        variantId,
+        (dailyMlByVariant.get(variantId) ?? 0) + (amountMl as number),
+      );
+    }
+
+    const purchasedQtyByVariant = new Map<string, number>();
+    for (const order of orders) {
+      if (order.createdAt < routine.createdAt) continue;
+      for (const item of order.items ?? []) {
+        purchasedQtyByVariant.set(
+          item.productVariantId,
+          (purchasedQtyByVariant.get(item.productVariantId) ?? 0) +
+            item.quantity,
+        );
+      }
+    }
+
+    // Fallback: source order exists but line items were not found → assume 1 bottle
+    if (routine.sourceOrderId) {
+      for (const variantId of dailyMlByVariant.keys()) {
+        if (!purchasedQtyByVariant.has(variantId)) {
+          purchasedQtyByVariant.set(variantId, 1);
+        }
+      }
+    }
+
+    return {
+      purchasedQtyByVariant,
+      completedCountByStep,
+      dailyMlByVariant,
+    };
+  }
+
+  private countCompletedByStep(
+    completions: RoutineStepCompletion[],
+  ): Map<string, number> {
+    const map = new Map<string, number>();
+    for (const c of completions) {
+      if (c.status !== StepCompletionStatus.COMPLETED) continue;
+      map.set(c.routineStepId, (map.get(c.routineStepId) ?? 0) + 1);
+    }
+    return map;
   }
 
   private toCheckInDto(checkIn: RoutineCheckIn): CheckInResponseDto {
