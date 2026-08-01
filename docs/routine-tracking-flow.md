@@ -191,16 +191,18 @@ On-the-fly estimate (no forecast table writes):
 ```
 purchasedMl = parseMl(variant.volume) × Σ qty from customer PAID+ orders
               for that productVariantId since routine.createdAt
-usedMl      = COMPLETED completions for the step × amountMl
-              (shared variants: bottle split by daily amountMl share)
-remainingMl = max(0, purchasedForStep - usedForStep)
+usedMl      = Σ (COMPLETED completions × amountMl) across ALL steps
+              that share the same productVariantId (morning + evening)
+remainingMl = max(0, purchasedMl - usedMl)
 ```
 
-| `warning` | When                                           |
-| --------- | ---------------------------------------------- |
-| `null`    | Cannot estimate, or remaining > 20% of share   |
-| `LOW`     | Remaining ≤ 20% of this step’s purchased share |
-| `EMPTY`   | Remaining ≤ 0                                  |
+When morning and evening use the **same** `productVariantId`, they share **one** bottle estimate — both steps return the same `warning` and `remainingMl`.
+
+| `warning` | When                                          |
+| --------- | --------------------------------------------- |
+| `null`    | Cannot estimate, or remaining > 20% of bottle |
+| `LOW`     | Remaining ≤ 20% of purchased volume           |
+| `EMPTY`   | Remaining ≤ 0                                 |
 
 `productVariant.productId` is the catalog product id for `GET /products/:id`. `productVariant.id` is the variant id for `POST /cart/items`.
 

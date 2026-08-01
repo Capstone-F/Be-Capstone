@@ -14,7 +14,7 @@ import {
   deriveDayHistoryStatus,
   deriveSessionState,
   eachDateInclusive,
-  estimateStepStock,
+  estimateVariantStock,
   getVnDateParts,
   parseMlVolume,
   progressFromStatuses,
@@ -255,96 +255,97 @@ describe('routine-tracking.rules', () => {
     });
   });
 
-  describe('estimateStepStock', () => {
-    it('returns null when volume or amount missing', () => {
+  describe('estimateVariantStock', () => {
+    it('returns null when volume missing or usage not trackable', () => {
       expect(
-        estimateStepStock({
+        estimateVariantStock({
           bottleMl: null,
           purchasedQty: 1,
-          amountMl: 1,
-          completedCount: 0,
-          dailyMlForVariant: 1,
+          usedMl: 0,
+          canTrackUsage: true,
+        }),
+      ).toEqual({ warning: null, remainingMl: null });
+
+      expect(
+        estimateVariantStock({
+          bottleMl: 30,
+          purchasedQty: 1,
+          usedMl: 0,
+          canTrackUsage: false,
         }),
       ).toEqual({ warning: null, remainingMl: null });
     });
 
     it('returns no warning when plenty remaining', () => {
       expect(
-        estimateStepStock({
+        estimateVariantStock({
           bottleMl: 30,
           purchasedQty: 1,
-          amountMl: 1,
-          completedCount: 5,
-          dailyMlForVariant: 1,
+          usedMl: 5,
+          canTrackUsage: true,
         }),
       ).toEqual({ warning: null, remainingMl: 25 });
     });
 
     it('returns LOW at or below 20%', () => {
       expect(
-        estimateStepStock({
+        estimateVariantStock({
           bottleMl: 30,
           purchasedQty: 1,
-          amountMl: 1,
-          completedCount: 24,
-          dailyMlForVariant: 1,
+          usedMl: 24,
+          canTrackUsage: true,
         }),
       ).toEqual({ warning: StockWarningLevel.LOW, remainingMl: 6 });
     });
 
     it('returns EMPTY when depleted', () => {
       expect(
-        estimateStepStock({
+        estimateVariantStock({
           bottleMl: 30,
           purchasedQty: 1,
-          amountMl: 1,
-          completedCount: 30,
-          dailyMlForVariant: 1,
+          usedMl: 30,
+          canTrackUsage: true,
         }),
       ).toEqual({ warning: StockWarningLevel.EMPTY, remainingMl: 0 });
     });
 
-    it('splits shared bottle across morning+evening steps', () => {
-      // 30ml bottle shared 1ml AM + 1ml PM → each step gets 15ml share
+    it('uses shared bottle remaining for AM+PM total usage', () => {
+      // 30ml bottle, AM used 10 + PM used 10 = 20 used → 10 remaining
       expect(
-        estimateStepStock({
+        estimateVariantStock({
           bottleMl: 30,
           purchasedQty: 1,
-          amountMl: 1,
-          completedCount: 0,
-          dailyMlForVariant: 2,
+          usedMl: 20,
+          canTrackUsage: true,
         }),
-      ).toEqual({ warning: null, remainingMl: 15 });
+      ).toEqual({ warning: null, remainingMl: 10 });
 
       expect(
-        estimateStepStock({
+        estimateVariantStock({
           bottleMl: 30,
           purchasedQty: 1,
-          amountMl: 1,
-          completedCount: 12,
-          dailyMlForVariant: 2,
+          usedMl: 25,
+          canTrackUsage: true,
         }),
-      ).toEqual({ warning: StockWarningLevel.LOW, remainingMl: 3 });
+      ).toEqual({ warning: StockWarningLevel.LOW, remainingMl: 5 });
     });
 
     it('clears warning after repurchase increases purchased qty', () => {
       expect(
-        estimateStepStock({
+        estimateVariantStock({
           bottleMl: 30,
           purchasedQty: 1,
-          amountMl: 1,
-          completedCount: 30,
-          dailyMlForVariant: 1,
+          usedMl: 30,
+          canTrackUsage: true,
         }),
       ).toEqual({ warning: StockWarningLevel.EMPTY, remainingMl: 0 });
 
       expect(
-        estimateStepStock({
+        estimateVariantStock({
           bottleMl: 30,
           purchasedQty: 2,
-          amountMl: 1,
-          completedCount: 30,
-          dailyMlForVariant: 1,
+          usedMl: 30,
+          canTrackUsage: true,
         }),
       ).toEqual({ warning: null, remainingMl: 30 });
     });

@@ -44,12 +44,13 @@ import {
   deriveDayHistoryStatus,
   deriveSessionState,
   eachDateInclusive,
-  estimateStepStock,
+  estimateVariantStock,
   getVnToday,
   parseMlVolume,
   progressFromStatuses,
   toDateString,
   vnDateFromUtcDate,
+  type StepStockEstimate,
 } from './routine-tracking.rules';
 import { Routine } from './routine.entity';
 
@@ -72,8 +73,10 @@ const PAID_ORDER_STATUSES = [
 
 type StockContext = {
   purchasedQtyByVariant: Map<string, number>;
-  completedCountByStep: Map<string, number>;
-  dailyMlByVariant: Map<string, number>;
+  usedMlByVariant: Map<string, number>;
+  canTrackByVariant: Map<string, boolean>;
+  /** Precomputed so AM/PM steps with the same variant share one warning. */
+  estimateByVariant: Map<string, StepStockEstimate>;
 };
 
 @Injectable()
@@ -693,22 +696,13 @@ export class RoutineTrackingService {
       ? (amountMl as number)
       : null;
 
-    const bottleMl = parseMlVolume(variant?.volume ?? null);
     const variantId = detail?.productVariantId;
-    const purchasedQty = variantId
-      ? (stock.purchasedQtyByVariant.get(variantId) ?? 0)
-      : 0;
-    const dailyMlForVariant = variantId
-      ? (stock.dailyMlByVariant.get(variantId) ?? 0)
-      : 0;
-    const completedCount = stock.completedCountByStep.get(step.id) ?? 0;
-    const estimate = estimateStepStock({
-      bottleMl,
-      purchasedQty,
-      amountMl: resolvedAmountMl,
-      completedCount,
-      dailyMlForVariant,
-    });
+    const estimate = variantId
+      ? (stock.estimateByVariant.get(variantId) ?? {
+          warning: null,
+          remainingMl: null,
+        })
+      : { warning: null, remainingMl: null };
 
     return {
       id: step.id,
@@ -731,11 +725,22 @@ export class RoutineTrackingService {
     orders: Order[],
     completedCountByStep: Map<string, number>,
   ): StockContext {
-    const dailyMlByVariant = new Map<string, number>();
+    const usedMlByVariant = new Map<string, number>();
+    const canTrackByVariant = new Map<string, boolean>();
+    const bottleMlByVariant = new Map<string, number | null>();
+
     for (const step of routine.steps ?? []) {
       const detail = step.details?.[0];
       const variantId = detail?.productVariantId;
       if (!variantId) continue;
+
+      if (!bottleMlByVariant.has(variantId)) {
+        bottleMlByVariant.set(
+          variantId,
+          parseMlVolume(detail?.productVariant?.volume ?? null),
+        );
+      }
+
       const amountRaw = detail?.amountMl;
       const amountMl =
         amountRaw === null || amountRaw === undefined
@@ -744,9 +749,13 @@ export class RoutineTrackingService {
       if (!Number.isFinite(amountMl as number) || (amountMl as number) <= 0) {
         continue;
       }
-      dailyMlByVariant.set(
+
+      canTrackByVariant.set(variantId, true);
+      const completedCount = completedCountByStep.get(step.id) ?? 0;
+      usedMlByVariant.set(
         variantId,
-        (dailyMlByVariant.get(variantId) ?? 0) + (amountMl as number),
+        (usedMlByVariant.get(variantId) ?? 0) +
+          completedCount * (amountMl as number),
       );
     }
 
@@ -764,17 +773,34 @@ export class RoutineTrackingService {
 
     // Fallback: source order exists but line items were not found → assume 1 bottle
     if (routine.sourceOrderId) {
-      for (const variantId of dailyMlByVariant.keys()) {
+      for (const variantId of canTrackByVariant.keys()) {
         if (!purchasedQtyByVariant.has(variantId)) {
           purchasedQtyByVariant.set(variantId, 1);
         }
       }
     }
 
+    const estimateByVariant = new Map<string, StepStockEstimate>();
+    for (const variantId of new Set([
+      ...bottleMlByVariant.keys(),
+      ...canTrackByVariant.keys(),
+    ])) {
+      estimateByVariant.set(
+        variantId,
+        estimateVariantStock({
+          bottleMl: bottleMlByVariant.get(variantId) ?? null,
+          purchasedQty: purchasedQtyByVariant.get(variantId) ?? 0,
+          usedMl: usedMlByVariant.get(variantId) ?? 0,
+          canTrackUsage: canTrackByVariant.get(variantId) === true,
+        }),
+      );
+    }
+
     return {
       purchasedQtyByVariant,
-      completedCountByStep,
-      dailyMlByVariant,
+      usedMlByVariant,
+      canTrackByVariant,
+      estimateByVariant,
     };
   }
 

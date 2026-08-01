@@ -300,7 +300,7 @@ describe('RoutineTrackingService', () => {
       expect(ok.routines[0].steps[0].remainingMl).toBe(36);
     });
 
-    it('does not double-count shared morning+evening bottle', async () => {
+    it('shares the same stock warning for AM and PM when variant matches', async () => {
       const sharedVariant = {
         id: 'var-shared',
         productId: 'prod-shared',
@@ -343,11 +343,127 @@ describe('RoutineTrackingService', () => {
         ],
         stepProtocols: [],
       };
+      const routine = {
+        ...activeRoutine,
+        sourceOrderId: 'order-1',
+        steps: [am, pm],
+      };
+      routineRepository.find.mockResolvedValue([routine]);
+      orderRepository.find.mockResolvedValue([
+        {
+          id: 'order-1',
+          createdAt: new Date('2026-07-01T01:00:00.000Z'),
+          status: OrderStatus.PAID,
+          items: [{ productVariantId: 'var-shared', quantity: 1 }],
+        },
+      ]);
+
+      // Uneven usage: AM 20 completes, PM 5 → still one shared remaining (30 - 25 = 5 → LOW)
+      completionRepository.find
+        .mockResolvedValueOnce([]) // session
+        .mockResolvedValueOnce([
+          ...Array.from({ length: 20 }, (_, i) => ({
+            routineStepId: 'step-am',
+            status: StepCompletionStatus.COMPLETED,
+            id: `am-${i}`,
+          })),
+          ...Array.from({ length: 5 }, (_, i) => ({
+            routineStepId: 'step-pm',
+            status: StepCompletionStatus.COMPLETED,
+            id: `pm-${i}`,
+          })),
+        ]);
+
+      const morning = await service.getToday(
+        'user-1',
+        RoutinePeriod.MORNING,
+        now,
+      );
+      expect(morning.routines[0].steps[0].remainingMl).toBe(5);
+      expect(morning.routines[0].steps[0].warning).toBe(StockWarningLevel.LOW);
+
+      routineRepository.find.mockResolvedValue([routine]);
+      completionRepository.find
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          ...Array.from({ length: 20 }, (_, i) => ({
+            routineStepId: 'step-am',
+            status: StepCompletionStatus.COMPLETED,
+            id: `am-${i}`,
+          })),
+          ...Array.from({ length: 5 }, (_, i) => ({
+            routineStepId: 'step-pm',
+            status: StepCompletionStatus.COMPLETED,
+            id: `pm-${i}`,
+          })),
+        ]);
+      orderRepository.find.mockResolvedValue([
+        {
+          id: 'order-1',
+          createdAt: new Date('2026-07-01T01:00:00.000Z'),
+          status: OrderStatus.PAID,
+          items: [{ productVariantId: 'var-shared', quantity: 1 }],
+        },
+      ]);
+
+      const evening = await service.getToday(
+        'user-1',
+        RoutinePeriod.EVENING,
+        now,
+      );
+      expect(evening.routines[0].steps[0].remainingMl).toBe(5);
+      expect(evening.routines[0].steps[0].warning).toBe(StockWarningLevel.LOW);
+    });
+
+    it('starts shared AM+PM bottle at full remaining (not split)', async () => {
+      const sharedVariant = {
+        id: 'var-shared',
+        productId: 'prod-shared',
+        volume: '30ml',
+        sku: 'SKU-S',
+        imageUrl: null,
+        product: { id: 'prod-shared', name: 'Shared' },
+      };
       routineRepository.find.mockResolvedValue([
         {
           ...activeRoutine,
           sourceOrderId: 'order-1',
-          steps: [am, pm],
+          steps: [
+            {
+              id: 'step-am',
+              name: 'AM',
+              period: RoutinePeriod.MORNING,
+              stepOrder: 1,
+              instructions: null,
+              waitMinutes: null,
+              dosageText: null,
+              details: [
+                {
+                  productVariantId: 'var-shared',
+                  amountMl: 1,
+                  productVariant: sharedVariant,
+                },
+              ],
+              stepProtocols: [],
+            },
+            {
+              id: 'step-pm',
+              name: 'PM',
+              period: RoutinePeriod.EVENING,
+              stepOrder: 1,
+              instructions: null,
+              waitMinutes: null,
+              dosageText: null,
+              details: [
+                {
+                  productVariantId: 'var-shared',
+                  amountMl: 1,
+                  productVariant: sharedVariant,
+                },
+              ],
+              stepProtocols: [],
+            },
+          ],
         },
       ]);
       orderRepository.find.mockResolvedValue([
@@ -364,8 +480,7 @@ describe('RoutineTrackingService', () => {
         RoutinePeriod.MORNING,
         now,
       );
-      // Full bottle 30ml shared 50/50 → morning step starts at 15ml remaining
-      expect(result.routines[0].steps[0].remainingMl).toBe(15);
+      expect(result.routines[0].steps[0].remainingMl).toBe(30);
       expect(result.routines[0].steps[0].warning).toBeNull();
     });
   });
