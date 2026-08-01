@@ -16,9 +16,30 @@ export enum QuestionPriority {
   OPTIONAL = 'OPTIONAL',
 }
 
+/**
+ * Branching rules for CONDITIONAL / OPTIONAL questions.
+ *
+ * Positive unlock groups (`anyLabelCodes`, `allLabelCodes`, age gates) combine with
+ * `match`: `'any'` (default = OR) or `'all'` (AND).
+ * `noneLabelCodes` is always an extra AND constraint when set.
+ */
 export type QuestionAskWhen = {
+  /** Unlock with no other positive gates (still subject to priority + noneLabelCodes). */
   always?: boolean;
+  /** Unlock if the customer answered any of these labels. */
   anyLabelCodes?: string[];
+  /** Unlock if the customer answered all of these labels. */
+  allLabelCodes?: string[];
+  /** Block if the customer answered any of these labels. */
+  noneLabelCodes?: string[];
+  /** Unlock if profile age group matches (UNDER_18, AGE_18_25, …). */
+  anyAgeGroupCodes?: string[];
+  /** Inclusive minimum age from profile dateOfBirth. */
+  minAge?: number;
+  /** Inclusive maximum age from profile dateOfBirth. */
+  maxAge?: number;
+  /** How to combine positive unlock groups. Default `'any'`. */
+  match?: 'any' | 'all';
 };
 
 @Entity('questions')

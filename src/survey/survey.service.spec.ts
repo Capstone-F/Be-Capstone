@@ -62,6 +62,7 @@ describe('SurveyService question bank', () => {
     customerRepository.findOne.mockResolvedValue({
       id: 'customer-id',
       userId: 'user-id',
+      dateOfBirth: new Date('2000-06-15'),
     });
   });
 
@@ -107,7 +108,19 @@ describe('SurveyService question bank', () => {
         priority: QuestionPriority.CONDITIONAL,
         category: 'ACNE',
         askWhen: { anyLabelCodes: ['ACNE'] },
-        options: [],
+        options: [
+          {
+            displayOrder: 0,
+            isActive: true,
+            label: {
+              code: 'BLACKHEADS',
+              name: 'Blackheads',
+              description: null,
+              vietnameseNormalized: 'Mụn đầu đen, mụn cám',
+              isActive: true,
+            },
+          },
+        ],
       },
       {
         id: 'pigmentation-details',
@@ -118,7 +131,41 @@ describe('SurveyService question bank', () => {
         priority: QuestionPriority.CONDITIONAL,
         category: 'PIGMENTATION',
         askWhen: { anyLabelCodes: ['MELASMA'] },
-        options: [],
+        options: [
+          {
+            displayOrder: 0,
+            isActive: true,
+            label: {
+              code: 'MELASMA',
+              name: 'Melasma',
+              description: null,
+              vietnameseNormalized: 'Nám da mặt',
+              isActive: true,
+            },
+          },
+        ],
+      },
+      {
+        id: 'empty-options',
+        code: 'EMPTY_OPTIONS',
+        text: 'Broken?',
+        questionType: 'SINGLE_CHOICE',
+        displayOrder: 2,
+        priority: QuestionPriority.CORE,
+        category: 'SKIN_CONCERN',
+        options: [
+          {
+            displayOrder: 0,
+            isActive: false,
+            label: {
+              code: 'INACTIVE',
+              name: 'Inactive',
+              description: null,
+              vietnameseNormalized: null,
+              isActive: true,
+            },
+          },
+        ],
       },
     ]);
 
@@ -134,6 +181,95 @@ describe('SurveyService question bank', () => {
       description: null,
       vietnameseNormalized: 'Mụn sưng, mụn viêm hoặc mụn trứng cá',
     });
+  });
+
+  it('unlocks age-gated conditional questions from profile dateOfBirth', async () => {
+    // AGE_26_35 for DOB 2000-06-15 relative to 2026
+    surveyRepository.findOne.mockResolvedValue({
+      id: 'survey-id',
+      customerId: 'customer-id',
+      answers: [],
+    });
+    questionRepository.find.mockResolvedValue([
+      {
+        id: 'core',
+        code: 'PRIMARY_CONCERN',
+        text: 'Concern?',
+        questionType: 'SINGLE_CHOICE',
+        displayOrder: 1,
+        priority: QuestionPriority.CORE,
+        category: 'SKIN_CONCERN',
+        options: [
+          {
+            displayOrder: 0,
+            isActive: true,
+            label: {
+              code: 'ACNE',
+              name: 'Acne',
+              description: null,
+              vietnameseNormalized: null,
+              isActive: true,
+            },
+          },
+        ],
+      },
+      {
+        id: 'age-gated',
+        code: 'AGE_2635_EARLY_AGING',
+        text: 'Early aging?',
+        questionType: 'SINGLE_CHOICE',
+        displayOrder: 55,
+        priority: QuestionPriority.CONDITIONAL,
+        category: 'AGE_SEGMENT',
+        askWhen: {
+          anyAgeGroupCodes: ['AGE_26_35'],
+          minAge: 26,
+          maxAge: 35,
+        },
+        options: [
+          {
+            displayOrder: 0,
+            isActive: true,
+            label: {
+              code: 'FINE_LINES',
+              name: 'Fine Lines',
+              description: null,
+              vietnameseNormalized: null,
+              isActive: true,
+            },
+          },
+        ],
+      },
+      {
+        id: 'wrong-age',
+        code: 'AGE_U18_OILINESS',
+        text: 'Teen oil?',
+        questionType: 'SINGLE_CHOICE',
+        displayOrder: 45,
+        priority: QuestionPriority.CONDITIONAL,
+        category: 'AGE_SEGMENT',
+        askWhen: { anyAgeGroupCodes: ['UNDER_18'], maxAge: 17 },
+        options: [
+          {
+            displayOrder: 0,
+            isActive: true,
+            label: {
+              code: 'OILY_TENDENCY',
+              name: 'Oily',
+              description: null,
+              vietnameseNormalized: null,
+              isActive: true,
+            },
+          },
+        ],
+      },
+    ]);
+
+    const questions = await service.listQuestions('user-id', 'survey-id');
+    expect(questions.map((q) => q.code)).toEqual([
+      'PRIMARY_CONCERN',
+      'AGE_2635_EARLY_AGING',
+    ]);
   });
 
   it('rejects a label that is not mapped to the answered question', async () => {

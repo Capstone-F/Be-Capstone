@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { e2eTypeOrmConfig } from './e2e-typeorm.config';
-import { DataSource } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 import { LabelMatchType, TimeOfUse } from '../src/ingredients/enums';
 import { Ingredient } from '../src/ingredients/ingredient.entity';
 import { IngredientProtocol } from '../src/ingredients/ingredient-protocol.entity';
@@ -17,6 +17,7 @@ import { Question } from '../src/survey/question.entity';
 import { Customer } from '../src/users/customer.entity';
 import { Gender } from '../src/users/gender.enum';
 import { User } from '../src/users/user.entity';
+import { SURVEY_DEMO_CASES } from '../src/database/seeds/survey-demo-cases';
 
 describe('RuleEngineService (e2e)', () => {
   let moduleFixture: TestingModule;
@@ -467,5 +468,220 @@ describe('RuleEngineService (e2e)', () => {
     );
     expect(result.protocols).toHaveLength(1);
     expect(result.protocols[0].id).toBe(protocol.id);
+  });
+
+  describe('seeded survey demo cases (docs §10.5)', () => {
+    async function seedDemoCatalog(suffix: string): Promise<void> {
+      const ingredientRepo = dataSource.getRepository(Ingredient);
+      const categoryRepo = dataSource.getRepository(LabelCategory);
+      const labelRepo = dataSource.getRepository(Label);
+      const protocolRepo = dataSource.getRepository(IngredientProtocol);
+      const protocolLabelRepo = dataSource.getRepository(ProtocolLabel);
+
+      const ingredient = await ingredientRepo.save(
+        ingredientRepo.create({
+          name: `Demo Catalog Ingredient ${suffix}`,
+          ingredientType: 'vitamin',
+          isActiveIngredient: true,
+        }),
+      );
+
+      const category = await categoryRepo.save(
+        categoryRepo.create({
+          code: `DEMO_CAT_${suffix}`,
+          name: 'Demo Catalog',
+        }),
+      );
+
+      const allLabelCodes = [
+        ...new Set(SURVEY_DEMO_CASES.flatMap((c) => c.labels)),
+        'PREGNANCY',
+      ];
+      const labelsByCode = new Map<string, Label>();
+      for (const code of allLabelCodes) {
+        let label = await labelRepo.findOneBy({ code });
+        if (!label) {
+          label = await labelRepo.save(
+            labelRepo.create({
+              categoryId: category.id,
+              code,
+              name: code,
+              isActive: true,
+            }),
+          );
+        }
+        labelsByCode.set(code, label);
+      }
+
+      const protocolDefs: Array<{
+        code: string;
+        labelCodes: Array<{ code: string; matchType: LabelMatchType }>;
+      }> = [
+        {
+          code: 'retinol_0.3_anti_aging',
+          labelCodes: [
+            { code: 'ANTI_AGING', matchType: LabelMatchType.OPTIONAL },
+            { code: 'REDUCE_WRINKLES', matchType: LabelMatchType.OPTIONAL },
+            { code: 'PREGNANCY', matchType: LabelMatchType.EXCLUDED },
+          ],
+        },
+        {
+          code: 'salicylic_acne',
+          labelCodes: [
+            { code: 'ACNE_TREATMENT', matchType: LabelMatchType.OPTIONAL },
+          ],
+        },
+        {
+          code: 'benzoyl_acne',
+          labelCodes: [
+            { code: 'ACNE_TREATMENT', matchType: LabelMatchType.OPTIONAL },
+          ],
+        },
+        {
+          code: 'treatment_acne_spot',
+          labelCodes: [
+            { code: 'ACNE_TREATMENT', matchType: LabelMatchType.OPTIONAL },
+          ],
+        },
+        {
+          code: 'azelaic_pigmentation',
+          labelCodes: [
+            { code: 'REDUCE_PIGMENTATION', matchType: LabelMatchType.OPTIONAL },
+            { code: 'REDNESS', matchType: LabelMatchType.OPTIONAL },
+            { code: 'REDUCE_REDNESS', matchType: LabelMatchType.OPTIONAL },
+          ],
+        },
+        {
+          code: 'ceramide_barrier',
+          labelCodes: [
+            { code: 'BARRIER_REPAIR', matchType: LabelMatchType.OPTIONAL },
+            { code: 'BARRIER_DAMAGE', matchType: LabelMatchType.OPTIONAL },
+            { code: 'REDUCE_REDNESS', matchType: LabelMatchType.OPTIONAL },
+          ],
+        },
+        {
+          code: 'ha_hydration',
+          labelCodes: [
+            { code: 'HYDRATION', matchType: LabelMatchType.OPTIONAL },
+          ],
+        },
+        {
+          code: 'niacinamide_general',
+          labelCodes: [
+            { code: 'ACNE_TREATMENT', matchType: LabelMatchType.OPTIONAL },
+            { code: 'ANTI_AGING', matchType: LabelMatchType.OPTIONAL },
+            { code: 'EVEN_SKIN_TONE', matchType: LabelMatchType.OPTIONAL },
+          ],
+        },
+        {
+          code: 'cleanser_gentle_foam',
+          labelCodes: [
+            { code: 'BARRIER_REPAIR', matchType: LabelMatchType.OPTIONAL },
+            { code: 'OIL_CONTROL', matchType: LabelMatchType.OPTIONAL },
+            { code: 'REDUCE_REDNESS', matchType: LabelMatchType.OPTIONAL },
+          ],
+        },
+        {
+          code: 'toner_exfoliating',
+          labelCodes: [
+            { code: 'ACNE_TREATMENT', matchType: LabelMatchType.OPTIONAL },
+          ],
+        },
+        {
+          code: 'serum_niacinamide',
+          labelCodes: [
+            { code: 'ACNE_TREATMENT', matchType: LabelMatchType.OPTIONAL },
+            { code: 'EVEN_SKIN_TONE', matchType: LabelMatchType.OPTIONAL },
+          ],
+        },
+        {
+          code: 'moisturizer_barrier',
+          labelCodes: [
+            { code: 'BARRIER_REPAIR', matchType: LabelMatchType.OPTIONAL },
+            { code: 'HYDRATION', matchType: LabelMatchType.OPTIONAL },
+            { code: 'REDUCE_REDNESS', matchType: LabelMatchType.OPTIONAL },
+          ],
+        },
+        {
+          code: 'sunscreen_daily_spf',
+          labelCodes: [
+            { code: 'HIGH_SUN_EXPOSURE', matchType: LabelMatchType.OPTIONAL },
+            { code: 'HYDRATION', matchType: LabelMatchType.OPTIONAL },
+            { code: 'REDUCE_PIGMENTATION', matchType: LabelMatchType.OPTIONAL },
+          ],
+        },
+      ];
+
+      for (const def of protocolDefs) {
+        const protocol = await protocolRepo.save(
+          protocolRepo.create({
+            ingredientId: ingredient.id,
+            code: `${def.code}_${suffix}`,
+            name: def.code,
+            isActive: true,
+          }),
+        );
+        for (const pl of def.labelCodes) {
+          const label = labelsByCode.get(pl.code);
+          if (!label) continue;
+          await protocolLabelRepo.save(
+            protocolLabelRepo.create({
+              protocolId: protocol.id,
+              labelId: label.id,
+              matchType: pl.matchType,
+            }),
+          );
+        }
+      }
+    }
+
+    it('matches expected protocol themes for every demo persona', async () => {
+      const suffix = Math.random().toString(36).slice(2, 8);
+      await seedDemoCatalog(suffix);
+
+      const labelRepo = dataSource.getRepository(Label);
+
+      for (const demoCase of SURVEY_DEMO_CASES) {
+        const labels = await labelRepo.find({
+          where: { code: In(demoCase.labels), isActive: true },
+        });
+        expect(labels.length).toBe(demoCase.labels.length);
+
+        const result = await ruleEngineService.buildRoutineContext(
+          labels.map((label) => label.id),
+        );
+        const matchedBaseCodes = result.protocols.map((p) =>
+          p.code.replace(`_${suffix}`, ''),
+        );
+
+        for (const code of demoCase.expectedProtocolCodes) {
+          expect(matchedBaseCodes).toContain(code);
+        }
+      }
+    });
+
+    it('excludes retinol when PREGNANCY is present on anti-aging persona', async () => {
+      const suffix = Math.random().toString(36).slice(2, 8);
+      await seedDemoCatalog(suffix);
+
+      const antiAging = SURVEY_DEMO_CASES.find((c) => c.name === 'Anti-aging')!;
+      const labelRepo = dataSource.getRepository(Label);
+      const labels = await labelRepo.find({
+        where: {
+          code: In([...antiAging.labels, 'PREGNANCY']),
+          isActive: true,
+        },
+      });
+
+      const result = await ruleEngineService.buildRoutineContext(
+        labels.map((label) => label.id),
+      );
+      const matchedBaseCodes = result.protocols.map((p) =>
+        p.code.replace(`_${suffix}`, ''),
+      );
+
+      expect(matchedBaseCodes).not.toContain('retinol_0.3_anti_aging');
+      expect(matchedBaseCodes).toContain('niacinamide_general');
+    });
   });
 });
