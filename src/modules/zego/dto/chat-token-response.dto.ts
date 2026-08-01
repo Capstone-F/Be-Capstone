@@ -7,9 +7,6 @@ export class ChatTokenResponseDto {
   @ApiProperty({ example: '04AAAA...' })
   token!: string;
 
-  @ApiProperty({ example: '04AAAA...', required: false })
-  peerToken?: string;
-
   @ApiProperty({ example: 'u_882' })
   userID!: string;
 

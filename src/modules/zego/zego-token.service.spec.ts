@@ -140,25 +140,15 @@ describe('ZegoTokenService', () => {
       expect(result).toEqual({
         appID: 123456,
         token: '04AAAA_test_token',
-        peerToken: '04AAAA_test_token',
         userID: zimCustomerUserId,
         userName: 'Nguyen Van A',
         peerUserID: zimExpertUserId,
         peerUserName: 'Dr. Tran B',
       });
-      expect(generateToken04Spy).toHaveBeenCalledTimes(2);
-      expect(generateToken04Spy).toHaveBeenNthCalledWith(
-        1,
+      expect(generateToken04Spy).toHaveBeenCalledTimes(1);
+      expect(generateToken04Spy).toHaveBeenCalledWith(
         123456,
         zimCustomerUserId,
-        config.zegoServerSecret,
-        7200,
-        '',
-      );
-      expect(generateToken04Spy).toHaveBeenNthCalledWith(
-        2,
-        123456,
-        zimExpertUserId,
         config.zegoServerSecret,
         7200,
         '',
@@ -171,25 +161,15 @@ describe('ZegoTokenService', () => {
       expect(result).toEqual({
         appID: 123456,
         token: '04AAAA_test_token',
-        peerToken: '04AAAA_test_token',
         userID: zimExpertUserId,
         userName: 'Dr. Tran B',
         peerUserID: zimCustomerUserId,
         peerUserName: 'Nguyen Van A',
       });
-      expect(generateToken04Spy).toHaveBeenCalledTimes(2);
-      expect(generateToken04Spy).toHaveBeenNthCalledWith(
-        1,
+      expect(generateToken04Spy).toHaveBeenCalledTimes(1);
+      expect(generateToken04Spy).toHaveBeenCalledWith(
         123456,
         zimExpertUserId,
-        config.zegoServerSecret,
-        7200,
-        '',
-      );
-      expect(generateToken04Spy).toHaveBeenNthCalledWith(
-        2,
-        123456,
-        zimCustomerUserId,
         config.zegoServerSecret,
         7200,
         '',

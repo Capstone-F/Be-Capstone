@@ -3542,13 +3542,12 @@ describe('BE Capstone API (e2e)', () => {
           .set('Cookie', sid)
           .expect(200);
 
-        // ZIM userIDs are hyphen-stripped (≤32 bytes); peerToken is minted for the peer.
+        // ZIM userIDs are hyphen-stripped (≤32 bytes).
         const zimCustomerUserId = customerUser.id.replace(/-/g, '');
         const zimExpertUserId = expertUser.id.replace(/-/g, '');
         expect(chat.body).toEqual({
           appID: 123456,
           token: expect.stringMatching(/^04/),
-          peerToken: expect.stringMatching(/^04/),
           userID: zimCustomerUserId,
           userName: 'Realtime Customer',
           peerUserID: zimExpertUserId,
@@ -3577,7 +3576,6 @@ describe('BE Capstone API (e2e)', () => {
         expect(body.peerUserID).toBe(zimCustomerUserId);
         expect(body.peerUserName).toBe('Realtime Customer');
         expect(body.token).toMatch(/^04/);
-        expect(body.peerToken).toMatch(/^04/);
       });
 
       it('should forbid a user who is not on the booking', async () => {

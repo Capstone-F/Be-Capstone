@@ -124,14 +124,6 @@ export class ZegoTokenService {
       '',
     );
 
-    const peerToken = generateToken04(
-      appID,
-      zimPeerUserId,
-      serverSecret,
-      TOKEN_TTL_SECONDS,
-      '',
-    );
-
     const users = await this.userRepository.find({
       where: { id: In([userId, peerUserID]) },
     });
@@ -142,7 +134,6 @@ export class ZegoTokenService {
     return {
       appID,
       token,
-      peerToken,
       userID: zimUserId,
       userName: nameById.get(userId) || userId,
       peerUserID: zimPeerUserId,
