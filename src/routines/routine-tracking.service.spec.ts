@@ -206,6 +206,7 @@ describe('RoutineTrackingService', () => {
       ).toBe(true);
       expect(result.routines[0].steps[0].warning).toBeNull();
       expect(result.routines[0].steps[0].remainingMl).toBeNull();
+      expect(result.routines[0].steps[0].daysLeft).toBeNull();
     });
 
     it('warns LOW from on-the-fly stock estimate and clears after repurchase', async () => {
@@ -240,11 +241,11 @@ describe('RoutineTrackingService', () => {
       };
       routineRepository.find.mockResolvedValue([routine]);
 
-      // 24 completed uses of 1ml on 30ml → 6ml left → LOW
+      // 25 completed uses of 1ml on 30ml → 5ml left → 5 days → LOW
       completionRepository.find
         .mockResolvedValueOnce([]) // session completions
         .mockResolvedValueOnce(
-          Array.from({ length: 24 }, (_, i) => ({
+          Array.from({ length: 25 }, (_, i) => ({
             routineStepId: 'step-stock',
             status: StepCompletionStatus.COMPLETED,
             id: `c-${i}`,
@@ -262,7 +263,8 @@ describe('RoutineTrackingService', () => {
 
       const low = await service.getToday('user-1', RoutinePeriod.MORNING, now);
       expect(low.routines[0].steps[0].warning).toBe(StockWarningLevel.LOW);
-      expect(low.routines[0].steps[0].remainingMl).toBe(6);
+      expect(low.routines[0].steps[0].remainingMl).toBe(5);
+      expect(low.routines[0].steps[0].daysLeft).toBe(5);
       expect(low.routines[0].steps[0].productVariant).toEqual({
         id: 'var-1',
         productId: 'prod-1',
@@ -274,7 +276,7 @@ describe('RoutineTrackingService', () => {
       // Second PAID order restores stock
       routineRepository.find.mockResolvedValue([routine]);
       completionRepository.find.mockResolvedValueOnce([]).mockResolvedValueOnce(
-        Array.from({ length: 24 }, (_, i) => ({
+        Array.from({ length: 25 }, (_, i) => ({
           routineStepId: 'step-stock',
           status: StepCompletionStatus.COMPLETED,
           id: `c-${i}`,
@@ -297,7 +299,8 @@ describe('RoutineTrackingService', () => {
 
       const ok = await service.getToday('user-1', RoutinePeriod.MORNING, now);
       expect(ok.routines[0].steps[0].warning).toBeNull();
-      expect(ok.routines[0].steps[0].remainingMl).toBe(36);
+      expect(ok.routines[0].steps[0].remainingMl).toBe(35);
+      expect(ok.routines[0].steps[0].daysLeft).toBe(35);
     });
 
     it('shares the same stock warning for AM and PM when variant matches', async () => {
@@ -358,7 +361,7 @@ describe('RoutineTrackingService', () => {
         },
       ]);
 
-      // Uneven usage: AM 20 completes, PM 5 → still one shared remaining (30 - 25 = 5 → LOW)
+      // Uneven usage: AM 20 completes, PM 5 → shared remaining 5ml; dailyUsage 2 → 2 days → LOW
       completionRepository.find
         .mockResolvedValueOnce([]) // session
         .mockResolvedValueOnce([
@@ -380,6 +383,7 @@ describe('RoutineTrackingService', () => {
         now,
       );
       expect(morning.routines[0].steps[0].remainingMl).toBe(5);
+      expect(morning.routines[0].steps[0].daysLeft).toBe(2);
       expect(morning.routines[0].steps[0].warning).toBe(StockWarningLevel.LOW);
 
       routineRepository.find.mockResolvedValue([routine]);
@@ -412,6 +416,7 @@ describe('RoutineTrackingService', () => {
         now,
       );
       expect(evening.routines[0].steps[0].remainingMl).toBe(5);
+      expect(evening.routines[0].steps[0].daysLeft).toBe(2);
       expect(evening.routines[0].steps[0].warning).toBe(StockWarningLevel.LOW);
     });
 
@@ -481,6 +486,7 @@ describe('RoutineTrackingService', () => {
         now,
       );
       expect(result.routines[0].steps[0].remainingMl).toBe(30);
+      expect(result.routines[0].steps[0].daysLeft).toBe(15);
       expect(result.routines[0].steps[0].warning).toBeNull();
     });
   });

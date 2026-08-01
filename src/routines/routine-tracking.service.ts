@@ -701,8 +701,9 @@ export class RoutineTrackingService {
       ? (stock.estimateByVariant.get(variantId) ?? {
           warning: null,
           remainingMl: null,
+          daysLeft: null,
         })
-      : { warning: null, remainingMl: null };
+      : { warning: null, remainingMl: null, daysLeft: null };
 
     return {
       id: step.id,
@@ -717,6 +718,7 @@ export class RoutineTrackingService {
       productVariant,
       warning: estimate.warning,
       remainingMl: estimate.remainingMl,
+      daysLeft: estimate.daysLeft,
     };
   }
 
@@ -726,6 +728,7 @@ export class RoutineTrackingService {
     completedCountByStep: Map<string, number>,
   ): StockContext {
     const usedMlByVariant = new Map<string, number>();
+    const dailyUsageMlByVariant = new Map<string, number>();
     const canTrackByVariant = new Map<string, boolean>();
     const bottleMlByVariant = new Map<string, number | null>();
 
@@ -751,6 +754,10 @@ export class RoutineTrackingService {
       }
 
       canTrackByVariant.set(variantId, true);
+      dailyUsageMlByVariant.set(
+        variantId,
+        (dailyUsageMlByVariant.get(variantId) ?? 0) + (amountMl as number),
+      );
       const completedCount = completedCountByStep.get(step.id) ?? 0;
       usedMlByVariant.set(
         variantId,
@@ -791,6 +798,7 @@ export class RoutineTrackingService {
           bottleMl: bottleMlByVariant.get(variantId) ?? null,
           purchasedQty: purchasedQtyByVariant.get(variantId) ?? 0,
           usedMl: usedMlByVariant.get(variantId) ?? 0,
+          dailyUsageMl: dailyUsageMlByVariant.get(variantId) ?? 0,
           canTrackUsage: canTrackByVariant.get(variantId) === true,
         }),
       );

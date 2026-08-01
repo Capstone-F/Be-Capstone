@@ -66,7 +66,7 @@ export class TodayStepDto {
     enum: StockWarningLevel,
     nullable: true,
     description:
-      'LOW when remaining ≤20% of purchased share; EMPTY when depleted. null when estimate unavailable or stock is fine.',
+      'LOW when daysLeft ≤5; EMPTY when depleted. null when estimate unavailable or daysLeft >5.',
   })
   warning!: StockWarningLevel | null;
 
@@ -76,6 +76,13 @@ export class TodayStepDto {
       'Estimated remaining ml for this step share; null when estimate unavailable',
   })
   remainingMl!: number | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Estimated whole days of scheduled use left for this variant; null when estimate unavailable',
+  })
+  daysLeft!: number | null;
 
   @ApiProperty({ enum: StepSessionStatus })
   status!: StepSessionStatus;

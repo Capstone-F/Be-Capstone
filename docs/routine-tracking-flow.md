@@ -189,20 +189,22 @@ Top-level Today aggregation when routines exist:
 On-the-fly estimate (no forecast table writes):
 
 ```
-purchasedMl = parseMl(variant.volume) × Σ qty from customer PAID+ orders
-              for that productVariantId since routine.createdAt
-usedMl      = Σ (COMPLETED completions × amountMl) across ALL steps
-              that share the same productVariantId (morning + evening)
-remainingMl = max(0, purchasedMl - usedMl)
+purchasedMl  = parseMl(variant.volume) × Σ qty from customer PAID+ orders
+               for that productVariantId since routine.createdAt
+usedMl       = Σ (COMPLETED completions × amountMl) across ALL steps
+               that share the same productVariantId (morning + evening)
+remainingMl  = max(0, purchasedMl - usedMl)
+dailyUsageMl = Σ amountMl of all routine steps linked to that variant
+daysLeft     = remainingMl <= 0 ? 0 : floor(remainingMl / dailyUsageMl)
 ```
 
-When morning and evening use the **same** `productVariantId`, they share **one** bottle estimate — both steps return the same `warning` and `remainingMl`.
+When morning and evening use the **same** `productVariantId`, they share **one** bottle estimate — both steps return the same `warning`, `remainingMl`, and `daysLeft`.
 
-| `warning` | When                                          |
-| --------- | --------------------------------------------- |
-| `null`    | Cannot estimate, or remaining > 20% of bottle |
-| `LOW`     | Remaining ≤ 20% of purchased volume           |
-| `EMPTY`   | Remaining ≤ 0                                 |
+| `warning` | When                             |
+| --------- | -------------------------------- |
+| `null`    | Cannot estimate, or daysLeft > 5 |
+| `LOW`     | daysLeft ≤ 5 and remainingMl > 0 |
+| `EMPTY`   | Remaining ≤ 0                    |
 
 `productVariant.productId` is the catalog product id for `GET /products/:id`. `productVariant.id` is the variant id for `POST /cart/items`.
 
@@ -253,9 +255,9 @@ Authorization: Bearer <accessToken>
 2. If `sessionState === EMPTY` → empty CTA.
 3. Else render each `routines[]` card: title, progress bar (`completedCount/totalCount`), step list with status chips.
 4. “Bắt đầu” / tap step → Step Detail (local navigation using step payload: `instructions`, `dosageText`, `waitMinutes`, `productVariant`).
-5. **Stock / buy-again warning** — for each step, read `warning` and `remainingMl`:
-   - `warning === null` → no reorder UI (estimate unavailable, or stock is fine).
-   - `warning === "LOW"` → show soft “sắp hết / mua lại” prompt (optional: show `remainingMl`).
+5. **Stock / buy-again warning** — for each step, read `warning`, `daysLeft`, and `remainingMl`:
+   - `warning === null` → no reorder UI (estimate unavailable, or daysLeft > 5).
+   - `warning === "LOW"` → show soft “sắp hết / mua lại” prompt (optional: show `daysLeft` / `remainingMl`).
    - `warning === "EMPTY"` → show stronger empty / reorder CTA.
 6. **Buy-again flow** (reuse ecommerce APIs — see [ecommerce-flow.md](ecommerce-flow.md)):
    1. Use `steps[].productVariant.productId` → `GET /products/:id` to open product detail / suggest repurchase.
@@ -413,6 +415,7 @@ Returns step outcomes + optional check-in snapshot for that date/period.
           },
           "warning": "LOW",
           "remainingMl": 4.5,
+          "daysLeft": 3,
           "status": "COMPLETED",
           "completedAt": "2026-07-22T03:15:00.000Z",
           "skipReason": null,
@@ -501,14 +504,14 @@ EMPTY ──(has ACTIVE)──▶ NOT_STARTED ──(first tick)──▶ IN_PRO
 
 ## 10. Out of scope / later
 
-| Topic                                                     | Status                                                                             |
-| --------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Cron job to materialize MISSED rows                       | ❌ On-read derivation is enough for MVP                                            |
-| Backdating completions / check-ins                        | ❌ Rejected in MVP                                                                 |
-| Expert override / locked ingredients alerts from check-in | ❌ Treatment module later                                                          |
-| Support habits / reorder forecasts table                  | ❌ Schema exists; unused — Today uses on-the-fly `warning` / `remainingMl` instead |
-| Product images on steps                                   | ✅ `imageUrl` from `product_variants.imageUrl`                                     |
-| Low-stock / buy-again on Today                            | ✅ `warning` + `remainingMl` + `productVariant.productId`                          |
+| Topic                                                     | Status                                                                                          |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Cron job to materialize MISSED rows                       | ❌ On-read derivation is enough for MVP                                                         |
+| Backdating completions / check-ins                        | ❌ Rejected in MVP                                                                              |
+| Expert override / locked ingredients alerts from check-in | ❌ Treatment module later                                                                       |
+| Support habits / reorder forecasts table                  | ❌ Schema exists; unused — Today uses on-the-fly `warning` / `remainingMl` / `daysLeft` instead |
+| Product images on steps                                   | ✅ `imageUrl` from `product_variants.imageUrl`                                                  |
+| Low-stock / buy-again on Today                            | ✅ `warning` + `daysLeft` + `remainingMl` + `productVariant.productId`                          |
 
 ---
 
