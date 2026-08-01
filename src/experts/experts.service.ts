@@ -308,6 +308,40 @@ export class ExpertsService {
     return this.toResponse(reloaded, null);
   }
 
+  async upsertOwnConsultationFee(
+    userId: string,
+    consultationFee: number,
+  ): Promise<ExpertResponseDto> {
+    const expert = await this.expertRepository.findOne({
+      where: { userId },
+      relations: ['user', 'clinic'],
+    });
+    if (!expert) {
+      throw new NotFoundException('Expert profile not found for current user');
+    }
+
+    expert.consultationFee = consultationFee;
+    await this.expertRepository.save(expert);
+
+    const reloaded = await this.requireExpert(expert.id);
+    return this.toResponse(reloaded, null);
+  }
+
+  async upsertConsultationFee(
+    caller: CallerContext,
+    expertId: string,
+    consultationFee: number,
+  ): Promise<ExpertResponseDto> {
+    const expert = await this.requireExpert(expertId);
+    this.assertCallerCanManageConsultationFee(caller, expert);
+
+    expert.consultationFee = consultationFee;
+    await this.expertRepository.save(expert);
+
+    const reloaded = await this.requireExpert(expertId);
+    return this.toResponse(reloaded, null);
+  }
+
   private async requireExpert(id: string): Promise<Expert> {
     const expert = await this.expertRepository.findOne({
       where: { id },
@@ -375,6 +409,37 @@ export class ExpertsService {
         );
       }
     }
+  }
+
+  private assertCallerCanManageConsultationFee(
+    caller: CallerContext,
+    expert: Expert,
+  ): void {
+    if (hasAnyRole(caller.roles, [Role.AppAdmin])) {
+      return;
+    }
+
+    if (hasAnyRole(caller.roles, [Role.ClinicManager])) {
+      if (!caller.clinicId || expert.clinicId !== caller.clinicId) {
+        throw new ForbiddenException(
+          'Clinic manager can only manage consultation fees for experts in their clinic',
+        );
+      }
+      return;
+    }
+
+    if (hasAnyRole(caller.roles, [Role.Expert])) {
+      if (expert.userId !== caller.userId) {
+        throw new ForbiddenException(
+          'Experts can only manage their own consultation fee',
+        );
+      }
+      return;
+    }
+
+    throw new ForbiddenException(
+      'Insufficient permissions to manage consultation fee',
+    );
   }
 
   private buildBaseQuery(query: ListExpertsQueryDto) {

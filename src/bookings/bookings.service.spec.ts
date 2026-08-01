@@ -210,9 +210,9 @@ describe('BookingsService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('should return empty slots when expert has no availability', async () => {
+    it('should open all-day slots when expert has no availability configured', async () => {
       const { service } = makeService({
-        expert: makeExpert(),
+        expert: makeExpert({ sessionLengthHours: 2 }),
         availability: [],
       });
 
@@ -224,7 +224,11 @@ describe('BookingsService', () => {
       expect(result.expertId).toBe('expert-1');
       expect(result.sessionLengthHours).toBe(2);
       expect(result.range).toBe(BookingRange.WEEK);
-      expect(result.days.every((d) => d.slots.length === 0)).toBe(true);
+      // sessionLengthHours=2 → starts 0..22 (23 slots) every day
+      expect(result.days.every((d) => d.slots.length === 23)).toBe(true);
+      const tuesday = result.days.find((d) => d.date === '2026-07-07')!;
+      expect(new Date(tuesday.slots[0].startAt).getUTCHours()).toBe(0);
+      expect(new Date(tuesday.slots.at(-1)!.startAt).getUTCHours()).toBe(22);
     });
 
     it('should generate hourly-stepped slots for availability blocks', async () => {
@@ -411,16 +415,32 @@ describe('BookingsService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('should throw BadRequestException when scheduledAt is outside availability', async () => {
-      const { service } = makeService({
+    it('should allow booking any top-of-hour slot when expert has no availability configured', async () => {
+      const { service, consultationRepo } = makeService({
         expert: makeExpert(),
         availability: [],
+      });
+
+      const result = await service.createBooking('user-customer-1', {
+        expertId: 'expert-1',
+        scheduledAt: FUTURE_SLOT,
+      });
+
+      expect(consultationRepo.save).toHaveBeenCalled();
+      expect(result.status).toBe(ConsultationStatus.PENDING);
+    });
+
+    it('should throw BadRequestException when scheduledAt is outside configured availability', async () => {
+      const { service } = makeService({
+        expert: makeExpert(),
+        availability: wednesdayAvailability,
       });
 
       await expect(
         service.createBooking('user-customer-1', {
           expertId: 'expert-1',
-          scheduledAt: FUTURE_SLOT,
+          // Wednesday block is 09–18; 20:00 is outside
+          scheduledAt: '2030-01-09T20:00:00.000Z',
         }),
       ).rejects.toThrow(BadRequestException);
     });

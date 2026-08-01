@@ -256,7 +256,8 @@ export class BookingsController {
     summary: 'List available booking slots for an expert',
     description:
       'Returns hourly-stepped consultation slots for the week or month containing the anchor date. ' +
-      'Each slot spans the expert sessionLengthHours. Slots overlapping active bookings are marked unavailable.',
+      'Each slot spans the expert sessionLengthHours. Slots overlapping active bookings are marked unavailable. ' +
+      'When the expert has no availability blocks configured, every UTC hour is treated as open.',
   })
   @ApiOkResponse({ type: AvailableSlotsResponseDto })
   @ApiNotFoundResponse({ description: 'Expert not found' })

@@ -466,6 +466,8 @@ export class BookingsService {
     const availability = await this.availabilityRepository.find({
       where: { expertId },
     });
+    // No configured windows → expert is open all day, every day (UTC 0–24).
+    const openAllHours = availability.length === 0;
 
     const availabilityByDay = new Map<number, ExpertAvailability[]>();
     for (const row of availability) {
@@ -483,7 +485,9 @@ export class BookingsService {
 
     const days: DaySlotsDto[] = [];
     for (const date of enumerateDates(from, to)) {
-      const blocks = availabilityByDay.get(date.getUTCDay()) ?? [];
+      const blocks = openAllHours
+        ? [{ startHour: 0, endHour: 24 }]
+        : (availabilityByDay.get(date.getUTCDay()) ?? []);
       const candidateSlots: TimeWindow[] = [];
 
       for (const block of blocks) {
@@ -536,9 +540,14 @@ export class BookingsService {
     const dayOfWeek = scheduledAt.getUTCDay();
     const startHour = scheduledAt.getUTCHours();
 
-    const blocks = await this.availabilityRepository.find({
-      where: { expertId: expert.id, dayOfWeek },
+    const allBlocks = await this.availabilityRepository.find({
+      where: { expertId: expert.id },
     });
+    // No configured windows → treat every UTC hour as available.
+    const blocks =
+      allBlocks.length === 0
+        ? [{ startHour: 0, endHour: 24 }]
+        : allBlocks.filter((block) => block.dayOfWeek === dayOfWeek);
 
     const candidateSlots: TimeWindow[] = [];
     for (const block of blocks) {
