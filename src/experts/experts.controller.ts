@@ -5,8 +5,10 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   UnauthorizedException,
@@ -34,6 +36,7 @@ import { CallerContext } from '../users/users.service';
 import { CreateExpertDto } from './dto/create-expert.dto';
 import { UpdateExpertDto } from './dto/update-expert.dto';
 import { UpdateOwnExpertAvatarDto } from './dto/update-own-expert-avatar.dto';
+import { UpsertExpertConsultationFeeDto } from './dto/upsert-expert-consultation-fee.dto';
 import { ListExpertsQueryDto } from './dto/list-experts.dto';
 import { ListExpertFeedbacksQueryDto } from './dto/list-expert-feedbacks.dto';
 import { PaginatedExpertFeedbacksDto } from './dto/expert-feedback-response.dto';
@@ -45,10 +48,8 @@ import { ExpertsService } from './experts.service';
 
 @ApiTags('Experts')
 @Controller('experts')
-@UseGuards(SessionGuard)
 @ApiCookieAuth()
 @ApiBearerAuth()
-@ApiUnauthorizedResponse({ description: 'Not authenticated' })
 export class ExpertsController {
   constructor(private readonly expertsService: ExpertsService) {}
 
@@ -56,7 +57,7 @@ export class ExpertsController {
   @ApiOperation({
     summary: 'List available experts',
     description:
-      'Filter by specialization, rating, consultation fee, and distance from client location.',
+      'Public. Filter by specialization, rating, consultation fee, and distance from client location.',
   })
   @ApiOkResponse({ type: PaginatedExpertsDto })
   list(@Query() query: ListExpertsQueryDto) {
@@ -64,7 +65,7 @@ export class ExpertsController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
+  @UseGuards(SessionGuard, RolesGuard)
   @Roles(Role.AppAdmin, Role.ClinicManager)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -73,6 +74,7 @@ export class ExpertsController {
       'Creates a clinic-bound expert profile for an existing user with the expert role. clinicId is required.',
   })
   @ApiCreatedResponse({ type: ExpertResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Not authenticated' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   @ApiConflictResponse({ description: 'Expert profile already exists' })
   @ApiNotFoundResponse({ description: 'User or clinic not found' })
@@ -81,7 +83,7 @@ export class ExpertsController {
   }
 
   @Get('me')
-  @UseGuards(RolesGuard)
+  @UseGuards(SessionGuard, RolesGuard)
   @Roles(Role.Expert)
   @ApiOperation({
     summary: 'Get own expert profile',
@@ -89,6 +91,7 @@ export class ExpertsController {
       'Returns the clinic-bound expert profile for the authenticated expert.',
   })
   @ApiOkResponse({ type: ExpertResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Not authenticated' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   @ApiNotFoundResponse({ description: 'Expert profile not found' })
   getMe(@Req() req: Request) {
@@ -96,7 +99,7 @@ export class ExpertsController {
   }
 
   @Patch('me')
-  @UseGuards(RolesGuard)
+  @UseGuards(SessionGuard, RolesGuard)
   @Roles(Role.Expert)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -105,6 +108,7 @@ export class ExpertsController {
       'Sets avatarUrl on the authenticated expert profile (typically after POST /uploads/images).',
   })
   @ApiOkResponse({ type: ExpertResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Not authenticated' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   @ApiNotFoundResponse({ description: 'Expert profile not found' })
   updateMe(@Req() req: Request, @Body() body: UpdateOwnExpertAvatarDto) {
@@ -114,8 +118,34 @@ export class ExpertsController {
     );
   }
 
+  @Put('me/consultation-fee')
+  @UseGuards(SessionGuard, RolesGuard)
+  @Roles(Role.Expert)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Upsert own consultation fee',
+    description:
+      'Sets the authenticated expert consultation fee in VND (create-or-replace on the profile field).',
+  })
+  @ApiOkResponse({ type: ExpertResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Not authenticated' })
+  @ApiForbiddenResponse({ description: 'Insufficient permissions' })
+  @ApiNotFoundResponse({ description: 'Expert profile not found' })
+  upsertOwnConsultationFee(
+    @Req() req: Request,
+    @Body() body: UpsertExpertConsultationFeeDto,
+  ) {
+    return this.expertsService.upsertOwnConsultationFee(
+      this.requireUserId(req),
+      body.consultationFee,
+    );
+  }
+
   @Get(':id')
-  @ApiOperation({ summary: 'Get expert by id' })
+  @ApiOperation({
+    summary: 'Get expert by id',
+    description: 'Public. Returns clinic-bound expert profile details.',
+  })
   @ApiOkResponse({ type: ExpertResponseDto })
   @ApiNotFoundResponse({ description: 'Expert not found' })
   getById(@Param('id') id: string) {
@@ -123,12 +153,14 @@ export class ExpertsController {
   }
 
   @Get(':id/feedbacks')
+  @UseGuards(SessionGuard)
   @ApiOperation({
     summary: 'Get feedbacks and ratings by expert id',
     description:
       'Returns paginated customer feedback for consultations with this expert, plus average rating and rating count.',
   })
   @ApiOkResponse({ type: PaginatedExpertFeedbacksDto })
+  @ApiUnauthorizedResponse({ description: 'Not authenticated' })
   @ApiNotFoundResponse({ description: 'Expert not found' })
   getFeedbacks(
     @Param('id') id: string,
@@ -137,8 +169,33 @@ export class ExpertsController {
     return this.expertsService.findFeedbacksByExpertId(id, query);
   }
 
+  @Put(':id/consultation-fee')
+  @UseGuards(SessionGuard, RolesGuard)
+  @Roles(Role.Expert, Role.ClinicManager, Role.AppAdmin)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Upsert expert consultation fee',
+    description:
+      'Sets consultation fee in VND. Accessible by the expert themselves, their clinic manager, or an app admin.',
+  })
+  @ApiOkResponse({ type: ExpertResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Not authenticated' })
+  @ApiForbiddenResponse({ description: 'Insufficient permissions' })
+  @ApiNotFoundResponse({ description: 'Expert not found' })
+  upsertConsultationFee(
+    @Req() req: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: UpsertExpertConsultationFeeDto,
+  ) {
+    return this.expertsService.upsertConsultationFee(
+      this.buildCallerContext(req),
+      id,
+      body.consultationFee,
+    );
+  }
+
   @Patch(':id')
-  @UseGuards(RolesGuard)
+  @UseGuards(SessionGuard, RolesGuard)
   @Roles(Role.AppAdmin, Role.ClinicManager)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -147,6 +204,7 @@ export class ExpertsController {
       'Updates expert profile fields. clinicId cannot be cleared; activation requires a clinic.',
   })
   @ApiOkResponse({ type: ExpertResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Not authenticated' })
   @ApiForbiddenResponse({ description: 'Insufficient permissions' })
   @ApiNotFoundResponse({ description: 'Expert not found' })
   update(

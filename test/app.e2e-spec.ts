@@ -1852,8 +1852,15 @@ describe('BE Capstone API (e2e)', () => {
     }
 
     describe('GET /experts', () => {
-      it('should return 401 without session cookie', async () => {
-        await request(app.getHttpServer()).get('/experts').expect(401);
+      it('should allow unauthenticated access', async () => {
+        await seedExpert({ name: 'Public List Expert' });
+
+        const { body } = await request(app.getHttpServer())
+          .get('/experts?page=1&limit=10')
+          .expect(200);
+
+        expect(body.total).toBeGreaterThanOrEqual(1);
+        expect(Array.isArray(body.items)).toBe(true);
       });
 
       it('should return paginated experts for authenticated user', async () => {
@@ -1975,16 +1982,20 @@ describe('BE Capstone API (e2e)', () => {
     });
 
     describe('GET /experts/:id', () => {
-      it('should return 401 without session cookie', async () => {
-        await request(app.getHttpServer())
-          .get('/experts/00000000-0000-0000-0000-000000000001')
-          .expect(401);
+      it('should allow unauthenticated access', async () => {
+        const expert = await seedExpert({ name: 'Public Detail Expert' });
+
+        const { body } = await request(app.getHttpServer())
+          .get(`/experts/${expert.id}`)
+          .expect(200);
+
+        expect(body.id).toBe(expert.id);
+        expect(body.name).toBe('Public Detail Expert');
       });
 
       it('should return 404 when expert does not exist', async () => {
         await request(app.getHttpServer())
           .get('/experts/00000000-0000-0000-0000-000000000099')
-          .set('Cookie', customerSid)
           .expect(404);
       });
 
@@ -2091,7 +2102,6 @@ describe('BE Capstone API (e2e)', () => {
 
         const experts = await request(app.getHttpServer())
           .get(`/clinics/${expert.clinicId}/experts`)
-          .set('Cookie', customerSid)
           .expect(200);
 
         expect(experts.body.total).toBeGreaterThanOrEqual(1);

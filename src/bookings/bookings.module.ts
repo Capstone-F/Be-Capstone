@@ -11,7 +11,9 @@ import { Expert } from '../users/expert.entity';
 import { WalletModule } from '../wallet/wallet.module';
 import { BookingsController } from './bookings.controller';
 import { BookingsService } from './bookings.service';
+import { ExpertAvailabilityController } from './expert-availability.controller';
 import { ExpertAvailability } from './expert-availability.entity';
+import { ExpertAvailabilityService } from './expert-availability.service';
 
 @Module({
   imports: [
@@ -26,8 +28,13 @@ import { ExpertAvailability } from './expert-availability.entity';
     AuthModule,
     WalletModule,
   ],
-  controllers: [BookingsController],
-  providers: [BookingsService, SessionGuard, RolesGuard],
-  exports: [BookingsService],
+  controllers: [BookingsController, ExpertAvailabilityController],
+  providers: [
+    BookingsService,
+    ExpertAvailabilityService,
+    SessionGuard,
+    RolesGuard,
+  ],
+  exports: [BookingsService, ExpertAvailabilityService],
 })
 export class BookingsModule {}

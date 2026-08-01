@@ -523,6 +523,113 @@ describe('ExpertsService', () => {
     });
   });
 
+  describe('upsertOwnConsultationFee', () => {
+    it('should set consultation fee for the authenticated expert', async () => {
+      const { service, expertRepo } = makeService({});
+      (expertRepo.findOne as jest.Mock)
+        .mockResolvedValueOnce(makeExpert())
+        .mockResolvedValueOnce(makeExpert({ consultationFee: 450000 }));
+      (expertRepo.save as jest.Mock).mockImplementation(async (e) => e);
+
+      const result = await service.upsertOwnConsultationFee('user-1', 450000);
+
+      expect(expertRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ consultationFee: 450000 }),
+      );
+      expect(result.consultationFee).toBe(450000);
+    });
+
+    it('should throw when expert profile is missing', async () => {
+      const { service, expertRepo } = makeService({});
+      (expertRepo.findOne as jest.Mock).mockResolvedValue(null);
+
+      await expect(
+        service.upsertOwnConsultationFee('user-1', 450000),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('upsertConsultationFee', () => {
+    const expertCaller: CallerContext = {
+      userId: 'user-1',
+      roles: [Role.Expert],
+      clinicId: 'clinic-1',
+    };
+
+    it('should allow admin to upsert any expert fee', async () => {
+      const { service, expertRepo } = makeService({ findOne: makeExpert() });
+      (expertRepo.findOne as jest.Mock)
+        .mockResolvedValueOnce(makeExpert())
+        .mockResolvedValueOnce(makeExpert({ consultationFee: 500000 }));
+
+      const result = await service.upsertConsultationFee(
+        adminCaller,
+        'expert-1',
+        500000,
+      );
+
+      expect(result.consultationFee).toBe(500000);
+    });
+
+    it('should allow clinic manager for experts in their clinic', async () => {
+      const { service, expertRepo } = makeService({ findOne: makeExpert() });
+      (expertRepo.findOne as jest.Mock)
+        .mockResolvedValueOnce(makeExpert())
+        .mockResolvedValueOnce(makeExpert({ consultationFee: 350000 }));
+
+      const result = await service.upsertConsultationFee(
+        managerCaller,
+        'expert-1',
+        350000,
+      );
+
+      expect(result.consultationFee).toBe(350000);
+    });
+
+    it('should forbid clinic manager for experts in another clinic', async () => {
+      const { service } = makeService({
+        findOne: makeExpert({ clinicId: 'other-clinic' }),
+      });
+
+      await expect(
+        service.upsertConsultationFee(managerCaller, 'expert-1', 350000),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should allow expert to upsert own fee', async () => {
+      const { service, expertRepo } = makeService({ findOne: makeExpert() });
+      (expertRepo.findOne as jest.Mock)
+        .mockResolvedValueOnce(makeExpert())
+        .mockResolvedValueOnce(makeExpert({ consultationFee: 280000 }));
+
+      const result = await service.upsertConsultationFee(
+        expertCaller,
+        'expert-1',
+        280000,
+      );
+
+      expect(result.consultationFee).toBe(280000);
+    });
+
+    it('should forbid expert from upserting another expert fee', async () => {
+      const { service } = makeService({
+        findOne: makeExpert({ userId: 'other-user' }),
+      });
+
+      await expect(
+        service.upsertConsultationFee(expertCaller, 'expert-1', 280000),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should throw when expert is missing', async () => {
+      const { service } = makeService({ findOne: null });
+
+      await expect(
+        service.upsertConsultationFee(adminCaller, 'missing', 300000),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('findFeedbacksByExpertId', () => {
     it('should return paginated feedbacks with average rating', async () => {
       const feedback = {
