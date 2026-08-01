@@ -264,44 +264,29 @@ export type StepStockEstimate = {
 };
 
 /**
- * On-the-fly remaining volume for one routine step.
- * When several steps share a variant, purchased ml is split by daily amountMl share.
+ * On-the-fly remaining volume for a product variant (shared across AM/PM steps).
+ * Same productVariantId → same warning / remainingMl on every linked step.
  */
-export function estimateStepStock(params: {
+export function estimateVariantStock(params: {
   bottleMl: number | null;
   purchasedQty: number;
-  amountMl: number | null;
-  completedCount: number;
-  dailyMlForVariant: number;
+  /** Total ml used across all routine steps for this variant. */
+  usedMl: number;
+  /** True when at least one step has a measurable amountMl. */
+  canTrackUsage: boolean;
 }): StepStockEstimate {
-  const {
-    bottleMl,
-    purchasedQty,
-    amountMl,
-    completedCount,
-    dailyMlForVariant,
-  } = params;
+  const { bottleMl, purchasedQty, usedMl, canTrackUsage } = params;
 
-  if (
-    bottleMl == null ||
-    amountMl == null ||
-    amountMl <= 0 ||
-    purchasedQty <= 0 ||
-    dailyMlForVariant <= 0
-  ) {
+  if (bottleMl == null || purchasedQty <= 0 || !canTrackUsage) {
     return { warning: null, remainingMl: null };
   }
 
   const purchasedMl = bottleMl * purchasedQty;
-  const stepShare = amountMl / dailyMlForVariant;
-  const purchasedForStep = purchasedMl * stepShare;
-  const usedForStep = completedCount * amountMl;
   const remainingMl = Math.max(
     0,
-    Math.round((purchasedForStep - usedForStep) * 100) / 100,
+    Math.round((purchasedMl - usedMl) * 100) / 100,
   );
-  const remainingRatio =
-    purchasedForStep > 0 ? remainingMl / purchasedForStep : 0;
+  const remainingRatio = purchasedMl > 0 ? remainingMl / purchasedMl : 0;
 
   if (remainingMl <= 0) {
     return { warning: StockWarningLevel.EMPTY, remainingMl: 0 };
