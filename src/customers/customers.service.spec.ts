@@ -491,6 +491,83 @@ describe('CustomersService', () => {
       );
     });
 
+    it('should persist provided Baumann axis scores', async () => {
+      const customer = {
+        id: 'customer-1',
+        userId: 'user-1',
+        gender: Gender.FEMALE,
+      } as Customer;
+      const skinType = {
+        id: 'skin-ospt',
+        code: 'OSPT',
+        name: 'Oily Sensitive Pigmented Tight',
+        description: null,
+      } as SkinType;
+      const createdDetails = {
+        customerId: 'customer-1',
+      } as CustomerSkinTypeDetails;
+      const assessedAt = new Date('2026-08-01');
+
+      jest.spyOn(skinTypeRepository, 'findOne').mockResolvedValue(skinType);
+      jest
+        .spyOn(customerRepository, 'findOne')
+        .mockResolvedValueOnce(customer)
+        .mockResolvedValueOnce({
+          ...customer,
+          phone: null,
+          avatarUrl: null,
+          dateOfBirth: null,
+          skinTypeDetails: {
+            ...createdDetails,
+            skinTypeId: skinType.id,
+            skinType,
+            oilyDryScore: 72,
+            sensitiveResistantScore: 65,
+            pigmentedNonPigmentedScore: 58,
+            wrinkledTightScore: 30,
+            assessedAt,
+          },
+        } as Customer);
+      jest
+        .spyOn(customerSkinTypeDetailsRepository, 'findOne')
+        .mockResolvedValue(null);
+      jest
+        .spyOn(customerSkinTypeDetailsRepository, 'create')
+        .mockReturnValue(createdDetails);
+      jest
+        .spyOn(customerSkinTypeDetailsRepository, 'save')
+        .mockImplementation(async (row) => row as CustomerSkinTypeDetails);
+      jest.spyOn(customerAllergyRepository, 'find').mockResolvedValue([]);
+      jest.spyOn(customerSurveyRepository, 'find').mockResolvedValue([]);
+
+      const result = await service.updateOwnSkinType('user-1', {
+        skinTypeCode: 'OSPT',
+        oilyDryScore: 72,
+        sensitiveResistantScore: 65,
+        pigmentedNonPigmentedScore: 58,
+        wrinkledTightScore: 30,
+      });
+
+      expect(customerSkinTypeDetailsRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          skinTypeId: 'skin-ospt',
+          oilyDryScore: 72,
+          sensitiveResistantScore: 65,
+          pigmentedNonPigmentedScore: 58,
+          wrinkledTightScore: 30,
+        }),
+      );
+      expect(result.customer?.baumannScores).toEqual(
+        expect.objectContaining({
+          oilyDryScore: 72,
+          sensitiveResistantScore: 65,
+          pigmentedNonPigmentedScore: 58,
+          wrinkledTightScore: 30,
+          assessedAt,
+        }),
+      );
+    });
+
     it('should create skin type details when none exist', async () => {
       const customer = {
         id: 'customer-1',

@@ -260,11 +260,10 @@ export class CustomersService {
 
     details.skinTypeId = skinType.id;
     details.skinType = skinType;
-    // Manual selection has no survey-derived axis scores.
-    details.oilyDryScore = null;
-    details.sensitiveResistantScore = null;
-    details.pigmentedNonPigmentedScore = null;
-    details.wrinkledTightScore = null;
+    details.oilyDryScore = dto.oilyDryScore ?? null;
+    details.sensitiveResistantScore = dto.sensitiveResistantScore ?? null;
+    details.pigmentedNonPigmentedScore = dto.pigmentedNonPigmentedScore ?? null;
+    details.wrinkledTightScore = dto.wrinkledTightScore ?? null;
     details.assessedAt = new Date();
 
     await this.customerSkinTypeDetailsRepository.save(details);
