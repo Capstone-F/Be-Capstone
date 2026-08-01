@@ -66,6 +66,10 @@ export class Treatment {
   @Column({ type: 'bigint', nullable: true })
   totalPriceVnd: string | null;
 
+  /** Set when expert submits for payment; cleared when unpaid DRAFT phases are edited. */
+  @Column({ type: 'timestamptz', nullable: true })
+  submittedAt: Date | null;
+
   @Column({ type: 'timestamptz', nullable: true })
   paidAt: Date | null;
 

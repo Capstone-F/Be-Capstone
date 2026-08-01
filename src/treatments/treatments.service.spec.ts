@@ -205,6 +205,233 @@ describe('TreatmentsService submit / cancel / chart', () => {
     );
   });
 
+  it('sets submittedAt on successful submit', async () => {
+    const treatment = {
+      id: 't-1',
+      expertId: 'expert-1',
+      status: TreatmentStatus.DRAFT,
+      paidAt: null,
+      submittedAt: null,
+      totalPriceVnd: null,
+      startDate: new Date('2026-08-01'),
+      endDate: new Date('2026-11-01'),
+    };
+    const treatmentRepo = {
+      findOne: jest.fn().mockResolvedValue({
+        ...treatment,
+        phases: [],
+      }),
+      save: jest.fn(async (row) => row),
+    };
+    const service = buildService({
+      expertRepo: {
+        findOne: jest.fn().mockResolvedValue({ id: 'expert-1', userId: 'u-e' }),
+      },
+      treatmentRepo,
+      phaseRepo: {
+        find: jest.fn().mockResolvedValue([
+          {
+            id: 'p-1',
+            noteByExpert: 'Why this phase',
+            priceVnd: '100000',
+          },
+        ]),
+      },
+    });
+    (
+      service as unknown as {
+        getTreatmentDetail: (id: string) => Promise<unknown>;
+      }
+    ).getTreatmentDetail = async () => ({
+      id: 't-1',
+      submittedAt: treatment.submittedAt,
+      totalPriceVnd: treatment.totalPriceVnd,
+    });
+
+    await service.submitForPayment('u-e', 't-1');
+
+    expect(treatmentRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        totalPriceVnd: '100000',
+        submittedAt: expect.any(Date),
+      }),
+    );
+  });
+
+  it('rejects pay when submittedAt is null', async () => {
+    const treatment = {
+      id: 't-1',
+      customerId: 'cust-1',
+      status: TreatmentStatus.DRAFT,
+      paidAt: null,
+      submittedAt: null,
+      startDate: new Date('2026-08-01'),
+      endDate: new Date('2026-11-01'),
+      phases: [{ id: 'p-1', priceVnd: '100000' }],
+    };
+    const service = buildService({
+      customerRepo: {
+        findOne: jest.fn().mockResolvedValue({ id: 'cust-1', userId: 'u-c' }),
+      },
+      treatmentRepo: {
+        findOne: jest.fn().mockResolvedValue(treatment),
+      },
+      walletService: {
+        debit: jest.fn(),
+      },
+    });
+    (
+      service as unknown as {
+        loadTreatment: (id: string) => Promise<unknown>;
+      }
+    ).loadTreatment = async () => treatment;
+
+    await expect(service.payTreatment('u-c', 't-1')).rejects.toThrow(
+      /not been submitted/,
+    );
+  });
+
+  it('pays successfully when plan is submitted', async () => {
+    const treatment = {
+      id: 't-1',
+      customerId: 'cust-1',
+      status: TreatmentStatus.DRAFT,
+      paidAt: null,
+      submittedAt: new Date('2026-08-01T10:00:00Z'),
+      startDate: new Date('2026-08-01'),
+      endDate: new Date('2026-11-01'),
+      totalPriceVnd: '100000',
+      phases: [{ id: 'p-1', priceVnd: '100000' }],
+    };
+    const treatmentRepo = {
+      findOne: jest.fn().mockResolvedValue(treatment),
+      save: jest.fn(async (row) => row),
+      update: jest.fn(),
+    };
+    const walletService = {
+      debit: jest.fn().mockResolvedValue({ id: 'tx-pay' }),
+    };
+    const service = buildService({
+      customerRepo: {
+        findOne: jest.fn().mockResolvedValue({ id: 'cust-1', userId: 'u-c' }),
+      },
+      treatmentRepo,
+      phaseRepo: {
+        find: jest.fn().mockResolvedValue([{ id: 'p-1', priceVnd: '100000' }]),
+      },
+      walletService,
+    });
+    (
+      service as unknown as {
+        loadTreatment: (id: string) => Promise<unknown>;
+      }
+    ).loadTreatment = async () => treatment;
+    (
+      service as unknown as {
+        getTreatmentDetail: (id: string) => Promise<unknown>;
+      }
+    ).getTreatmentDetail = async () => ({
+      id: 't-1',
+      status: TreatmentStatus.ACTIVE,
+      paidAt: expect.any(Date),
+    });
+
+    await service.payTreatment('u-c', 't-1');
+
+    expect(walletService.debit).toHaveBeenCalled();
+    expect(treatmentRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: TreatmentStatus.ACTIVE,
+        paidTransactionId: 'tx-pay',
+      }),
+    );
+  });
+
+  it('clears submittedAt when expert edits a phase before pay', async () => {
+    const treatment = {
+      id: 't-1',
+      expertId: 'expert-1',
+      status: TreatmentStatus.DRAFT,
+      paidAt: null,
+      submittedAt: new Date('2026-08-01T10:00:00Z'),
+      totalPriceVnd: '100000',
+    };
+    const phase = {
+      id: 'p-1',
+      treatmentId: 't-1',
+      treatment,
+      phaseType: 'ACTIVE_TREATMENT',
+      phaseOrder: 0,
+      title: 'Phase 1',
+      goals: null,
+      notes: null,
+      noteByExpert: 'Why',
+      priceVnd: '100000',
+      startDate: null,
+      endDate: null,
+    };
+    const treatmentRepo = {
+      findOne: jest.fn().mockResolvedValue(treatment),
+      update: jest.fn(),
+    };
+    const phaseRepo = {
+      findOne: jest.fn().mockResolvedValue(phase),
+      save: jest.fn(async (row) => row),
+    };
+    const service = buildService({
+      expertRepo: {
+        findOne: jest.fn().mockResolvedValue({ id: 'expert-1', userId: 'u-e' }),
+      },
+      treatmentRepo,
+      phaseRepo,
+    });
+    (
+      service as unknown as { loadPhase: (id: string) => Promise<unknown> }
+    ).loadPhase = async () => phase;
+    (service as unknown as { toPhaseDto: (p: unknown) => unknown }).toPhaseDto =
+      (p) => p;
+
+    await service.updatePhase('u-e', 'p-1', { title: 'Updated title' });
+
+    expect(treatmentRepo.update).toHaveBeenCalledWith(
+      { id: 't-1' },
+      { submittedAt: null, totalPriceVnd: null },
+    );
+  });
+
+  it('rejects phase pricing edits after customer pays', async () => {
+    const treatment = {
+      id: 't-1',
+      expertId: 'expert-1',
+      status: TreatmentStatus.ACTIVE,
+      paidAt: new Date(),
+      submittedAt: new Date(),
+    };
+    const phase = {
+      id: 'p-1',
+      treatmentId: 't-1',
+      treatment,
+    };
+    const service = buildService({
+      expertRepo: {
+        findOne: jest.fn().mockResolvedValue({ id: 'expert-1', userId: 'u-e' }),
+      },
+      treatmentRepo: {
+        findOne: jest.fn().mockResolvedValue(treatment),
+      },
+      phaseRepo: {
+        findOne: jest.fn().mockResolvedValue(phase),
+      },
+    });
+    (
+      service as unknown as { loadPhase: (id: string) => Promise<unknown> }
+    ).loadPhase = async () => phase;
+
+    await expect(
+      service.updatePhase('u-e', 'p-1', { priceVnd: 999999 }),
+    ).rejects.toThrow(/Only unpaid DRAFT/);
+  });
+
   it('refunds only PENDING phase fees on mid-plan cancel', async () => {
     const treatment = {
       id: 't-1',

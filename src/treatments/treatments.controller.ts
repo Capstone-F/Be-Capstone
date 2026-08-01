@@ -299,7 +299,7 @@ export class TreatmentsController {
   @ApiOperation({
     summary: 'Finalize plan totals for customer payment',
     description:
-      'Recomputes totalPriceVnd from phases. Requires noteByExpert on every phase. Treatment remains DRAFT until customer pays.',
+      'Sets submittedAt and totalPriceVnd from phases. Requires noteByExpert on every phase. Treatment remains DRAFT until customer pays. Phase edits clear submittedAt until re-submit.',
   })
   @ApiOkResponse({ type: TreatmentResponseDto })
   submit(@Req() req: Request, @Param('id', ParseUUIDPipe) id: string) {
@@ -310,7 +310,8 @@ export class TreatmentsController {
   @Roles(Role.Customer)
   @ApiOperation({
     summary: 'Pay whole treatment plan from wallet',
-    description: 'Debits sum of phase prices once; activates treatment.',
+    description:
+      'Requires expert submit (submittedAt). Debits sum of phase prices once; activates treatment. Pricing locked after pay.',
   })
   @ApiOkResponse({ type: TreatmentResponseDto })
   @ApiBadRequestResponse({ description: 'Insufficient balance or not payable' })

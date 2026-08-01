@@ -202,7 +202,7 @@ export class TreatmentsService {
       }),
     );
 
-    await this.recomputeTotalPrice(treatmentId);
+    await this.clearSubmissionLock(treatmentId);
     return this.toPhaseDto(await this.loadPhase(phase.id));
   }
 
@@ -232,7 +232,7 @@ export class TreatmentsService {
     }
 
     await this.phaseRepo.save(phase);
-    await this.recomputeTotalPrice(phase.treatmentId);
+    await this.clearSubmissionLock(phase.treatmentId);
     return this.toPhaseDto(await this.loadPhase(phaseId));
   }
 
@@ -241,7 +241,7 @@ export class TreatmentsService {
     await this.requireExpertTreatment(expertUserId, phase.treatmentId);
     this.assertDraftEditable(phase.treatment);
     await this.phaseRepo.delete({ id: phaseId });
-    await this.recomputeTotalPrice(phase.treatmentId);
+    await this.clearSubmissionLock(phase.treatmentId);
   }
 
   async listMyTreatments(
@@ -329,6 +329,7 @@ export class TreatmentsService {
     }
 
     treatment.totalPriceVnd = String(total);
+    treatment.submittedAt = new Date();
     await this.treatmentRepo.save(treatment);
     return this.getTreatmentDetail(treatmentId);
   }
@@ -351,6 +352,11 @@ export class TreatmentsService {
     }
     if (treatment.paidAt) {
       throw new BadRequestException('Treatment is already paid');
+    }
+    if (!treatment.submittedAt) {
+      throw new BadRequestException(
+        'Treatment plan has not been submitted by the expert',
+      );
     }
 
     await this.recomputeTotalPrice(treatmentId);
@@ -1103,6 +1109,7 @@ export class TreatmentsService {
       status: treatment.status,
       startDate: this.formatDate(treatment.startDate),
       endDate: this.formatDate(treatment.endDate),
+      submittedAt: treatment.submittedAt,
       paidAt: treatment.paidAt,
       phases: phases.map((p) => ({
         id: p.id,
@@ -1281,6 +1288,14 @@ export class TreatmentsService {
     );
   }
 
+  /** Clears pay lock after unpaid DRAFT phase edits; customer cannot pay until re-submit. */
+  private async clearSubmissionLock(treatmentId: string): Promise<void> {
+    await this.treatmentRepo.update(
+      { id: treatmentId },
+      { submittedAt: null, totalPriceVnd: null },
+    );
+  }
+
   private assertDraftEditable(treatment: Treatment): void {
     if (treatment.status !== TreatmentStatus.DRAFT || treatment.paidAt) {
       throw new BadRequestException(
@@ -1425,6 +1440,7 @@ export class TreatmentsService {
       startDate: this.formatDate(treatment.startDate),
       endDate: this.formatDate(treatment.endDate),
       totalPriceVnd: treatment.totalPriceVnd,
+      submittedAt: treatment.submittedAt,
       paidAt: treatment.paidAt,
       paidTransactionId: treatment.paidTransactionId,
       sourceConsultationId: treatment.sourceConsultationId,

@@ -143,16 +143,17 @@ npm run migration:run
 1. **Session-first:** create the plan while the booking is `IN_PROGRESS` (after video/chat intake). Pass `sourceConsultationId` so chart can show consult results.
 2. **`sourceConsultationId` statuses:** `IN_PROGRESS` or `COMPLETED` only. Do not link `PENDING` / `CONFIRMED` / `CANCELLED`.
 3. **Money path:** wallet for both consultation fee and plan fee. Never `POST /payments/checkout` for either.
-4. **Draft vs paid:** phase create/edit/delete only while unpaid `DRAFT`. After pay → ingredients / products / routine / activate.
+4. **Draft vs paid:** phase create/edit/delete only while unpaid `DRAFT`. After pay → ingredients / products / routine / activate. Pricing (add/remove phase, edit `priceVnd`) is locked once paid.
 5. **`noteByExpert`:** optional while drafting; **required on every phase before submit**. Distinct from free-form `notes`.
-6. **Submit before plan pay:** customer cannot pay until expert submitted (`totalPriceVnd` + dates).
-7. **Dates:** treatment `startDate` / `endDate` required before submit and pay (follow-up window).
-8. **Complete consultation after handoff:** prefer completing the booking once the plan is paid (and ideally first phase activated / customer understands next steps). Completing earlier is allowed by the booking API, but product UX should keep the session open through plan pay when possible.
-9. **One ACTIVE phase:** activating auto-completes the previous ACTIVE phase; save DRAFT routines first.
-10. **Chart products used:** from routine **COMPLETED** step completions only (not prescribed-unused).
-11. **Progress photos:** upload via `POST /uploads/images`, then send returned `url` as `photoUrl` (create or patch event). See [uploads.md](uploads.md).
-12. **Cancel:** only treatment `ACTIVE` / `PAUSED`. Refund = sum of **PENDING** phase fees; COMPLETED + ACTIVE fees kept.
-13. **Perspective:** `GET /treatments/me?as=customer|expert` when dual-role.
+6. **Submit before plan pay:** customer can pay **only** when `submittedAt` is set (expert called `POST /treatments/:id/submit`). Having phases/dates alone is not enough.
+7. **Edit unsubmits:** any unpaid `DRAFT` phase add/update/delete clears `submittedAt` (and `totalPriceVnd`). Expert must submit again before the customer can pay.
+8. **Dates:** treatment `startDate` / `endDate` required before submit and pay (follow-up window).
+9. **Complete consultation after handoff:** prefer completing the booking once the plan is paid (and ideally first phase activated / customer understands next steps). Completing earlier is allowed by the booking API, but product UX should keep the session open through plan pay when possible.
+10. **One ACTIVE phase:** activating auto-completes the previous ACTIVE phase; save DRAFT routines first.
+11. **Chart products used:** from routine **COMPLETED** step completions only (not prescribed-unused).
+12. **Progress photos:** upload via `POST /uploads/images`, then send returned `url` as `photoUrl` (create or patch event). See [uploads.md](uploads.md).
+13. **Cancel:** only treatment `ACTIVE` / `PAUSED`. Refund = sum of **PENDING** phase fees; COMPLETED + ACTIVE fees kept.
+14. **Perspective:** `GET /treatments/me?as=customer|expert` when dual-role.
 
 ---
 
@@ -228,7 +229,7 @@ PATCH /treatments/phases/:phaseId
 DELETE /treatments/phases/:phaseId
 ```
 
-Only while treatment is unpaid `DRAFT`.
+Only while treatment is unpaid `DRAFT`. Any phase mutation clears `submittedAt` / `totalPriceVnd` until the expert submits again.
 
 ### 5.4 Submit for payment ✅ Ready
 
@@ -238,7 +239,7 @@ POST /treatments/:id/submit
 
 **Server checks:** ≥1 phase; every phase has non-empty `noteByExpert`; sum of `priceVnd` > 0; treatment `startDate` + `endDate` set.
 
-Plan stays `DRAFT` until the customer pays. Stores `totalPriceVnd` (bigint string).
+Plan stays `DRAFT` until the customer pays. Sets `submittedAt` and stores `totalPriceVnd` (bigint string). Customer Pay CTA should gate on `submittedAt != null`.
 
 ### 5.5 Customer pays plan ✅ Ready
 
@@ -250,7 +251,7 @@ POST /wallet/top-up
 POST /treatments/:id/pay
 ```
 
-On success: `TREATMENT_PLAN_PAYMENT` debit → treatment `ACTIVE`, `paidAt` set.
+Requires unpaid `DRAFT` with **`submittedAt` set**. On success: `TREATMENT_PLAN_PAYMENT` debit → treatment `ACTIVE`, `paidAt` set. After pay, expert cannot add/edit/delete phases or change pricing.
 
 Customer list/detail:
 
@@ -421,7 +422,7 @@ Content-Type: application/json
 | POST   | `/bookings/:id/pay`   | Consultation fee (`CONSULTATION_PAYMENT`) — before the session |
 | POST   | `/treatments/:id/pay` | Full plan fee (`TREATMENT_PLAN_PAYMENT`) — during/after intake |
 
-Plan pay is **one shot** for the whole package (sum of phase fees), not per-phase checkout.
+Plan pay is **one shot** for the whole package (sum of phase fees), not per-phase checkout. Requires expert `submittedAt`; editing the unpaid plan clears that lock until re-submit.
 
 ---
 
@@ -438,19 +439,25 @@ CONFIRMED ──(start)──▶ IN_PROGRESS ──(intake + create plan + pay +
 ### Treatment
 
 ```
-DRAFT ──(pay)──▶ ACTIVE ──(cancel)──▶ CANCELLED
-                  │
-                  ├──▶ PAUSED ──(cancel)──▶ CANCELLED
-                  └──▶ COMPLETED
+DRAFT (editing, submittedAt=null)
+   │
+   ├──(submit)──▶ DRAFT (submittedAt set) ──(pay)──▶ ACTIVE ──(cancel)──▶ CANCELLED
+   ▲                      │                              │
+   └──(edit phase)────────┘                              ├──▶ PAUSED ──(cancel)──▶ CANCELLED
+                                                         └──▶ COMPLETED
 ```
 
-| Status      | Meaning                                 |
-| ----------- | --------------------------------------- |
-| `DRAFT`     | Expert building / submitted, unpaid     |
-| `ACTIVE`    | Paid; phases configurable / activatable |
-| `PAUSED`    | Paid but paused (cancellable)           |
-| `COMPLETED` | Plan finished                           |
-| `CANCELLED` | Mid-plan cancel; refund may apply       |
+| Status      | Meaning                                                 |
+| ----------- | ------------------------------------------------------- |
+| `DRAFT`     | Unpaid; payable only when `submittedAt` is set          |
+| `ACTIVE`    | Paid; phases configurable / activatable; pricing locked |
+| `PAUSED`    | Paid but paused (cancellable)                           |
+| `COMPLETED` | Plan finished                                           |
+| `CANCELLED` | Mid-plan cancel; refund may apply                       |
+
+| Field         | Meaning                                                              |
+| ------------- | -------------------------------------------------------------------- |
+| `submittedAt` | Set by expert submit; cleared on unpaid phase edit; required for pay |
 
 ### Phase
 
@@ -482,6 +489,7 @@ PENDING ──(activate)──▶ ACTIVE ──(next phase activate)──▶ CO
   "startDate": "2026-08-01",
   "endDate": "2026-11-01",
   "totalPriceVnd": "1000000",
+  "submittedAt": "2026-07-30T11:55:00.000Z",
   "paidAt": "2026-07-30T12:00:00.000Z",
   "paidTransactionId": "uuid",
   "sourceConsultationId": "uuid",
@@ -594,12 +602,12 @@ Money fields (`priceVnd`, `totalPriceVnd`, `refundedAmountVnd`) are **bigint str
 
 ## 13. Error map
 
-| HTTP | When                                                                                                                                                                                                           | FE handling             |
-| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| 400  | Source consult not `IN_PROGRESS`/`COMPLETED`; missing `noteByExpert` on submit; empty phases; total ≤ 0; missing dates; PROGRESS_PHOTO without `photoUrl`; cancel when not ACTIVE/PAUSED; configure before pay | Show validation message |
-| 401  | Not authenticated                                                                                                                                                                                              | Re-login                |
-| 403  | Not assigned expert / not owning customer                                                                                                                                                                      | Hide action             |
-| 404  | Treatment / phase / routine / source consultation not found                                                                                                                                                    | Refresh list            |
+| HTTP | When                                                                                                                                                                                                                                                            | FE handling             |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| 400  | Source consult not `IN_PROGRESS`/`COMPLETED`; missing `noteByExpert` on submit; empty phases; total ≤ 0; missing dates; pay without `submittedAt`; PROGRESS_PHOTO without `photoUrl`; cancel when not ACTIVE/PAUSED; configure before pay; phase edit after pay | Show validation message |
+| 401  | Not authenticated                                                                                                                                                                                                                                               | Re-login                |
+| 403  | Not assigned expert / not owning customer                                                                                                                                                                                                                       | Hide action             |
+| 404  | Treatment / phase / routine / source consultation not found                                                                                                                                                                                                     | Refresh list            |
 
 ---
 
@@ -614,8 +622,8 @@ Money fields (`priceVnd`, `totalPriceVnd`, `refundedAmountVnd`) are **bigint str
 | POST   | `/treatments/:id/phases`                         | Expert            | ✅ Ready | Add phase + `noteByExpert`                |
 | PATCH  | `/treatments/phases/:phaseId`                    | Expert            | ✅ Ready | Edit DRAFT phase                          |
 | DELETE | `/treatments/phases/:phaseId`                    | Expert            | ✅ Ready | Delete DRAFT phase                        |
-| POST   | `/treatments/:id/submit`                         | Expert            | ✅ Ready | Require notes + recompute total           |
-| POST   | `/treatments/:id/pay`                            | Customer          | ✅ Ready | Wallet debit → plan ACTIVE                |
+| POST   | `/treatments/:id/submit`                         | Expert            | ✅ Ready | Set `submittedAt` + `totalPriceVnd`       |
+| POST   | `/treatments/:id/pay`                            | Customer          | ✅ Ready | Requires `submittedAt`; wallet → ACTIVE   |
 | POST   | `/treatments/phases/:phaseId/ingredients`        | Expert            | ✅ Ready | After pay                                 |
 | GET    | `/treatments/phases/:phaseId/product-candidates` | Expert            | ✅ Ready | After pay                                 |
 | POST   | `/treatments/phases/:phaseId/products`           | Expert            | ✅ Ready | After pay                                 |
