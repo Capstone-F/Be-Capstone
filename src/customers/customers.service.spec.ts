@@ -13,8 +13,10 @@ import { TreatmentPhaseStatus, TreatmentStatus } from '../treatments/enums';
 import { Treatment } from '../treatments/treatment.entity';
 import { CustomerAllergy } from '../users/customer-allergy.entity';
 import { Customer } from '../users/customer.entity';
+import { CustomerSkinTypeDetails } from '../users/customer-skin-type-details.entity';
 import { Expert } from '../users/expert.entity';
 import { Gender } from '../users/gender.enum';
+import { SkinType } from '../users/skin-type.entity';
 import { CustomersService } from './customers.service';
 
 const makeRepo = <T extends object>(overrides: Partial<Repository<T>> = {}) =>
@@ -51,6 +53,8 @@ describe('CustomersService', () => {
   let expertRepository: Repository<Expert>;
   let consultationRepository: Repository<ConsultationRequest>;
   let treatmentRepository: Repository<Treatment>;
+  let skinTypeRepository: Repository<SkinType>;
+  let customerSkinTypeDetailsRepository: Repository<CustomerSkinTypeDetails>;
   let dataSource: DataSource;
   let service: CustomersService;
 
@@ -64,6 +68,8 @@ describe('CustomersService', () => {
       expertRepository,
       consultationRepository,
       treatmentRepository,
+      skinTypeRepository,
+      customerSkinTypeDetailsRepository,
       ds,
     );
 
@@ -76,6 +82,8 @@ describe('CustomersService', () => {
     expertRepository = makeRepo<Expert>();
     consultationRepository = makeRepo<ConsultationRequest>();
     treatmentRepository = makeRepo<Treatment>();
+    skinTypeRepository = makeRepo<SkinType>();
+    customerSkinTypeDetailsRepository = makeRepo<CustomerSkinTypeDetails>();
     dataSource = makeDataSource();
 
     service = buildService();
@@ -385,6 +393,160 @@ describe('CustomersService', () => {
           allergyLabelCodes: ['UNKNOWN_ALLERGEN'],
         }),
       ).rejects.toThrow('Invalid allergy label codes: UNKNOWN_ALLERGEN');
+    });
+  });
+
+  describe('updateOwnSkinType', () => {
+    it('should reject unknown Baumann skin type codes', async () => {
+      jest.spyOn(skinTypeRepository, 'findOne').mockResolvedValue(null);
+
+      await expect(
+        service.updateOwnSkinType('user-1', {
+          skinTypeCode: 'OSPT',
+        }),
+      ).rejects.toThrow('Unknown Baumann skin type code: OSPT');
+    });
+
+    it('should upsert skin type details and clear axis scores', async () => {
+      const customer = {
+        id: 'customer-1',
+        userId: 'user-1',
+        gender: Gender.FEMALE,
+      } as Customer;
+      const skinType = {
+        id: 'skin-ospt',
+        code: 'OSPT',
+        name: 'Oily Sensitive Pigmented Tight',
+        description: null,
+      } as SkinType;
+      const existingDetails = {
+        id: 'details-1',
+        customerId: 'customer-1',
+        skinTypeId: 'skin-old',
+        oilyDryScore: 40,
+        sensitiveResistantScore: 20,
+        pigmentedNonPigmentedScore: 10,
+        wrinkledTightScore: 5,
+        assessedAt: new Date('2026-01-01'),
+      } as CustomerSkinTypeDetails;
+
+      jest.spyOn(skinTypeRepository, 'findOne').mockResolvedValue(skinType);
+      jest
+        .spyOn(customerRepository, 'findOne')
+        .mockResolvedValueOnce(customer)
+        .mockResolvedValueOnce({
+          ...customer,
+          phone: null,
+          avatarUrl: null,
+          dateOfBirth: null,
+          skinTypeDetails: {
+            ...existingDetails,
+            skinTypeId: skinType.id,
+            skinType,
+            oilyDryScore: null,
+            sensitiveResistantScore: null,
+            pigmentedNonPigmentedScore: null,
+            wrinkledTightScore: null,
+            assessedAt: new Date('2026-08-01'),
+          },
+        } as Customer);
+      jest
+        .spyOn(customerSkinTypeDetailsRepository, 'findOne')
+        .mockResolvedValue(existingDetails);
+      jest
+        .spyOn(customerSkinTypeDetailsRepository, 'save')
+        .mockImplementation(async (row) => row as CustomerSkinTypeDetails);
+      jest.spyOn(customerAllergyRepository, 'find').mockResolvedValue([]);
+      jest.spyOn(customerSurveyRepository, 'find').mockResolvedValue([]);
+
+      const result = await service.updateOwnSkinType('user-1', {
+        skinTypeCode: 'OSPT',
+      });
+
+      expect(skinTypeRepository.findOne).toHaveBeenCalledWith({
+        where: { code: 'OSPT' },
+      });
+      expect(customerSkinTypeDetailsRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customerId: 'customer-1',
+          skinTypeId: 'skin-ospt',
+          oilyDryScore: null,
+          sensitiveResistantScore: null,
+          pigmentedNonPigmentedScore: null,
+          wrinkledTightScore: null,
+        }),
+      );
+      expect(result.customer?.skinType).toEqual({
+        code: 'OSPT',
+        name: 'Oily Sensitive Pigmented Tight',
+        description: null,
+      });
+      expect(result.customer?.baumannScores).toEqual(
+        expect.objectContaining({
+          oilyDryScore: null,
+          sensitiveResistantScore: null,
+          pigmentedNonPigmentedScore: null,
+          wrinkledTightScore: null,
+        }),
+      );
+    });
+
+    it('should create skin type details when none exist', async () => {
+      const customer = {
+        id: 'customer-1',
+        userId: 'user-1',
+        gender: Gender.MALE,
+      } as Customer;
+      const skinType = {
+        id: 'skin-drnt',
+        code: 'DRNT',
+        name: 'Dry Resistant Non-pigmented Tight',
+        description: null,
+      } as SkinType;
+      const createdDetails = {
+        customerId: 'customer-1',
+      } as CustomerSkinTypeDetails;
+
+      jest.spyOn(skinTypeRepository, 'findOne').mockResolvedValue(skinType);
+      jest
+        .spyOn(customerRepository, 'findOne')
+        .mockResolvedValueOnce(customer)
+        .mockResolvedValueOnce({
+          ...customer,
+          phone: null,
+          avatarUrl: null,
+          dateOfBirth: null,
+          skinTypeDetails: {
+            ...createdDetails,
+            skinTypeId: skinType.id,
+            skinType,
+            oilyDryScore: null,
+            sensitiveResistantScore: null,
+            pigmentedNonPigmentedScore: null,
+            wrinkledTightScore: null,
+            assessedAt: new Date('2026-08-01'),
+          },
+        } as Customer);
+      jest
+        .spyOn(customerSkinTypeDetailsRepository, 'findOne')
+        .mockResolvedValue(null);
+      jest
+        .spyOn(customerSkinTypeDetailsRepository, 'create')
+        .mockReturnValue(createdDetails);
+      jest
+        .spyOn(customerSkinTypeDetailsRepository, 'save')
+        .mockImplementation(async (row) => row as CustomerSkinTypeDetails);
+      jest.spyOn(customerAllergyRepository, 'find').mockResolvedValue([]);
+      jest.spyOn(customerSurveyRepository, 'find').mockResolvedValue([]);
+
+      const result = await service.updateOwnSkinType('user-1', {
+        skinTypeCode: 'DRNT',
+      });
+
+      expect(customerSkinTypeDetailsRepository.create).toHaveBeenCalledWith({
+        customerId: 'customer-1',
+      });
+      expect(result.customer?.skinType?.code).toBe('DRNT');
     });
   });
 

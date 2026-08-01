@@ -1,28 +1,12 @@
 import {
+  BAUMANN_SKIN_TYPE_CODES,
   OilyDry,
   PigmentedNonPigmented,
   SensitiveResistant,
   WrinkledTight,
 } from './skin-type.enums';
 
-const BAUMANN_TYPE_CODES = [
-  'OSPW',
-  'OSPT',
-  'OSNW',
-  'OSNT',
-  'ORPW',
-  'ORPT',
-  'ORNW',
-  'ORNT',
-  'DSPW',
-  'DSPT',
-  'DSNW',
-  'DSNT',
-  'DRPW',
-  'DRPT',
-  'DRNW',
-  'DRNT',
-] as const;
+const BAUMANN_TYPE_CODES = BAUMANN_SKIN_TYPE_CODES;
 
 function toBaumannCode(
   oilyDry: OilyDry,

@@ -12,6 +12,7 @@ import { CustomerAllergy } from '../users/customer-allergy.entity';
 import { Customer } from '../users/customer.entity';
 import { CustomerSkinTypeDetails } from '../users/customer-skin-type-details.entity';
 import { Expert } from '../users/expert.entity';
+import { SkinType } from '../users/skin-type.entity';
 import { CustomersController } from './customers.controller';
 import { CustomersService } from './customers.service';
 
@@ -20,6 +21,7 @@ import { CustomersService } from './customers.service';
     TypeOrmModule.forFeature([
       Customer,
       CustomerSkinTypeDetails,
+      SkinType,
       CustomerAllergy,
       CustomerSurvey,
       Label,
