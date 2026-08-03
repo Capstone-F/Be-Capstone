@@ -59,8 +59,12 @@ export class BookingResponseDto {
   })
   status!: ConsultationStatus;
 
-  @ApiPropertyOptional({ example: '2026-07-07T09:00:00.000Z', nullable: true })
-  scheduledAt!: Date | null;
+  @ApiPropertyOptional({
+    example: '2026-07-07T09:00:00.000+07:00',
+    nullable: true,
+    description: 'ISO-8601 with fixed Asia/Ho_Chi_Minh (+07:00) offset',
+  })
+  scheduledAt!: string | null;
 
   @ApiPropertyOptional({ nullable: true })
   startedAt!: Date | null;

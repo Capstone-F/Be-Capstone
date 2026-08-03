@@ -139,7 +139,7 @@ IDs are UUIDs generated at seed time — resolve them after seed with `GET /clin
 |                            | `antiaging.d3@glowscan.example.com` | Dr. Hoang Quoc Dat | `ANTI_AGING`           | 450000    | 1             |
 |                            | `pigment.d3@glowscan.example.com`   | Dr. Vo Thi Kim     | `PIGMENTATION`         | 380000    | 2             |
 
-**Availability (all seeded experts):** Mon–Fri (`dayOfWeek` 1–5), blocks `09–12` and `13–18` (UTC hours).
+**Availability (all seeded experts):** Mon–Fri (`dayOfWeek` 1–5), blocks `09–12` and `13–18` (GMT+7 / Asia/Ho_Chi_Minh). Bookable window is **09:00–20:00 GMT+7** only.
 
 **Demo customer (DB only):** email `demo.customer@glowscan.example.com`, `keycloakSub` `seed-customer-demo`. Seed does **not** set Keycloak passwords for experts / demo customer — create or link Keycloak users (matching email / `sub`) and assign roles.
 
@@ -152,7 +152,7 @@ Relevant migration for consultation money fields: `1784500000000-ConsultationTre
 ## 4. Domain rules (must implement on FE)
 
 1. **Money path:** show wallet balance + top-up before pay. Never call `POST /payments/checkout` for a booking fee.
-2. **Slot picker:** only offer slots where `available: true`. Send `scheduledAt` exactly as `startAt` from the slots API (UTC, top of hour).
+2. **Slot picker:** only offer slots where `available: true`. Send `scheduledAt` exactly as `startAt` from the slots API (GMT+7 / `+07:00`, top of hour).
 3. **Pay before confirm:** expert confirm is blocked until `isPaid === true` (wallet paid **or** `isFollowUp`).
 4. **Follow-up (tái khám):** if create response has `isFollowUp: true`, treat fee as waived — still call `POST .../pay` (no-op debit) or show “free follow-up” UX; confirm still requires the pay step / paid flag.
 5. **Cancel window:** only from `PENDING` or `CONFIRMED`. Hide cancel once `IN_PROGRESS` / `COMPLETED`.
@@ -236,13 +236,13 @@ Example response (abbreviated):
       "date": "2026-08-04",
       "slots": [
         {
-          "startAt": "2026-08-04T09:00:00.000Z",
-          "endAt": "2026-08-04T10:00:00.000Z",
+          "startAt": "2026-08-04T09:00:00.000+07:00",
+          "endAt": "2026-08-04T10:00:00.000+07:00",
           "available": true
         },
         {
-          "startAt": "2026-08-04T10:00:00.000Z",
-          "endAt": "2026-08-04T11:00:00.000Z",
+          "startAt": "2026-08-04T10:00:00.000+07:00",
+          "endAt": "2026-08-04T11:00:00.000+07:00",
           "available": false
         }
       ]
@@ -253,10 +253,11 @@ Example response (abbreviated):
 
 **Rules (enforced by API):**
 
-- Slots are hourly steps spanning `sessionLengthHours` inside `ExpertAvailability` blocks.
+- All datetimes are Asia/Ho_Chi_Minh (**GMT+7**). Bookable hours are **09:00–20:00** only.
+- Slots are hourly steps spanning `sessionLengthHours` inside `ExpertAvailability` blocks (hours in GMT+7).
 - Slots overlapping active bookings (`PENDING` \| `CONFIRMED` \| `IN_PROGRESS`) have `available: false`.
 - `CANCELLED` / `COMPLETED` do **not** block slots.
-- Create booking `scheduledAt` must equal an available `startAt` (future, UTC top-of-hour).
+- Create booking `scheduledAt` must equal an available `startAt` (future, GMT+7 top-of-hour).
 
 ---
 
@@ -274,7 +275,7 @@ Content-Type: application/json
 
 {
   "expertId": "<expert-uuid>",
-  "scheduledAt": "2026-08-04T09:00:00.000Z",
+  "scheduledAt": "2026-08-04T09:00:00.000+07:00",
   "reason": "Persistent acne on cheeks"
 }
 ```
@@ -639,7 +640,7 @@ Pay (`POST /bookings/:id/pay`) happens while **`PENDING`** and is required (or f
   "customerName": "Jane Doe",
   "reason": "I have persistent acne",
   "status": "PENDING",
-  "scheduledAt": "2026-08-04T09:00:00.000Z",
+  "scheduledAt": "2026-08-04T09:00:00.000+07:00",
   "startedAt": null,
   "completedAt": null,
   "cancelledAt": null,

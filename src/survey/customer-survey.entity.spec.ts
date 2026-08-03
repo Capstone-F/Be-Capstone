@@ -9,7 +9,14 @@ describe('CustomerSurvey entity', () => {
 
     expect(columns).not.toContain('skinTypeId');
     expect(columns).toEqual(
-      expect.arrayContaining(['customerId', 'isCompleted', 'completedAt']),
+      expect.arrayContaining([
+        'customerId',
+        'isCompleted',
+        'completedAt',
+        'faceImageUrl',
+        'faceImageKey',
+        'faceScannedAt',
+      ]),
     );
   });
 });

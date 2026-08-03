@@ -2412,8 +2412,8 @@ describe('BE Capstone API (e2e)', () => {
         expect(
           tuesday.slots.every((s: { available: boolean }) => s.available),
         ).toBe(true);
-        expect(new Date(tuesday.slots[0].startAt).getUTCHours()).toBe(9);
-        expect(new Date(tuesday.slots[0].endAt).getUTCHours()).toBe(11);
+        expect(tuesday.slots[0].startAt).toBe('2026-07-07T09:00:00.000+07:00');
+        expect(tuesday.slots[0].endAt).toBe('2026-07-07T11:00:00.000+07:00');
       });
 
       it('should return month range when range=month', async () => {
@@ -2430,14 +2430,14 @@ describe('BE Capstone API (e2e)', () => {
         expect(body.days).toHaveLength(31);
       });
 
-      it('should mark overlapping candidate starts unavailable when booked at 10:00', async () => {
+      it('should mark overlapping candidate starts unavailable when booked at 10:00 GMT+7', async () => {
         const expert = await seedExpertForBookings({ sessionLengthHours: 2 });
         await seedAvailability(expert.id, [
           { dayOfWeek: 2, startHour: 9, endHour: 18 },
         ]);
         await seedConsultation({
           expertId: expert.id,
-          scheduledAt: new Date('2026-07-07T10:00:00.000Z'),
+          scheduledAt: new Date('2026-07-07T10:00:00.000+07:00'),
         });
 
         const { body } = await request(app.getHttpServer())
@@ -2451,7 +2451,8 @@ describe('BE Capstone API (e2e)', () => {
         const byStartHour = (hour: number) =>
           tuesday.slots.find(
             (s: { startAt: string }) =>
-              new Date(s.startAt).getUTCHours() === hour,
+              s.startAt ===
+              `2026-07-07T${String(hour).padStart(2, '0')}:00:00.000+07:00`,
           );
 
         expect(byStartHour(9).available).toBe(false);
@@ -2463,7 +2464,7 @@ describe('BE Capstone API (e2e)', () => {
     });
 
     describe('POST /bookings', () => {
-      const futureSlot = '2030-01-09T09:00:00.000Z'; // Wednesday
+      const futureSlot = '2030-01-09T09:00:00.000+07:00'; // Wednesday GMT+7
 
       it('should return 401 without session cookie', async () => {
         await request(app.getHttpServer())
@@ -2530,8 +2531,8 @@ describe('BE Capstone API (e2e)', () => {
           .set('Cookie', customerSid)
           .send({
             expertId: expert.id,
-            // Wednesday block is 09–18; 20:00 is outside (empty availability = open all hours)
-            scheduledAt: '2030-01-09T20:00:00.000Z',
+            // Wednesday block is 09–18 GMT+7; 20:00 is outside
+            scheduledAt: '2030-01-09T20:00:00.000+07:00',
           })
           .expect(400);
       });
@@ -3134,7 +3135,7 @@ describe('BE Capstone API (e2e)', () => {
         ]);
         const consultation = await seedConsultation({
           expertId: expert.id,
-          scheduledAt: new Date('2026-07-07T10:00:00.000Z'),
+          scheduledAt: new Date('2026-07-07T10:00:00.000+07:00'),
           status: ConsultationStatus.CONFIRMED,
         });
 
@@ -3166,7 +3167,8 @@ describe('BE Capstone API (e2e)', () => {
           (d: { date: string }) => d.date === '2026-07-07',
         );
         const slot10 = tuesday.slots.find(
-          (s: { startAt: string }) => new Date(s.startAt).getUTCHours() === 10,
+          (s: { startAt: string }) =>
+            s.startAt === '2026-07-07T10:00:00.000+07:00',
         );
         expect(slot10.available).toBe(true);
       });

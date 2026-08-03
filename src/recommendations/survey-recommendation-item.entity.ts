@@ -52,7 +52,7 @@ export class SurveyRecommendationItem {
   @JoinColumn({ name: 'productVariantId' })
   productVariant: ProductVariant;
 
-  @Column({ type: 'int', default: 0 })
+  @Column({ type: 'float', default: 0 })
   matchScore: number;
 
   @Column({ type: 'jsonb', default: () => "'[]'" })

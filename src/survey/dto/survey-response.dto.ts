@@ -65,6 +65,17 @@ export class SurveyAnswerDto {
   labels!: SurveyAnswerLabelDto[];
 }
 
+export class SurveyFaceLabelDto {
+  @ApiProperty()
+  code!: string;
+
+  @ApiProperty()
+  name!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  vietnameseNormalized!: string | null;
+}
+
 export class SurveyResponseDto {
   @ApiProperty()
   id!: string;
@@ -74,6 +85,18 @@ export class SurveyResponseDto {
 
   @ApiPropertyOptional({ nullable: true })
   completedAt!: Date | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Public URL of the saved facial scan image',
+  })
+  faceImageUrl!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  faceScannedAt!: Date | null;
+
+  @ApiProperty({ type: [SurveyFaceLabelDto] })
+  faceLabels!: SurveyFaceLabelDto[];
 
   @ApiProperty({ type: [SurveyAnswerDto] })
   answers!: SurveyAnswerDto[];

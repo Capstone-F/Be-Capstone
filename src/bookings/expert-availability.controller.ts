@@ -79,7 +79,7 @@ export class ExpertAvailabilityController {
   @ApiOperation({
     summary: 'Create an availability block',
     description:
-      'Adds a weekly recurring window (dayOfWeek + startHour–endHour UTC). ' +
+      'Adds a weekly recurring window (dayOfWeek + startHour–endHour in GMT+7, within 09:00–20:00). ' +
       'Rejects overlapping blocks on the same day.',
   })
   @ApiCreatedResponse({ type: ExpertAvailabilityResponseDto })

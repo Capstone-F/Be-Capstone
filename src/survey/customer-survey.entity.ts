@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { Customer } from '../users/customer.entity';
 import { Answer } from './answer.entity';
+import { SurveyFaceLabel } from './survey-face-label.entity';
 
 @Entity('customer_surveys')
 export class CustomerSurvey {
@@ -29,8 +30,20 @@ export class CustomerSurvey {
   @Column({ nullable: true, type: 'timestamp' })
   completedAt: Date | null;
 
+  @Column({ nullable: true, type: 'varchar' })
+  faceImageUrl: string | null;
+
+  @Column({ nullable: true, type: 'varchar' })
+  faceImageKey: string | null;
+
+  @Column({ nullable: true, type: 'timestamp' })
+  faceScannedAt: Date | null;
+
   @OneToMany(() => Answer, (answer) => answer.survey)
   answers: Answer[];
+
+  @OneToMany(() => SurveyFaceLabel, (faceLabel) => faceLabel.survey)
+  faceLabels: SurveyFaceLabel[];
 
   @CreateDateColumn()
   createdAt: Date;

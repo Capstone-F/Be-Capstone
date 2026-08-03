@@ -378,6 +378,8 @@ describe('RuleEngineService', () => {
       name: 'Oily Skin',
       description: null,
       categoryId: 'cat-1',
+      source: 'PROFILE',
+      weight: 1,
     });
     expect(result.protocols).toHaveLength(1);
     expect(result.protocols[0]).toMatchObject({
@@ -715,7 +717,7 @@ describe('RuleEngineService', () => {
       });
       expect(customerSurveyRepository.findOne).toHaveBeenCalledWith({
         where: { customerId: 'customer-1', isCompleted: true },
-        relations: ['answers', 'answers.answerLabels'],
+        relations: ['answers', 'answers.answerLabels', 'faceLabels'],
         order: { completedAt: 'DESC' },
       });
       expect(labelRepository.find).toHaveBeenNthCalledWith(1, {
@@ -1008,6 +1010,130 @@ describe('RuleEngineService', () => {
       expect(result.protocols.map((p) => p.code)).toEqual(
         expect.arrayContaining(['salicylic_acne', 'benzoyl_acne']),
       );
+    });
+  });
+
+  describe('face AI label weighting', () => {
+    it('scores AI-only OPTIONAL match at 0.5 vs survey at 1.0', async () => {
+      const acne = makeLabel({
+        id: 'label-acne-treatment',
+        code: 'ACNE_TREATMENT',
+      });
+      const protocol = makeProtocol({
+        code: 'salicylic_acne',
+        protocolLabels: [
+          makeProtocolLabel({
+            labelId: 'label-acne-treatment',
+            matchType: LabelMatchType.OPTIONAL,
+          }),
+        ],
+      });
+      labelRepository.find.mockResolvedValue([acne]);
+      protocolRepository.find.mockResolvedValue([protocol]);
+
+      const surveyResult = await service.buildRoutineContext([
+        'label-acne-treatment',
+      ]);
+      expect(surveyResult.protocols[0].matchScore).toBe(1);
+
+      const faceResult = await service.buildRoutineContext([], {
+        faceLabelIds: ['label-acne-treatment'],
+        labelSources: {
+          profileLabelIds: new Set(),
+          surveyLabelIds: new Set(),
+          faceLabelIds: new Set(['label-acne-treatment']),
+        },
+      });
+      expect(faceResult.protocols[0].matchScore).toBe(0.5);
+      expect(faceResult.labels[0]).toMatchObject({
+        source: 'FACE_AI',
+        weight: 0.5,
+      });
+    });
+
+    it('does not unlock REQUIRED protocols from AI-only labels', async () => {
+      const oily = makeLabel({ id: 'label-oily', code: 'OILY_SKIN' });
+      const protocol = makeProtocol({
+        protocolLabels: [
+          makeProtocolLabel({
+            labelId: 'label-oily',
+            matchType: LabelMatchType.REQUIRED,
+          }),
+        ],
+      });
+      labelRepository.find.mockResolvedValue([oily]);
+      protocolRepository.find.mockResolvedValue([protocol]);
+
+      const result = await service.buildRoutineContext([], {
+        faceLabelIds: ['label-oily'],
+      });
+      expect(result.protocols).toHaveLength(0);
+    });
+
+    it('does not exclude protocols from AI-only EXCLUDED labels', async () => {
+      const pregnancy = makeLabel({
+        id: 'label-pregnancy',
+        code: 'PREGNANCY',
+      });
+      const antiAging = makeLabel({
+        id: 'label-anti-aging',
+        code: 'ANTI_AGING',
+      });
+      const protocol = makeProtocol({
+        code: 'retinol',
+        protocolLabels: [
+          makeProtocolLabel({
+            labelId: 'label-anti-aging',
+            matchType: LabelMatchType.OPTIONAL,
+          }),
+          makeProtocolLabel({
+            labelId: 'label-pregnancy',
+            matchType: LabelMatchType.EXCLUDED,
+          }),
+        ],
+      });
+      labelRepository.find.mockResolvedValue([pregnancy, antiAging]);
+      protocolRepository.find.mockResolvedValue([protocol]);
+
+      const result = await service.buildRoutineContext(['label-anti-aging'], {
+        faceLabelIds: ['label-pregnancy'],
+      });
+      expect(result.protocols).toHaveLength(1);
+      expect(result.protocols[0].code).toBe('retinol');
+    });
+
+    it('does not score above 1.0 when survey and AI share the same OPTIONAL label', async () => {
+      const acne = makeLabel({
+        id: 'label-acne-treatment',
+        code: 'ACNE_TREATMENT',
+      });
+      const protocol = makeProtocol({
+        protocolLabels: [
+          makeProtocolLabel({
+            labelId: 'label-acne-treatment',
+            matchType: LabelMatchType.OPTIONAL,
+          }),
+        ],
+      });
+      labelRepository.find.mockResolvedValue([acne]);
+      protocolRepository.find.mockResolvedValue([protocol]);
+
+      const result = await service.buildRoutineContext(
+        ['label-acne-treatment'],
+        {
+          faceLabelIds: ['label-acne-treatment'],
+          labelSources: {
+            profileLabelIds: new Set(),
+            surveyLabelIds: new Set(['label-acne-treatment']),
+            faceLabelIds: new Set(['label-acne-treatment']),
+          },
+        },
+      );
+      expect(result.protocols[0].matchScore).toBe(1);
+      expect(result.labels[0]).toMatchObject({
+        source: 'SURVEY',
+        weight: 1,
+      });
     });
   });
 });

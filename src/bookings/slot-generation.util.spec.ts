@@ -1,8 +1,11 @@
 import {
+  clampToBusinessHours,
   dateAtHour,
   enumerateDates,
+  formatVnIso,
   generateSlotsForBlock,
   getMonthRange,
+  getVnHour,
   getWeekRange,
   slotsOverlap,
 } from './slot-generation.util';
@@ -41,6 +44,37 @@ describe('slot-generation.util', () => {
     });
   });
 
+  describe('dateAtHour / formatVnIso', () => {
+    const date = new Date('2026-07-07T00:00:00.000Z');
+
+    it('should map Vietnam local hour 9 to UTC 02:00', () => {
+      expect(dateAtHour(date, 9).toISOString()).toBe(
+        '2026-07-07T02:00:00.000Z',
+      );
+      expect(formatVnIso(dateAtHour(date, 9))).toBe(
+        '2026-07-07T09:00:00.000+07:00',
+      );
+    });
+
+    it('should expose Vietnam local hour via getVnHour', () => {
+      expect(getVnHour(dateAtHour(date, 18))).toBe(18);
+    });
+  });
+
+  describe('clampToBusinessHours', () => {
+    it('should clamp to 09–20', () => {
+      expect(clampToBusinessHours(0, 24)).toEqual({
+        startHour: 9,
+        endHour: 20,
+      });
+      expect(clampToBusinessHours(9, 12)).toEqual({
+        startHour: 9,
+        endHour: 12,
+      });
+      expect(clampToBusinessHours(8, 9)).toBeNull();
+    });
+  });
+
   describe('generateSlotsForBlock', () => {
     const date = new Date('2026-07-07T00:00:00.000Z');
 
@@ -51,6 +85,8 @@ describe('slot-generation.util', () => {
       expect(slots[0].endAt).toEqual(dateAtHour(date, 10));
       expect(slots[8].startAt).toEqual(dateAtHour(date, 17));
       expect(slots[8].endAt).toEqual(dateAtHour(date, 18));
+      expect(getVnHour(slots[0].startAt)).toBe(9);
+      expect(getVnHour(slots[8].startAt)).toBe(17);
     });
 
     it('should emit hourly starts when session length is 2', () => {
@@ -64,7 +100,7 @@ describe('slot-generation.util', () => {
 
     it('should drop start 17 when session length 2 exceeds endHour 18', () => {
       const slots = generateSlotsForBlock(date, 9, 18, 2);
-      const starts = slots.map((s) => s.startAt.getUTCHours());
+      const starts = slots.map((s) => getVnHour(s.startAt));
       expect(starts).not.toContain(17);
     });
 

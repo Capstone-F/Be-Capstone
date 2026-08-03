@@ -9,19 +9,19 @@ export class ExpertAvailabilityResponseDto {
 
   @ApiProperty({
     example: 1,
-    description: '0 = Sunday .. 6 = Saturday (JS Date.getUTCDay())',
+    description: '0 = Sunday .. 6 = Saturday (Vietnam local day-of-week)',
   })
   dayOfWeek!: number;
 
   @ApiProperty({
     example: 9,
-    description: 'Inclusive start hour (UTC, 0-23)',
+    description: 'Inclusive start hour (GMT+7, 09–19)',
   })
   startHour!: number;
 
   @ApiProperty({
     example: 12,
-    description: 'Exclusive end hour (UTC, 1-24)',
+    description: 'Exclusive end hour (GMT+7, 10–20)',
   })
   endHour!: number;
 

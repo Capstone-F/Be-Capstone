@@ -2,6 +2,8 @@
 
 Upload binary images to Cloudflare R2, then store the returned public URL on domain entities (product variants, expert avatars, treatment progress photos).
 
+**Survey facial scans** use a dedicated endpoint that uploads via the same `StorageService` and persists the URL on the survey — see `POST /surveys/:id/face-scan` in [Survey flow](survey-flow.md). You do **not** need a separate `POST /uploads/images` call for survey faces.
+
 **Auth:** any authenticated user (session cookie or Bearer). See [Web Authentication](auth-web.md) / [Mobile Authentication](auth-mobile.md).
 
 ---
@@ -56,6 +58,7 @@ Use `url` when calling domain update APIs below.
 | Expert avatar (self)         | `PATCH /experts/me` `{ "avatarUrl" }`                                  | `expert`                      |
 | Progress photo (create)      | `POST /treatments/:id/events` with `type: PROGRESS_PHOTO` + `photoUrl` | `customer`, `expert`          |
 | Progress photo (update)      | `PATCH /treatments/:id/events/:eventId` `{ "photoUrl" }`               | `customer`, `expert`          |
+| Survey face scan             | `POST /surveys/:id/face-scan` multipart `file` (uploads + persists)    | `customer`                    |
 
 Customer profile avatars continue to use `PATCH /customers/me` `{ "avatarUrl" }` with the same upload-then-URL flow.
 

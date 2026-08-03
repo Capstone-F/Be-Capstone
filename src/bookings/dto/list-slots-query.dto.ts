@@ -5,7 +5,8 @@ import { BookingRange } from '../enums';
 export class ListSlotsQueryDto {
   @ApiPropertyOptional({
     example: '2026-07-07',
-    description: 'Anchor date (ISO YYYY-MM-DD). Defaults to today.',
+    description:
+      'Anchor date (ISO YYYY-MM-DD, Asia/Ho_Chi_Minh calendar). Defaults to today (GMT+7).',
   })
   @IsOptional()
   @IsDateString()
@@ -15,7 +16,7 @@ export class ListSlotsQueryDto {
     enum: BookingRange,
     default: BookingRange.WEEK,
     description:
-      'Return slots for the week or month containing the anchor date.',
+      'Return slots for the week or month containing the anchor date (Vietnam calendar).',
   })
   @IsOptional()
   @IsEnum(BookingRange)

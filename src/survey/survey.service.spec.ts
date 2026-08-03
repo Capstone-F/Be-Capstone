@@ -19,6 +19,12 @@ describe('SurveyService question bank', () => {
     save: jest.fn(),
     create: jest.fn((value) => value),
   };
+  const surveyFaceLabelRepository = {
+    find: jest.fn(),
+    delete: jest.fn(),
+    save: jest.fn(),
+    create: jest.fn((value) => value),
+  };
   const questionRepository = {
     find: jest.fn(),
     findOne: jest.fn(),
@@ -42,6 +48,12 @@ describe('SurveyService question bank', () => {
   const surveyRecommendationRepository = {
     delete: jest.fn(),
   };
+  const storageService = {
+    uploadImage: jest.fn(),
+  };
+  const skinVisionProvider = {
+    analyze: jest.fn(),
+  };
 
   let service: SurveyService;
 
@@ -51,6 +63,7 @@ describe('SurveyService question bank', () => {
       surveyRepository as never,
       answerRepository as never,
       answerLabelRepository as never,
+      surveyFaceLabelRepository as never,
       questionRepository as never,
       questionOptionRepository as never,
       labelRepository as never,
@@ -58,6 +71,8 @@ describe('SurveyService question bank', () => {
       skinTypeRepository as never,
       customerSkinTypeDetailsRepository as never,
       surveyRecommendationRepository as never,
+      storageService as never,
+      skinVisionProvider as never,
     );
     customerRepository.findOne.mockResolvedValue({
       id: 'customer-id',
@@ -392,6 +407,7 @@ describe('SurveyService question bank', () => {
         ],
       },
     ]);
+    surveyFaceLabelRepository.find.mockResolvedValue([]);
 
     const result = await service.adminUpdateSurveyByCustomerId('customer-id', [
       { questionCode: 'PRIMARY_CONCERN', labelCodes: ['ACNE'] },
@@ -404,6 +420,7 @@ describe('SurveyService question bank', () => {
       customerSurveyId: 'survey-id',
     });
     expect(result.answers[0].labels[0].vietnameseNormalized).toBe('Mụn');
+    expect(result.faceLabels).toEqual([]);
   });
 
   it('throws when admin cheat targets a missing customer', async () => {
@@ -411,5 +428,161 @@ describe('SurveyService question bank', () => {
     await expect(
       service.adminUpdateSurveyByCustomerId('missing', []),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('SurveyService face scan', () => {
+  const surveyRepository = {
+    findOne: jest.fn(),
+    save: jest.fn(async (value) => value),
+  };
+  const answerRepository = {};
+  const answerLabelRepository = {};
+  const surveyFaceLabelRepository = {
+    find: jest.fn(),
+    delete: jest.fn(),
+    save: jest.fn(),
+    create: jest.fn((value) => value),
+  };
+  const questionRepository = {};
+  const questionOptionRepository = {};
+  const labelRepository = {
+    find: jest.fn(),
+  };
+  const customerRepository = {
+    findOne: jest.fn(),
+  };
+  const skinTypeRepository = {};
+  const customerSkinTypeDetailsRepository = {};
+  const surveyRecommendationRepository = {};
+  const storageService = {
+    uploadImage: jest.fn(),
+  };
+  const skinVisionProvider = {
+    analyze: jest.fn(),
+  };
+
+  let service: SurveyService;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    service = new SurveyService(
+      surveyRepository as never,
+      answerRepository as never,
+      answerLabelRepository as never,
+      surveyFaceLabelRepository as never,
+      questionRepository as never,
+      questionOptionRepository as never,
+      labelRepository as never,
+      customerRepository as never,
+      skinTypeRepository as never,
+      customerSkinTypeDetailsRepository as never,
+      surveyRecommendationRepository as never,
+      storageService as never,
+      skinVisionProvider as never,
+    );
+    customerRepository.findOne.mockResolvedValue({
+      id: 'customer-id',
+      userId: 'user-id',
+    });
+  });
+
+  const file = {
+    buffer: Buffer.from('fake-image'),
+    mimetype: 'image/jpeg',
+    originalname: 'face.jpg',
+  } as Express.Multer.File;
+
+  it('uploads image, persists it, saves face labels, and replaces on re-scan', async () => {
+    const survey = {
+      id: 'survey-id',
+      customerId: 'customer-id',
+      isCompleted: false,
+      faceImageUrl: null,
+      faceImageKey: null,
+      faceScannedAt: null,
+      answers: [],
+      faceLabels: [],
+    };
+    surveyRepository.findOne
+      .mockResolvedValueOnce(survey)
+      .mockResolvedValueOnce({
+        ...survey,
+        faceImageUrl: 'https://cdn.example.com/face.jpg',
+        faceImageKey: 'images/face.jpg',
+        faceScannedAt: new Date('2026-08-03T10:00:00Z'),
+        answers: [],
+        faceLabels: [
+          {
+            label: {
+              code: 'ACNE',
+              name: 'Acne',
+              vietnameseNormalized: 'Mun',
+            },
+          },
+        ],
+      });
+    storageService.uploadImage.mockResolvedValue({
+      url: 'https://cdn.example.com/face.jpg',
+      key: 'images/face.jpg',
+    });
+    skinVisionProvider.analyze.mockResolvedValue({
+      labelCodes: ['ACNE', 'UNKNOWN_FROM_AI'],
+    });
+    labelRepository.find.mockResolvedValue([
+      { id: 'label-acne', code: 'ACNE', isActive: true },
+    ]);
+
+    const result = await service.submitFaceScan('user-id', 'survey-id', file);
+
+    expect(storageService.uploadImage).toHaveBeenCalled();
+    expect(surveyRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        faceImageUrl: 'https://cdn.example.com/face.jpg',
+        faceImageKey: 'images/face.jpg',
+      }),
+    );
+    expect(surveyFaceLabelRepository.delete).toHaveBeenCalledWith({
+      surveyId: 'survey-id',
+    });
+    expect(surveyFaceLabelRepository.save).toHaveBeenCalledWith([
+      { surveyId: 'survey-id', labelId: 'label-acne' },
+    ]);
+    expect(result.faceImageUrl).toBe('https://cdn.example.com/face.jpg');
+    expect(result.faceLabels).toEqual([
+      {
+        code: 'ACNE',
+        name: 'Acne',
+        vietnameseNormalized: 'Mun',
+      },
+    ]);
+  });
+
+  it('rejects face scan on a completed survey', async () => {
+    surveyRepository.findOne.mockResolvedValue({
+      id: 'survey-id',
+      customerId: 'customer-id',
+      isCompleted: true,
+    });
+
+    await expect(
+      service.submitFaceScan('user-id', 'survey-id', file),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(storageService.uploadImage).not.toHaveBeenCalled();
+  });
+
+  it('rejects unsupported mime types', async () => {
+    surveyRepository.findOne.mockResolvedValue({
+      id: 'survey-id',
+      customerId: 'customer-id',
+      isCompleted: false,
+    });
+
+    await expect(
+      service.submitFaceScan('user-id', 'survey-id', {
+        ...file,
+        mimetype: 'application/pdf',
+      } as Express.Multer.File),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

@@ -21,15 +21,15 @@ export class ExpertAvailability {
   @JoinColumn({ name: 'expertId' })
   expert: Expert;
 
-  /** 0 = Sunday .. 6 = Saturday (matches JS Date.getDay()) */
+  /** 0 = Sunday .. 6 = Saturday (Vietnam local day-of-week) */
   @Column({ type: 'int' })
   dayOfWeek: number;
 
-  /** Inclusive start hour (9-17) */
+  /** Inclusive start hour in GMT+7 (business hours 09–20) */
   @Column({ type: 'int' })
   startHour: number;
 
-  /** Exclusive end hour (10-18) */
+  /** Exclusive end hour in GMT+7 (business hours 09–20) */
   @Column({ type: 'int' })
   endHour: number;
 
