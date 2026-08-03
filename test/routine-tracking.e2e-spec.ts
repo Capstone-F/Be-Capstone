@@ -12,6 +12,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { Role } from '../src/auth/roles.enum';
+import { Order } from '../src/commerce/order.entity';
 import { ConfigModule } from '../src/config/config.module';
 import {
   CheckInMood,
@@ -57,6 +58,7 @@ describe('Routine tracking (e2e)', () => {
           RoutineStepCompletion,
           RoutineCheckIn,
           RoutineSideEffect,
+          Order,
         ]),
       ],
       providers: [RoutineTrackingService],
