@@ -214,14 +214,15 @@ describe('Survey face-scan (e2e)', () => {
       refreshToken: 'face-scan-rt',
       tokenExpiresAt: Date.now() + 300_000,
       idpHint: undefined,
+      roles: [Role.Customer],
     });
 
-    await request(app.getHttpServer())
+    const callbackRes = await request(app.getHttpServer())
       .get(`/auth/callback?code=face-scan-code&state=${oauthState}`)
       .set('Cookie', sid)
       .expect(302);
 
-    return { user, sid };
+    return { user, sid: extractSid(callbackRes) || sid };
   }
 
   it('uploads a face image and returns labels with explanations', async () => {
