@@ -32,4 +32,8 @@ export class SurveyFaceLabel {
   })
   @JoinColumn({ name: 'labelId' })
   label: Label;
+
+  /** AI-generated short explanation for this finding (nullable for legacy rows). */
+  @Column({ nullable: true, type: 'varchar', length: 500 })
+  explanation: string | null;
 }

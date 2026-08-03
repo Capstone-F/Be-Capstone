@@ -35,6 +35,7 @@ describe('OllamaLlmRoutineProvider', () => {
     provider: 'ollama',
     ollamaBaseUrl: 'http://host.docker.internal:11434',
     ollamaModel: 'gpt-oss:120b-cloud',
+    ollamaVisionModel: 'llava',
     ollamaTimeoutMs: 120000,
   };
 

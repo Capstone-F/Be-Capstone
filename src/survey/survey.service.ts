@@ -292,14 +292,19 @@ export class SurveyService {
 
     const analysis = await this.skinVisionProvider.analyze({
       imageUrl: uploaded.url,
+      imageBase64: file.buffer.toString('base64'),
+      mimeType: file.mimetype,
     });
-    const requestedCodes = [
-      ...new Set(
-        (analysis.labelCodes ?? [])
-          .map((code) => code.trim())
-          .filter((code) => code.length > 0),
-      ),
-    ];
+
+    const findingsByCode = new Map<string, string>();
+    for (const finding of analysis.findings ?? []) {
+      const code = finding.labelCode?.trim();
+      if (!code || findingsByCode.has(code)) continue;
+      const explanation = (finding.explanation ?? '').trim();
+      if (!explanation) continue;
+      findingsByCode.set(code, explanation);
+    }
+    const requestedCodes = [...findingsByCode.keys()];
 
     let resolvedLabels: Label[] = [];
     if (requestedCodes.length > 0) {
@@ -322,6 +327,7 @@ export class SurveyService {
           this.surveyFaceLabelRepository.create({
             surveyId: survey.id,
             labelId: label.id,
+            explanation: findingsByCode.get(label.code) ?? null,
           }),
         ),
       );
@@ -819,6 +825,7 @@ export class SurveyService {
           code: fl.label.code,
           name: fl.label.name,
           vietnameseNormalized: fl.label.vietnameseNormalized ?? null,
+          explanation: fl.explanation ?? null,
         })),
       createdAt: survey.createdAt,
       answers: (answers ?? []).map((a) => ({
