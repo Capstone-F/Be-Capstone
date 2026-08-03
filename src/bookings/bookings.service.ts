@@ -40,13 +40,20 @@ import {
 } from './dto/slot-response.dto';
 import { ExpertAvailability } from './expert-availability.entity';
 import {
+  BUSINESS_END_HOUR,
+  BUSINESS_START_HOUR,
+  clampToBusinessHours,
   dateAtHour,
   enumerateDates,
+  formatVnIso,
   generateSlotsForBlock,
   getMonthRange,
   getWeekRange,
   slotsOverlap,
   TimeWindow,
+  todayVn,
+  vnCalendarDate,
+  vnDayOfWeek,
 } from './slot-generation.util';
 
 const ACTIVE_BOOKING_STATUSES = [
@@ -453,9 +460,7 @@ export class BookingsService {
     }
     this.assertExpertHasClinic(expert);
 
-    const anchorDate = query.date
-      ? this.parseDateOnly(query.date)
-      : this.todayUtc();
+    const anchorDate = query.date ? this.parseDateOnly(query.date) : todayVn();
     const range = query.range ?? BookingRange.WEEK;
     const { from, to } =
       range === BookingRange.MONTH
@@ -466,7 +471,7 @@ export class BookingsService {
     const availability = await this.availabilityRepository.find({
       where: { expertId },
     });
-    // No configured windows → expert is open all day, every day (UTC 0–24).
+    // No configured windows → open business hours every day (GMT+7 09–20).
     const openAllHours = availability.length === 0;
 
     const availabilityByDay = new Map<number, ExpertAvailability[]>();
@@ -486,16 +491,20 @@ export class BookingsService {
     const days: DaySlotsDto[] = [];
     for (const date of enumerateDates(from, to)) {
       const blocks = openAllHours
-        ? [{ startHour: 0, endHour: 24 }]
+        ? [{ startHour: BUSINESS_START_HOUR, endHour: BUSINESS_END_HOUR }]
         : (availabilityByDay.get(date.getUTCDay()) ?? []);
       const candidateSlots: TimeWindow[] = [];
 
       for (const block of blocks) {
+        const clamped = clampToBusinessHours(block.startHour, block.endHour);
+        if (!clamped) {
+          continue;
+        }
         candidateSlots.push(
           ...generateSlotsForBlock(
             date,
-            block.startHour,
-            block.endHour,
+            clamped.startHour,
+            clamped.endHour,
             sessionLengthHours,
           ),
         );
@@ -504,8 +513,8 @@ export class BookingsService {
       candidateSlots.sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
 
       const slots: SlotDto[] = candidateSlots.map((slot) => ({
-        startAt: slot.startAt,
-        endAt: slot.endAt,
+        startAt: formatVnIso(slot.startAt),
+        endAt: formatVnIso(slot.endAt),
         available: !bookedWindows.some((booked) => slotsOverlap(slot, booked)),
       }));
 
@@ -530,32 +539,29 @@ export class BookingsService {
     scheduledAt: Date,
   ): Promise<void> {
     const sessionLengthHours = expert.sessionLengthHours;
-    const calendarDate = new Date(
-      Date.UTC(
-        scheduledAt.getUTCFullYear(),
-        scheduledAt.getUTCMonth(),
-        scheduledAt.getUTCDate(),
-      ),
-    );
-    const dayOfWeek = scheduledAt.getUTCDay();
-    const startHour = scheduledAt.getUTCHours();
+    const calendarDate = vnCalendarDate(scheduledAt);
+    const dayOfWeek = vnDayOfWeek(scheduledAt);
 
     const allBlocks = await this.availabilityRepository.find({
       where: { expertId: expert.id },
     });
-    // No configured windows → treat every UTC hour as available.
+    // No configured windows → open business hours (GMT+7 09–20).
     const blocks =
       allBlocks.length === 0
-        ? [{ startHour: 0, endHour: 24 }]
+        ? [{ startHour: BUSINESS_START_HOUR, endHour: BUSINESS_END_HOUR }]
         : allBlocks.filter((block) => block.dayOfWeek === dayOfWeek);
 
     const candidateSlots: TimeWindow[] = [];
     for (const block of blocks) {
+      const clamped = clampToBusinessHours(block.startHour, block.endHour);
+      if (!clamped) {
+        continue;
+      }
       candidateSlots.push(
         ...generateSlotsForBlock(
           calendarDate,
-          block.startHour,
-          block.endHour,
+          clamped.startHour,
+          clamped.endHour,
           sessionLengthHours,
         ),
       );
@@ -570,8 +576,13 @@ export class BookingsService {
       );
     }
 
-    const endAt = dateAtHour(calendarDate, startHour + sessionLengthHours);
-    const requestedWindow: TimeWindow = { startAt: scheduledAt, endAt };
+    const matched = candidateSlots.find(
+      (slot) => slot.startAt.getTime() === scheduledAt.getTime(),
+    )!;
+    const requestedWindow: TimeWindow = {
+      startAt: scheduledAt,
+      endAt: matched.endAt,
+    };
 
     const overlapping = await this.consultationRepository.find({
       where: {
@@ -668,13 +679,14 @@ export class BookingsService {
     if (scheduledAt.getTime() <= now.getTime()) {
       throw new BadRequestException('scheduledAt must be in the future');
     }
+    // GMT+7 is a fixed offset, so VN top-of-hour == UTC top-of-hour.
     if (
       scheduledAt.getUTCMinutes() !== 0 ||
       scheduledAt.getUTCSeconds() !== 0 ||
       scheduledAt.getUTCMilliseconds() !== 0
     ) {
       throw new BadRequestException(
-        'scheduledAt must be aligned to the top of the hour (UTC)',
+        'scheduledAt must be aligned to the top of the hour (GMT+7)',
       );
     }
   }
@@ -843,7 +855,10 @@ export class BookingsService {
       customerName: customer?.user?.name ?? null,
       reason: consultation.reason,
       status: consultation.status,
-      scheduledAt: consultation.scheduledAt,
+      scheduledAt:
+        consultation.scheduledAt != null
+          ? formatVnIso(consultation.scheduledAt)
+          : null,
       startedAt: consultation.startedAt,
       completedAt: consultation.completedAt,
       cancelledAt: consultation.cancelledAt ?? null,
@@ -879,7 +894,7 @@ export class BookingsService {
     customerId: string,
     expertId: string,
   ): Promise<Treatment | null> {
-    const today = this.formatDateOnly(this.todayUtc());
+    const today = this.formatDateOnly(todayVn());
     return this.treatmentRepository
       .createQueryBuilder('t')
       .where('t.customerId = :customerId', { customerId })
@@ -900,11 +915,15 @@ export class BookingsService {
     to: Date,
     sessionLengthHours: number,
   ): Promise<TimeWindow[]> {
+    // Expand calendar markers to absolute GMT+7 day bounds for the query.
+    const rangeStart = dateAtHour(from, 0);
+    const rangeEnd = dateAtHour(to, 24);
+
     const bookings = await this.consultationRepository.find({
       where: {
         expertId,
         status: In(ACTIVE_BOOKING_STATUSES),
-        scheduledAt: Between(from, to),
+        scheduledAt: Between(rangeStart, rangeEnd),
       },
     });
 
@@ -918,16 +937,10 @@ export class BookingsService {
       });
   }
 
+  /** Parse YYYY-MM-DD as a Vietnam calendar date-only marker. */
   private parseDateOnly(value: string): Date {
     const [year, month, day] = value.split('-').map(Number);
     return new Date(Date.UTC(year, month - 1, day));
-  }
-
-  private todayUtc(): Date {
-    const now = new Date();
-    return new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
-    );
   }
 
   private formatDateOnly(date: Date): string {

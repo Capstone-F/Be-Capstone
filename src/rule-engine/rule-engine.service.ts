@@ -13,6 +13,7 @@ import {
   RuleEngineContextDto,
   RuleEngineCustomerProfileDto,
   RuleEngineLabelDto,
+  RuleEngineLabelSource,
   RuleEngineProtocolDto,
 } from './dto/rule-engine-context.dto';
 
@@ -33,6 +34,11 @@ interface BuildRoutineContextOptions {
   customerProfile?: RuleEngineCustomerProfileDto | null;
   /** When true, protocols that pass exclusion/required/avoid checks get at least score 1. */
   allowBaselineMatch?: boolean;
+  /**
+   * AI face label ids — never used for REQUIRED/EXCLUDED gates;
+   * only boost OPTIONAL matches at weight 0.5.
+   */
+  faceLabelIds?: string[];
 }
 
 const AGE_GROUP_CODES = [
@@ -43,6 +49,9 @@ const AGE_GROUP_CODES = [
   { code: 'AGE_46_60', min: 46, max: 60 },
   { code: 'ABOVE_60', min: 61, max: Infinity },
 ] as const;
+
+const SURVEY_LABEL_WEIGHT = 1;
+const FACE_AI_LABEL_WEIGHT = 0.5;
 
 @Injectable()
 export class RuleEngineService {
@@ -76,14 +85,23 @@ export class RuleEngineService {
     const profileLabelIds =
       await this.resolveLabelIdsByCodes(profileLabelCodes);
 
-    const surveyLabelIds = await this.loadSurveyLabelIds(customerId);
-    const labelIds = [...new Set([...profileLabelIds, ...surveyLabelIds])];
+    const { surveyLabelIds, faceLabelIds } =
+      await this.loadCompletedSurveyLabelIds(customerId);
+    const authoritativeLabelIds = [
+      ...new Set([...profileLabelIds, ...surveyLabelIds]),
+    ];
 
     const skinTypeId = customer.skinTypeDetails?.skinTypeId ?? null;
 
-    return this.buildRoutineContext(labelIds, {
+    return this.buildRoutineContext(authoritativeLabelIds, {
       skinTypeId,
       customerProfile: profile,
+      faceLabelIds,
+      labelSources: {
+        profileLabelIds: new Set(profileLabelIds),
+        surveyLabelIds: new Set(surveyLabelIds),
+        faceLabelIds: new Set(faceLabelIds),
+      },
     });
   }
 
@@ -116,31 +134,71 @@ export class RuleEngineService {
       skinTypeId: customer.skinTypeDetails?.skinTypeId ?? null,
       customerProfile: this.toProfileDto(customer),
       allowBaselineMatch: true,
+      labelSources: {
+        profileLabelIds: new Set(labelIds),
+        surveyLabelIds: new Set(),
+        faceLabelIds: new Set(),
+      },
     });
   }
 
   async buildRoutineContext(
     labelIds: string[],
-    options: BuildRoutineContextOptions = {},
+    options: BuildRoutineContextOptions & {
+      labelSources?: {
+        profileLabelIds: Set<string>;
+        surveyLabelIds: Set<string>;
+        faceLabelIds: Set<string>;
+      };
+    } = {},
   ): Promise<RuleEngineContextDto> {
     const {
       skinTypeId = null,
       customerProfile = null,
       allowBaselineMatch = false,
+      faceLabelIds = [],
+      labelSources,
     } = options;
-    const uniqueLabelIds = [...new Set(labelIds)];
+
+    const authoritativeIds = [...new Set(labelIds)];
+    const faceIds = [...new Set(faceLabelIds)];
+    const allLabelIds = [...new Set([...authoritativeIds, ...faceIds])];
 
     const labels =
-      uniqueLabelIds.length > 0
+      allLabelIds.length > 0
         ? await this.labelRepository.find({
-            where: { id: In(uniqueLabelIds), isActive: true },
+            where: { id: In(allLabelIds), isActive: true },
           })
         : [];
 
-    const customerLabelIds = new Set(labels.map((label) => label.id));
+    const authoritativeSet = new Set(
+      labels
+        .filter((label) => authoritativeIds.includes(label.id))
+        .map((label) => label.id),
+    );
+    const faceSet = new Set(
+      labels
+        .filter((label) => faceIds.includes(label.id))
+        .map((label) => label.id),
+    );
+    const optionalMatchSet = new Set([...authoritativeSet, ...faceSet]);
     const labelCodeById = new Map(
       labels.map((label) => [label.id, label.code]),
     );
+    const weightByLabelId = new Map<string, number>();
+    for (const id of authoritativeSet) {
+      weightByLabelId.set(id, SURVEY_LABEL_WEIGHT);
+    }
+    for (const id of faceSet) {
+      const existing = weightByLabelId.get(id) ?? 0;
+      weightByLabelId.set(id, Math.max(existing, FACE_AI_LABEL_WEIGHT));
+    }
+
+    const sources = labelSources ?? {
+      profileLabelIds: authoritativeSet,
+      surveyLabelIds: new Set<string>(),
+      faceLabelIds: faceSet,
+    };
 
     const protocols = await this.protocolRepository.find({
       where: { isActive: true },
@@ -156,7 +214,9 @@ export class RuleEngineService {
       .map((protocol) =>
         this.scoreProtocol(
           protocol,
-          customerLabelIds,
+          authoritativeSet,
+          optionalMatchSet,
+          weightByLabelId,
           labelCodeById,
           skinTypeId,
           allowBaselineMatch,
@@ -171,7 +231,9 @@ export class RuleEngineService {
 
     return {
       customerProfile,
-      labels: labels.map((label) => this.toLabelDto(label)),
+      labels: labels.map((label) =>
+        this.toLabelDto(label, this.resolveLabelSource(label.id, sources)),
+      ),
       protocols: scoredProtocols.map((result) =>
         this.toProtocolDto(
           result.protocol,
@@ -182,22 +244,54 @@ export class RuleEngineService {
     };
   }
 
-  private async loadSurveyLabelIds(customerId: string): Promise<string[]> {
+  private resolveLabelSource(
+    labelId: string,
+    sources: {
+      profileLabelIds: Set<string>;
+      surveyLabelIds: Set<string>;
+      faceLabelIds: Set<string>;
+    },
+  ): { source: RuleEngineLabelSource; weight: number } {
+    if (sources.surveyLabelIds.has(labelId)) {
+      return { source: 'SURVEY', weight: SURVEY_LABEL_WEIGHT };
+    }
+    if (sources.profileLabelIds.has(labelId)) {
+      return { source: 'PROFILE', weight: SURVEY_LABEL_WEIGHT };
+    }
+    if (sources.faceLabelIds.has(labelId)) {
+      return { source: 'FACE_AI', weight: FACE_AI_LABEL_WEIGHT };
+    }
+    return { source: 'SURVEY', weight: SURVEY_LABEL_WEIGHT };
+  }
+
+  private async loadCompletedSurveyLabelIds(customerId: string): Promise<{
+    surveyLabelIds: string[];
+    faceLabelIds: string[];
+  }> {
     const survey = await this.customerSurveyRepository.findOne({
       where: { customerId, isCompleted: true },
-      relations: ['answers', 'answers.answerLabels'],
+      relations: ['answers', 'answers.answerLabels', 'faceLabels'],
       order: { completedAt: 'DESC' },
     });
 
-    if (!survey?.answers?.length) {
-      return [];
+    if (!survey) {
+      return { surveyLabelIds: [], faceLabelIds: [] };
     }
 
-    const labelIds = survey.answers.flatMap(
-      (answer) => answer.answerLabels?.map((al) => al.labelId) ?? [],
-    );
+    const surveyLabelIds = [
+      ...new Set(
+        (survey.answers ?? []).flatMap(
+          (answer) => answer.answerLabels?.map((al) => al.labelId) ?? [],
+        ),
+      ),
+    ];
+    const faceLabelIds = [
+      ...new Set(
+        (survey.faceLabels ?? []).map((faceLabel) => faceLabel.labelId),
+      ),
+    ];
 
-    return [...new Set(labelIds)];
+    return { surveyLabelIds, faceLabelIds };
   }
 
   private deriveProfileLabelCodes(customer: Customer): string[] {
@@ -267,7 +361,9 @@ export class RuleEngineService {
 
   private scoreProtocol(
     protocol: IngredientProtocol,
-    customerLabelIds: Set<string>,
+    authoritativeLabelIds: Set<string>,
+    optionalMatchLabelIds: Set<string>,
+    weightByLabelId: Map<string, number>,
     labelCodeById: Map<string, string>,
     customerSkinTypeId: string | null,
     allowBaselineMatch = false,
@@ -275,14 +371,14 @@ export class RuleEngineService {
     const grouped = this.groupProtocolLabels(protocol.protocolLabels ?? []);
 
     const hasExcludedMatch = grouped.excluded.some((pl) =>
-      customerLabelIds.has(pl.labelId),
+      authoritativeLabelIds.has(pl.labelId),
     );
     if (hasExcludedMatch) {
       return null;
     }
 
     const allRequiredMatched = grouped.required.every((pl) =>
-      customerLabelIds.has(pl.labelId),
+      authoritativeLabelIds.has(pl.labelId),
     );
     if (!allRequiredMatched) {
       return null;
@@ -297,15 +393,26 @@ export class RuleEngineService {
     }
 
     const matchedRequired = grouped.required.filter((pl) =>
-      customerLabelIds.has(pl.labelId),
+      authoritativeLabelIds.has(pl.labelId),
     );
     const matchedOptional = grouped.optional.filter((pl) =>
-      customerLabelIds.has(pl.labelId),
+      optionalMatchLabelIds.has(pl.labelId),
     );
 
     let matchScore =
-      matchedRequired.length + matchedOptional.length + skinTypeResult.score;
-    if (matchScore < 1) {
+      matchedRequired.reduce(
+        (sum, pl) =>
+          sum + (weightByLabelId.get(pl.labelId) ?? SURVEY_LABEL_WEIGHT),
+        0,
+      ) +
+      matchedOptional.reduce(
+        (sum, pl) =>
+          sum + (weightByLabelId.get(pl.labelId) ?? SURVEY_LABEL_WEIGHT),
+        0,
+      ) +
+      skinTypeResult.score;
+
+    if (matchScore <= 0) {
       if (!allowBaselineMatch) {
         return null;
       }
@@ -375,13 +482,18 @@ export class RuleEngineService {
     };
   }
 
-  private toLabelDto(label: Label): RuleEngineLabelDto {
+  private toLabelDto(
+    label: Label,
+    meta: { source: RuleEngineLabelSource; weight: number },
+  ): RuleEngineLabelDto {
     return {
       id: label.id,
       code: label.code,
       name: label.name,
       description: label.description,
       categoryId: label.categoryId,
+      source: meta.source,
+      weight: meta.weight,
     };
   }
 

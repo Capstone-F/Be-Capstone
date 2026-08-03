@@ -159,6 +159,11 @@ export class ExpertAvailabilityService {
     if (endHour <= startHour) {
       throw new BadRequestException('endHour must be greater than startHour');
     }
+    if (startHour < 9 || endHour > 20) {
+      throw new BadRequestException(
+        'Availability hours must be within 09:00–20:00 (GMT+7)',
+      );
+    }
   }
 
   private async assertNoOverlap(

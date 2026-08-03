@@ -13,6 +13,7 @@ import { AnswerLabel } from './answer-label.entity';
 import { LabelCategory } from './label-category.entity';
 import { ProtocolLabel } from '../ingredients/protocol-label.entity';
 import { QuestionOption } from './question-option.entity';
+import { SurveyFaceLabel } from './survey-face-label.entity';
 
 @Entity('labels')
 @Index('IDX_labels_code', ['code'], { unique: true })
@@ -46,6 +47,9 @@ export class Label {
 
   @OneToMany(() => AnswerLabel, (al) => al.label)
   answerLabels: AnswerLabel[];
+
+  @OneToMany(() => SurveyFaceLabel, (sfl) => sfl.label)
+  surveyFaceLabels: SurveyFaceLabel[];
 
   @OneToMany(() => ProtocolLabel, (pl) => pl.label)
   protocolLabels: ProtocolLabel[];

@@ -19,6 +19,8 @@ export class RuleEngineCustomerProfileDto {
   skinTypeName!: string | null;
 }
 
+export type RuleEngineLabelSource = 'PROFILE' | 'SURVEY' | 'FACE_AI';
+
 export class RuleEngineLabelDto {
   @ApiProperty({ example: 'uuid' })
   id!: string;
@@ -37,6 +39,19 @@ export class RuleEngineLabelDto {
 
   @ApiProperty({ example: 'uuid' })
   categoryId!: string;
+
+  @ApiProperty({
+    enum: ['PROFILE', 'SURVEY', 'FACE_AI'],
+    example: 'SURVEY',
+  })
+  source!: RuleEngineLabelSource;
+
+  @ApiProperty({
+    example: 1,
+    description:
+      'Contribution weight: survey/profile = 1, face AI = 0.5 (OPTIONAL boost only)',
+  })
+  weight!: number;
 }
 
 export class RuleEngineProtocolDto {

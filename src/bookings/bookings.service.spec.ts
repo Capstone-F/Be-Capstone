@@ -15,7 +15,7 @@ import { BookingsService } from './bookings.service';
 import { BookingPerspective, BookingRange, BookingTab } from './enums';
 import { ExpertAvailability } from './expert-availability.entity';
 
-const FUTURE_SLOT = '2030-01-09T09:00:00.000Z'; // Wednesday
+const FUTURE_SLOT = '2030-01-09T09:00:00.000+07:00'; // Wednesday 09:00 GMT+7
 
 const makeExpert = (overrides: Partial<Expert> = {}): Expert => ({
   id: 'expert-1',
@@ -210,7 +210,7 @@ describe('BookingsService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('should open all-day slots when expert has no availability configured', async () => {
+    it('should open business-hour slots when expert has no availability configured', async () => {
       const { service } = makeService({
         expert: makeExpert({ sessionLengthHours: 2 }),
         availability: [],
@@ -224,11 +224,13 @@ describe('BookingsService', () => {
       expect(result.expertId).toBe('expert-1');
       expect(result.sessionLengthHours).toBe(2);
       expect(result.range).toBe(BookingRange.WEEK);
-      // sessionLengthHours=2 → starts 0..22 (23 slots) every day
-      expect(result.days.every((d) => d.slots.length === 23)).toBe(true);
+      // business hours 09–20, sessionLengthHours=2 → starts 9..18 (10 slots) every day
+      expect(result.days.every((d) => d.slots.length === 10)).toBe(true);
       const tuesday = result.days.find((d) => d.date === '2026-07-07')!;
-      expect(new Date(tuesday.slots[0].startAt).getUTCHours()).toBe(0);
-      expect(new Date(tuesday.slots.at(-1)!.startAt).getUTCHours()).toBe(22);
+      expect(tuesday.slots[0].startAt).toBe('2026-07-07T09:00:00.000+07:00');
+      expect(tuesday.slots.at(-1)!.startAt).toBe(
+        '2026-07-07T18:00:00.000+07:00',
+      );
     });
 
     it('should generate hourly-stepped slots for availability blocks', async () => {
@@ -257,11 +259,11 @@ describe('BookingsService', () => {
       expect(tuesday).toBeDefined();
       expect(tuesday!.slots).toHaveLength(8);
       expect(tuesday!.slots.every((s) => s.available)).toBe(true);
-      expect(new Date(tuesday!.slots[0].startAt).getUTCHours()).toBe(9);
-      expect(new Date(tuesday!.slots[0].endAt).getUTCHours()).toBe(11);
+      expect(tuesday!.slots[0].startAt).toBe('2026-07-07T09:00:00.000+07:00');
+      expect(tuesday!.slots[0].endAt).toBe('2026-07-07T11:00:00.000+07:00');
     });
 
-    it('should mark overlapping candidate starts unavailable when booked at 10:00', async () => {
+    it('should mark overlapping candidate starts unavailable when booked at 10:00 GMT+7', async () => {
       const { service } = makeService({
         expert: makeExpert({ sessionLengthHours: 2 }),
         availability: [
@@ -279,7 +281,7 @@ describe('BookingsService', () => {
         consultations: [
           makeConsultation({
             status: ConsultationStatus.CONFIRMED,
-            scheduledAt: new Date('2026-07-07T10:00:00.000Z'),
+            scheduledAt: new Date('2026-07-07T10:00:00.000+07:00'),
           }),
         ],
       });
@@ -290,7 +292,11 @@ describe('BookingsService', () => {
 
       const tuesday = result.days.find((d) => d.date === '2026-07-07')!;
       const byStartHour = (hour: number) =>
-        tuesday.slots.find((s) => new Date(s.startAt).getUTCHours() === hour)!;
+        tuesday.slots.find((s) =>
+          s.startAt.startsWith(
+            `2026-07-07T${String(hour).padStart(2, '0')}:00:00.000+07:00`,
+          ),
+        )!;
 
       expect(byStartHour(9).available).toBe(false);
       expect(byStartHour(10).available).toBe(false);
@@ -415,7 +421,7 @@ describe('BookingsService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('should allow booking any top-of-hour slot when expert has no availability configured', async () => {
+    it('should allow booking any business-hour top-of-hour slot when expert has no availability configured', async () => {
       const { service, consultationRepo } = makeService({
         expert: makeExpert(),
         availability: [],
@@ -439,8 +445,8 @@ describe('BookingsService', () => {
       await expect(
         service.createBooking('user-customer-1', {
           expertId: 'expert-1',
-          // Wednesday block is 09–18; 20:00 is outside
-          scheduledAt: '2030-01-09T20:00:00.000Z',
+          // Wednesday block is 09–18 GMT+7; 20:00 is outside
+          scheduledAt: '2030-01-09T20:00:00.000+07:00',
         }),
       ).rejects.toThrow(BadRequestException);
     });

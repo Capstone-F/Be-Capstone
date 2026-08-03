@@ -2,7 +2,9 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -11,6 +13,11 @@ import { Customer } from '../users/customer.entity';
 import { CustomerSkinTypeDetails } from '../users/customer-skin-type-details.entity';
 import { SkinType } from '../users/skin-type.entity';
 import { SurveyRecommendation } from '../recommendations/survey-recommendation.entity';
+import {
+  SKIN_VISION_PROVIDER,
+  type SkinVisionProvider,
+} from '../skin-vision/skin-vision.types';
+import { StorageService } from '../uploads/storage.service';
 import { AnswerLabel } from './answer-label.entity';
 import { Answer } from './answer.entity';
 import { CustomerSurvey } from './customer-survey.entity';
@@ -30,9 +37,19 @@ import { buildAskWhenContext, matchesAskWhen } from './ask-when.util';
 import { Label } from './label.entity';
 import { Question, QuestionPriority } from './question.entity';
 import { QuestionOption } from './question-option.entity';
+import { SurveyFaceLabel } from './survey-face-label.entity';
+
+const ALLOWED_FACE_MIME = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+]);
 
 @Injectable()
 export class SurveyService {
+  private readonly logger = new Logger(SurveyService.name);
+
   constructor(
     @InjectRepository(CustomerSurvey)
     private readonly surveyRepository: Repository<CustomerSurvey>,
@@ -40,6 +57,8 @@ export class SurveyService {
     private readonly answerRepository: Repository<Answer>,
     @InjectRepository(AnswerLabel)
     private readonly answerLabelRepository: Repository<AnswerLabel>,
+    @InjectRepository(SurveyFaceLabel)
+    private readonly surveyFaceLabelRepository: Repository<SurveyFaceLabel>,
     @InjectRepository(Question)
     private readonly questionRepository: Repository<Question>,
     @InjectRepository(QuestionOption)
@@ -54,6 +73,9 @@ export class SurveyService {
     private readonly customerSkinTypeDetailsRepository: Repository<CustomerSkinTypeDetails>,
     @InjectRepository(SurveyRecommendation)
     private readonly surveyRecommendationRepository: Repository<SurveyRecommendation>,
+    private readonly storageService: StorageService,
+    @Inject(SKIN_VISION_PROVIDER)
+    private readonly skinVisionProvider: SkinVisionProvider,
   ) {}
 
   async listAdminQuestions(
@@ -233,9 +255,79 @@ export class SurveyService {
         customerId: customer.id,
         isCompleted: false,
         completedAt: null,
+        faceImageUrl: null,
+        faceImageKey: null,
+        faceScannedAt: null,
       }),
     );
-    return this.toSurveyDto(survey, []);
+    return this.toSurveyDto(survey, [], []);
+  }
+
+  async submitFaceScan(
+    userId: string,
+    surveyId: string,
+    file: Express.Multer.File,
+  ): Promise<SurveyResponseDto> {
+    const { survey } = await this.getOwnedInProgressSurvey(userId, surveyId);
+
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('file is required');
+    }
+    if (!ALLOWED_FACE_MIME.has(file.mimetype)) {
+      throw new BadRequestException(
+        'Unsupported file type. Allowed: jpeg, png, webp, gif',
+      );
+    }
+
+    const uploaded = await this.storageService.uploadImage({
+      buffer: file.buffer,
+      contentType: file.mimetype,
+      originalName: file.originalname,
+    });
+
+    survey.faceImageUrl = uploaded.url;
+    survey.faceImageKey = uploaded.key;
+    survey.faceScannedAt = new Date();
+    await this.surveyRepository.save(survey);
+
+    const analysis = await this.skinVisionProvider.analyze({
+      imageUrl: uploaded.url,
+    });
+    const requestedCodes = [
+      ...new Set(
+        (analysis.labelCodes ?? [])
+          .map((code) => code.trim())
+          .filter((code) => code.length > 0),
+      ),
+    ];
+
+    let resolvedLabels: Label[] = [];
+    if (requestedCodes.length > 0) {
+      resolvedLabels = await this.labelRepository.find({
+        where: { code: In(requestedCodes), isActive: true },
+      });
+      const known = new Set(resolvedLabels.map((label) => label.code));
+      const unknown = requestedCodes.filter((code) => !known.has(code));
+      if (unknown.length > 0) {
+        this.logger.warn(
+          `Face scan ignored unknown label codes for survey ${surveyId}: ${unknown.join(', ')}`,
+        );
+      }
+    }
+
+    await this.surveyFaceLabelRepository.delete({ surveyId: survey.id });
+    if (resolvedLabels.length > 0) {
+      await this.surveyFaceLabelRepository.save(
+        resolvedLabels.map((label) =>
+          this.surveyFaceLabelRepository.create({
+            surveyId: survey.id,
+            labelId: label.id,
+          }),
+        ),
+      );
+    }
+
+    return this.getSurveyForUser(userId, surveyId);
   }
 
   async submitAnswers(
@@ -568,7 +660,11 @@ export class SurveyService {
       where: { surveyId: survey.id },
       relations: ['answerLabels', 'answerLabels.label'],
     });
-    return this.toSurveyDto(survey, answers);
+    const faceLabels = await this.surveyFaceLabelRepository.find({
+      where: { surveyId: survey.id },
+      relations: ['label'],
+    });
+    return this.toSurveyDto(survey, answers, faceLabels);
   }
 
   async getSurveyForUser(
@@ -582,12 +678,18 @@ export class SurveyService {
         'answers',
         'answers.answerLabels',
         'answers.answerLabels.label',
+        'faceLabels',
+        'faceLabels.label',
       ],
     });
     if (!survey) {
       throw new NotFoundException(`Survey ${surveyId} not found`);
     }
-    return this.toSurveyDto(survey, survey.answers ?? []);
+    return this.toSurveyDto(
+      survey,
+      survey.answers ?? [],
+      survey.faceLabels ?? [],
+    );
   }
 
   private async requireQuestionWithOptions(id: string): Promise<Question> {
@@ -703,11 +805,21 @@ export class SurveyService {
   private toSurveyDto(
     survey: CustomerSurvey,
     answers: Answer[],
+    faceLabels: SurveyFaceLabel[] = [],
   ): SurveyResponseDto {
     return {
       id: survey.id,
       isCompleted: survey.isCompleted,
       completedAt: survey.completedAt,
+      faceImageUrl: survey.faceImageUrl ?? null,
+      faceScannedAt: survey.faceScannedAt ?? null,
+      faceLabels: (faceLabels ?? [])
+        .filter((fl) => fl.label)
+        .map((fl) => ({
+          code: fl.label.code,
+          name: fl.label.name,
+          vietnameseNormalized: fl.label.vietnameseNormalized ?? null,
+        })),
       createdAt: survey.createdAt,
       answers: (answers ?? []).map((a) => ({
         id: a.id,

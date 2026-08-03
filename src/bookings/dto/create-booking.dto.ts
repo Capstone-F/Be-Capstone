@@ -13,8 +13,9 @@ export class CreateBookingDto {
   expertId!: string;
 
   @ApiProperty({
-    example: '2026-07-07T09:00:00.000Z',
-    description: 'Requested slot start time (UTC, top of hour)',
+    example: '2026-07-07T09:00:00.000+07:00',
+    description:
+      'Requested slot start time (Asia/Ho_Chi_Minh GMT+7, top of hour). Prefer the exact startAt from GET /bookings/:expertId.',
   })
   @IsISO8601()
   scheduledAt!: string;

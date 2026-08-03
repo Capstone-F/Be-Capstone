@@ -287,6 +287,38 @@ Response = full `SurveyResponseDto` including saved `answers[].labels` (`code`, 
 
 ---
 
+### 4.3b Face scan (optional) ✅ Ready
+
+Upload a facial image for the in-progress survey. The backend stores the image in R2 on the survey, runs the skin-vision provider (`LLM_PROVIDER=mock` by default), and attaches **face labels** used later as a lower-weight OPTIONAL boost in the rule engine.
+
+| Method | Path                     | Auth     | Status   |
+| ------ | ------------------------ | -------- | -------- |
+| POST   | `/surveys/:id/face-scan` | Customer | ✅ Ready |
+
+```http
+POST /surveys/<surveyId>/face-scan
+Content-Type: multipart/form-data
+
+file=<facial-image.jpeg>
+```
+
+| Constraint | Value                                                |
+| ---------- | ---------------------------------------------------- |
+| MIME       | `image/jpeg`, `image/png`, `image/webp`, `image/gif` |
+| Max size   | 5 MB                                                 |
+
+**Rules:**
+
+- Survey must be owned by the caller and **not** completed.
+- Image is **always persisted** on the survey (`faceImageUrl`, `faceScannedAt`) even if AI returns no labels.
+- Re-scanning replaces the stored image and face labels.
+- Unknown AI label codes are dropped (logged); only active taxonomy codes are saved.
+- Face labels do **not** affect Baumann derivation on complete (answers only).
+
+Response includes `faceImageUrl`, `faceScannedAt`, and `faceLabels[]`.
+
+---
+
 ### 4.4 Read survey session ✅ Ready
 
 | Method | Path           | Auth     | Status   |
@@ -608,6 +640,7 @@ Use `OLLAMA_BASE_URL=http://localhost:11434` only when the Nest API also runs on
 | List questions (+ options)           | GET         | `/surveys/questions`                       | ✅ Ready |
 | Start survey                         | POST        | `/surveys`                                 | ✅ Ready |
 | Submit answers                       | POST        | `/surveys/:id/answers`                     | ✅ Ready |
+| Face scan (optional)                 | POST        | `/surveys/:id/face-scan`                   | ✅ Ready |
 | Get survey                           | GET         | `/surveys/:id`                             | ✅ Ready |
 | Complete survey (+ derive skin type) | POST        | `/surveys/:id/complete`                    | ✅ Ready |
 | Protocols + products snapshot        | GET         | `/recommendations/latest`                  | ✅ Ready |
@@ -670,20 +703,20 @@ allergies → safety (suggest + recommendations)
 
 ### 6.2 Core entities
 
-| Entity                     | Role                                                                   |
-| -------------------------- | ---------------------------------------------------------------------- |
-| `Question`                 | Survey prompt (`code`, `text`, `questionType`, `displayOrder`)         |
-| `Label` / `LabelCategory`  | Answer tags; EN `name`/`description` + optional `vietnameseNormalized` |
-| `CustomerSurvey`           | One session; `isCompleted` / `completedAt`                             |
-| `Answer` + `AnswerLabel`   | User response linking question → labels                                |
-| `IngredientProtocol`       | Prescribed active / usage pattern                                      |
-| `ProtocolLabel`            | `REQUIRED` / `OPTIONAL` / `EXCLUDED` label match                       |
-| `ProtocolSkinType`         | `RECOMMENDED` / `AVOID` for Baumann types                              |
-| `ProductProtocol`          | Links catalog product → protocol                                       |
-| `SurveyRecommendation`     | Snapshot header (1:1 with completed survey)                            |
-| `SurveyRecommendationItem` | Protocol + primary `productVariantId` + `rankedVariants` + score       |
-| `Routine`                  | AI / expert routine; `sourceOrderId` is many-to-one (nullable)         |
-| `Order`                    | `source: SURVEY \| CATALOG`, optional combo discount                   |
+| Entity                     | Role                                                                        |
+| -------------------------- | --------------------------------------------------------------------------- |
+| `Question`                 | Survey prompt (`code`, `text`, `questionType`, `displayOrder`)              |
+| `Label` / `LabelCategory`  | Answer tags; EN `name`/`description` + optional `vietnameseNormalized`      |
+| `CustomerSurvey`           | One session; `isCompleted` / `completedAt`; optional face image + AI labels |
+| `Answer` + `AnswerLabel`   | User response linking question → labels                                     |
+| `IngredientProtocol`       | Prescribed active / usage pattern                                           |
+| `ProtocolLabel`            | `REQUIRED` / `OPTIONAL` / `EXCLUDED` label match                            |
+| `ProtocolSkinType`         | `RECOMMENDED` / `AVOID` for Baumann types                                   |
+| `ProductProtocol`          | Links catalog product → protocol                                            |
+| `SurveyRecommendation`     | Snapshot header (1:1 with completed survey)                                 |
+| `SurveyRecommendationItem` | Protocol + primary `productVariantId` + `rankedVariants` + score            |
+| `Routine`                  | AI / expert routine; `sourceOrderId` is many-to-one (nullable)              |
+| `Order`                    | `source: SURVEY \| CATALOG`, optional combo discount                        |
 
 ### 6.3 Seeded survey questions (question bank)
 
@@ -822,19 +855,24 @@ Entry points:
 
 **Matching logic (summary):**
 
-1. Collect label ids (survey answers ∪ profile-derived age/gender).
-2. Load active protocols with `ProtocolLabel` + `ProtocolSkinType`.
-3. Drop protocol if any `EXCLUDED` label matches.
-4. Require all `REQUIRED` labels.
-5. Drop if skin type is `AVOID`.
-6. Score = matched required + optional (+1 if skin type `RECOMMENDED`).
-7. Sort by score; recommendation service maps each protocol to **ranked** linked variants (price → SKU), after **stock > 0** and **allergy** filters; attaches optional protocol `conflicts[]`.
+1. Collect authoritative label ids (survey answers ∪ profile-derived age/gender).
+2. Collect AI face label ids from the same completed survey (optional; weight `0.5`).
+3. Load active protocols with `ProtocolLabel` + `ProtocolSkinType`.
+4. Drop protocol if any `EXCLUDED` label matches **authoritative** labels only (AI never excludes).
+5. Require all `REQUIRED` labels from **authoritative** labels only (AI never unlocks REQUIRED).
+6. Drop if skin type is `AVOID`.
+7. Score = weighted matched required + optional (+1 if skin type `RECOMMENDED`):
+   - Survey / profile match → `+1.0`
+   - AI face match on an **OPTIONAL** protocol label only → `+0.5`
+   - Same label from survey + AI → `+1.0` (max weight, no double-count)
+8. Sort by score; recommendation service maps each protocol to **ranked** linked variants (price → SKU), after **stock > 0** and **allergy** filters; attaches optional protocol `conflicts[]`.
 
 **Client implication:** improving personalization is mostly:
 
 1. Better / conditional questions → better labels.
-2. Richer `protocol_labels` / `protocol_skin_types` seed data.
-3. More `product_protocols` links in catalog.
+2. Optional face scan → soft ranking boost (never hard gates).
+3. Richer `protocol_labels` / `protocol_skin_types` seed data.
+4. More `product_protocols` links in catalog.
 
 Not a separate “ML recommender” for MVP.
 
@@ -899,6 +937,7 @@ GET   /surveys/questions               ← CORE questions + options
 POST  /surveys
 POST  /surveys/:id/answers             ← one or more batches
 GET   /surveys/questions?surveyId=:id  ← unlock matching L2 questions
+POST  /surveys/:id/face-scan           ← optional facial image → AI labels
 POST  /surveys/:id/complete            ← derives Baumann skin type
 GET   /customers/me                    ← optional: read derived skinType
 GET   /recommendations/latest          ← protocols + products + conflicts
@@ -914,7 +953,7 @@ GET   /routines/me                     ← list / refresh routines
 
 ### 10.4 Out of scope for this guide
 
-- AI photo analysis pipeline (survey can later collect photo-context labels only).
+- Live Ollama/OpenAI vision for face scan (`LLM_PROVIDER=mock` ships; other providers reserved).
 - Staff delivery `PATCH` — see ecommerce gaps.
 - Replacing VNPay / catalog browse flows.
 

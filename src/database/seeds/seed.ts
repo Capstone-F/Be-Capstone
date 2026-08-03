@@ -3146,7 +3146,7 @@ type ExpertSeed = {
   sessionLengthHours: number;
 };
 
-/** Mon-Fri recurring availability blocks (dayOfWeek 1-5). */
+/** Mon-Fri recurring availability blocks (dayOfWeek 1-5), hours in GMT+7. */
 const DEFAULT_EXPERT_AVAILABILITY: Array<{
   dayOfWeek: number;
   startHour: number;
