@@ -24,7 +24,7 @@ import { OrderItem } from './order-item.entity';
 import { Order } from './order.entity';
 import { OrdersService } from './orders.service';
 
-/** Mirrors RecommendationService's private helper so mocks match real combo behavior. */
+/** Mirrors RecommendationService helpers so mocks match real linkage behavior. */
 function getItemVariantIds(item: SurveyRecommendationItem): string[] {
   const ranked = (item.rankedVariants ?? []).map((v) => v.productVariantId);
   if (ranked.length > 0) return ranked;
@@ -39,10 +39,7 @@ describe('OrdersService', () => {
   let recommendationService: jest.Mocked<
     Pick<
       RecommendationService,
-      | 'getByIdForCustomer'
-      | 'getAllowedVariantIds'
-      | 'isProtocolCoverageComplete'
-      | 'findItemIdForVariant'
+      'getByIdForCustomer' | 'getAllowedVariantIds' | 'findItemIdForVariant'
     >
   >;
   let settingRepository: { findOneBy: jest.Mock };
@@ -53,11 +50,13 @@ describe('OrdersService', () => {
   let deliveryService: jest.Mocked<Pick<DeliveryService, 'quoteFee'>>;
   let savedOrders: Order[];
   let savedDeliveries: Delivery[];
+  let savedOrderItems: OrderItem[];
 
   const customer = { id: 'cust-1', userId: 'user-1' } as Customer;
   const variants = [
     { id: 'v1', priceVnd: 100000, weightGram: 200, isActive: true },
     { id: 'v2', priceVnd: 200000, weightGram: 150, isActive: true },
+    { id: 'v-extra', priceVnd: 150000, weightGram: 100, isActive: true },
   ] as ProductVariant[];
 
   const DTO: CreateOrderDto = {
@@ -80,6 +79,7 @@ describe('OrdersService', () => {
   beforeEach(async () => {
     savedOrders = [];
     savedDeliveries = [];
+    savedOrderItems = [];
     cartService = {
       getCartByCustomerId: jest.fn(),
       clearCartByCustomerId: jest.fn().mockResolvedValue(undefined),
@@ -93,14 +93,6 @@ describe('OrdersService', () => {
         }
         return [...ids];
       }),
-      isProtocolCoverageComplete: jest.fn((recommendation, cartVariantIds) => {
-        const cartSet = new Set(cartVariantIds);
-        const items = recommendation.items ?? [];
-        if (items.length === 0) return false;
-        return items.every((item) =>
-          getItemVariantIds(item).some((id) => cartSet.has(id)),
-        );
-      }),
       findItemIdForVariant: jest.fn((recommendation, productVariantId) => {
         for (const item of recommendation.items ?? []) {
           if (getItemVariantIds(item).includes(productVariantId)) {
@@ -111,10 +103,23 @@ describe('OrdersService', () => {
       }),
     };
     settingRepository = {
-      findOneBy: jest.fn().mockResolvedValue({
-        key: CommerceSettingKey.SURVEY_COMBO_DISCOUNT_PCT,
-        value: '10',
-      }),
+      findOneBy: jest
+        .fn()
+        .mockImplementation(({ key }: { key: CommerceSettingKey }) => {
+          if (key === CommerceSettingKey.SURVEY_COMBO_DISCOUNT_PCT) {
+            return Promise.resolve({
+              key: CommerceSettingKey.SURVEY_COMBO_DISCOUNT_PCT,
+              value: '10',
+            });
+          }
+          if (key === CommerceSettingKey.SURVEY_COMBO_MIN_SUBTOTAL_VND) {
+            return Promise.resolve({
+              key: CommerceSettingKey.SURVEY_COMBO_MIN_SUBTOTAL_VND,
+              value: '300000',
+            });
+          }
+          return Promise.resolve(null);
+        }),
     };
     variantRepository = {
       find: jest.fn().mockImplementation((opts: { where: { id: unknown } }) => {
@@ -146,6 +151,7 @@ describe('OrdersService', () => {
             ({ ...data }) as Order,
           save: async (value: Order | OrderItem | Array<Order | OrderItem>) => {
             if (Array.isArray(value)) {
+              savedOrderItems.push(...(value as OrderItem[]));
               return value;
             }
             if (!(value as Order).id) {
@@ -193,7 +199,72 @@ describe('OrdersService', () => {
     service = module.get(OrdersService);
   });
 
-  it('applies combo discount when all recommended variants are in the cart', async () => {
+  it('applies combo discount when subtotal exceeds the minimum threshold', async () => {
+    // v1 + v2 + v-extra = 450000 > 300000
+    cartService.getCartByCustomerId.mockResolvedValue({
+      source: OrderSource.SURVEY,
+      surveyRecommendationId: 'rec-1',
+      items: [
+        { productVariantId: 'v1', quantity: 1 },
+        { productVariantId: 'v2', quantity: 1 },
+        { productVariantId: 'v-extra', quantity: 1 },
+      ],
+    });
+    recommendationService.getByIdForCustomer.mockResolvedValue({
+      id: 'rec-1',
+      customerSurveyId: 'survey-1',
+      items: [
+        { id: 'ri-1', productVariantId: 'v1' },
+        { id: 'ri-2', productVariantId: 'v2' },
+      ],
+    } as SurveyRecommendation);
+
+    orderRepository.findOne.mockResolvedValue({
+      id: 'order-1',
+      status: OrderStatus.PENDING,
+      source: OrderSource.SURVEY,
+      customerSurveyId: 'survey-1',
+      surveyRecommendationId: 'rec-1',
+      subtotalVnd: 450000,
+      discountVnd: 45000,
+      discountType: OrderDiscountType.COMBO,
+      shippingFeeVnd: 32000,
+      totalVnd: 437000,
+      items: [],
+      delivery: deliveryFixture,
+      createdAt: new Date(),
+    });
+
+    const order = await service.createFromCart('user-1', DTO);
+    expect(savedOrders[0].discountType).toBe(OrderDiscountType.COMBO);
+    expect(savedOrders[0].discountVnd).toBe(45000);
+    // 450000 - 45000 + 32000 shipping
+    expect(savedOrders[0].totalVnd).toBe(437000);
+    expect(order.totalVnd).toBe(437000);
+    expect(order.provinceId).toBe(202);
+    expect(order.districtId).toBe(1449);
+    expect(order.wardCode).toBe('21211');
+    expect(cartService.clearCartByCustomerId).toHaveBeenCalledWith('cust-1');
+    expect(savedOrderItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          productVariantId: 'v1',
+          surveyRecommendationItemId: 'ri-1',
+        }),
+        expect.objectContaining({
+          productVariantId: 'v2',
+          surveyRecommendationItemId: 'ri-2',
+        }),
+        expect.objectContaining({
+          productVariantId: 'v-extra',
+          surveyRecommendationItemId: null,
+        }),
+      ]),
+    );
+  });
+
+  it('skips combo discount when subtotal does not exceed the threshold', async () => {
+    // v1 + v2 = 300000, not > 300000
     cartService.getCartByCustomerId.mockResolvedValue({
       source: OrderSource.SURVEY,
       surveyRecommendationId: 'rec-1',
@@ -210,7 +281,6 @@ describe('OrdersService', () => {
         { id: 'ri-2', productVariantId: 'v2' },
       ],
     } as SurveyRecommendation);
-
     orderRepository.findOne.mockResolvedValue({
       id: 'order-1',
       status: OrderStatus.PENDING,
@@ -218,52 +288,10 @@ describe('OrdersService', () => {
       customerSurveyId: 'survey-1',
       surveyRecommendationId: 'rec-1',
       subtotalVnd: 300000,
-      discountVnd: 30000,
-      discountType: OrderDiscountType.COMBO,
-      shippingFeeVnd: 32000,
-      totalVnd: 302000,
-      items: [],
-      delivery: deliveryFixture,
-      createdAt: new Date(),
-    });
-
-    const order = await service.createFromCart('user-1', DTO);
-    expect(savedOrders[0].discountType).toBe(OrderDiscountType.COMBO);
-    expect(savedOrders[0].discountVnd).toBe(30000);
-    // 300000 - 30000 + 32000 shipping
-    expect(savedOrders[0].totalVnd).toBe(302000);
-    expect(order.totalVnd).toBe(302000);
-    expect(order.provinceId).toBe(202);
-    expect(order.districtId).toBe(1449);
-    expect(order.wardCode).toBe('21211');
-    expect(cartService.clearCartByCustomerId).toHaveBeenCalledWith('cust-1');
-  });
-
-  it('skips combo discount for partial survey carts', async () => {
-    cartService.getCartByCustomerId.mockResolvedValue({
-      source: OrderSource.SURVEY,
-      surveyRecommendationId: 'rec-1',
-      items: [{ productVariantId: 'v1', quantity: 1 }],
-    });
-    recommendationService.getByIdForCustomer.mockResolvedValue({
-      id: 'rec-1',
-      customerSurveyId: 'survey-1',
-      items: [
-        { id: 'ri-1', productVariantId: 'v1' },
-        { id: 'ri-2', productVariantId: 'v2' },
-      ],
-    } as SurveyRecommendation);
-    orderRepository.findOne.mockResolvedValue({
-      id: 'order-1',
-      status: OrderStatus.PENDING,
-      source: OrderSource.SURVEY,
-      customerSurveyId: 'survey-1',
-      surveyRecommendationId: 'rec-1',
-      subtotalVnd: 100000,
       discountVnd: 0,
       discountType: null,
       shippingFeeVnd: 32000,
-      totalVnd: 132000,
+      totalVnd: 332000,
       items: [],
       delivery: deliveryFixture,
       createdAt: new Date(),
@@ -272,6 +300,48 @@ describe('OrdersService', () => {
     await service.createFromCart('user-1', DTO);
     expect(savedOrders[0].discountVnd).toBe(0);
     expect(savedOrders[0].discountType).toBeNull();
+  });
+
+  it('allows non-recommended variants in a SURVEY order', async () => {
+    cartService.getCartByCustomerId.mockResolvedValue({
+      source: OrderSource.SURVEY,
+      surveyRecommendationId: 'rec-1',
+      items: [
+        { productVariantId: 'v1', quantity: 1 },
+        { productVariantId: 'v-extra', quantity: 1 },
+      ],
+    });
+    recommendationService.getByIdForCustomer.mockResolvedValue({
+      id: 'rec-1',
+      customerSurveyId: 'survey-1',
+      items: [{ id: 'ri-1', productVariantId: 'v1' }],
+    } as SurveyRecommendation);
+    orderRepository.findOne.mockResolvedValue({
+      id: 'order-1',
+      status: OrderStatus.PENDING,
+      source: OrderSource.SURVEY,
+      customerSurveyId: 'survey-1',
+      surveyRecommendationId: 'rec-1',
+      subtotalVnd: 250000,
+      discountVnd: 0,
+      discountType: null,
+      shippingFeeVnd: 32000,
+      totalVnd: 282000,
+      items: [],
+      delivery: deliveryFixture,
+      createdAt: new Date(),
+    });
+
+    await service.createFromCart('user-1', DTO);
+    expect(savedOrders[0].source).toBe(OrderSource.SURVEY);
+    expect(savedOrderItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          productVariantId: 'v-extra',
+          surveyRecommendationItemId: null,
+        }),
+      ]),
+    );
   });
 
   it('creates catalog orders without recommendation linkage', async () => {

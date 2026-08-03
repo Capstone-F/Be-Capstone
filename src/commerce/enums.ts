@@ -19,6 +19,7 @@ export enum OrderDiscountType {
 
 export enum CommerceSettingKey {
   SURVEY_COMBO_DISCOUNT_PCT = 'SURVEY_COMBO_DISCOUNT_PCT',
+  SURVEY_COMBO_MIN_SUBTOTAL_VND = 'SURVEY_COMBO_MIN_SUBTOTAL_VND',
 }
 
 export enum TransactionStatus {

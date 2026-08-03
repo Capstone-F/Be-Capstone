@@ -38,7 +38,9 @@ export class CommerceSettingsController {
 
   @Get('survey-combo-discount')
   @Roles(Role.AppAdmin)
-  @ApiOperation({ summary: 'Get survey combo discount percent' })
+  @ApiOperation({
+    summary: 'Get survey combo discount percent and minimum subtotal',
+  })
   @ApiOkResponse({ type: ComboDiscountSettingDto })
   getComboDiscount(): Promise<ComboDiscountSettingDto> {
     return this.ordersService.getComboDiscountSetting();
@@ -46,7 +48,9 @@ export class CommerceSettingsController {
 
   @Patch('survey-combo-discount')
   @Roles(Role.AppAdmin)
-  @ApiOperation({ summary: 'Update survey combo discount percent' })
+  @ApiOperation({
+    summary: 'Update survey combo discount percent and/or minimum subtotal',
+  })
   @ApiOkResponse({ type: ComboDiscountSettingDto })
   updateComboDiscount(
     @Req() req: Request,
