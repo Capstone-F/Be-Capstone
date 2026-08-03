@@ -30,6 +30,10 @@ export class IngredientConflict {
   @Column({ nullable: true, type: 'varchar' })
   reason: string | null;
 
+  /** Vietnamese warning text for FE display (e.g. cart conflict banners). */
+  @Column({ nullable: true, type: 'varchar' })
+  description: string | null;
+
   @ManyToOne(() => IngredientProtocol, (protocol) => protocol.conflicts, {
     onDelete: 'CASCADE',
   })

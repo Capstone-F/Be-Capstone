@@ -3,6 +3,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
+import { IngredientConflict } from '../ingredients/ingredient-conflict.entity';
+import { ProductProtocol } from '../products/product-protocol.entity';
 import { ProductVariant } from '../products/product-variant.entity';
 import { RecommendationsModule } from '../recommendations/recommendations.module';
 import { Customer } from '../users/customer.entity';
@@ -11,7 +13,12 @@ import { CartService } from './cart.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Customer, ProductVariant]),
+    TypeOrmModule.forFeature([
+      Customer,
+      ProductVariant,
+      ProductProtocol,
+      IngredientConflict,
+    ]),
     RecommendationsModule,
     AuthModule,
   ],

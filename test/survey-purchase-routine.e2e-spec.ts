@@ -65,6 +65,7 @@ import { Gender } from '../src/users/gender.enum';
 import { User } from '../src/users/user.entity';
 import { Role } from '../src/auth/roles.enum';
 import { IngredientConflict } from '../src/ingredients/ingredient-conflict.entity';
+import { ConflictSeverity } from '../src/products/enums/conflict-severity.enum';
 import { StockBatch } from '../src/stock/stock-batch.entity';
 
 describe('Survey purchase → routine generation (e2e)', () => {
@@ -399,6 +400,18 @@ describe('Survey purchase → routine generation (e2e)', () => {
       }),
     );
 
+    const conflictRepo = dataSource.getRepository(IngredientConflict);
+    await conflictRepo.save(
+      conflictRepo.create({
+        protocolId: protocol.id,
+        conflictingProtocolId: protocol2.id,
+        severity: ConflictSeverity.HIGH,
+        reason: 'Salicylic acid + benzoyl peroxide may increase irritation',
+        description:
+          'Salicylic acid kết hợp benzoyl peroxide có thể gây kích ứng mạnh',
+      }),
+    );
+
     return {
       user,
       customer,
@@ -437,18 +450,31 @@ describe('Survey purchase → routine generation (e2e)', () => {
     ).toEqual(expect.arrayContaining([variant.id, alternateVariant.id]));
 
     // Cover every protocol; include both ranked variants for the first protocol.
+    let cart = await cartService.getCart(user.id);
+    expect(cart.conflicts).toEqual([]);
+
     for (const productVariantId of [
       variant.id,
       alternateVariant.id,
       variant2.id,
     ]) {
-      await cartService.addItem(user.id, {
+      cart = await cartService.addItem(user.id, {
         productVariantId,
         quantity: productVariantId === variant.id ? 2 : 1,
         source: OrderSource.SURVEY,
         surveyRecommendationId: recommendation.id,
       });
     }
+
+    expect(Array.isArray(cart.conflicts)).toBe(true);
+    expect(cart.conflicts.length).toBeGreaterThanOrEqual(1);
+    const cartConflict = cart.conflicts[0];
+    expect(cartConflict.description).toMatch(/[\u00C0-\u1EF9]/);
+    expect(cartConflict.description.length).toBeGreaterThan(0);
+    expect(cartConflict.productVariantIds).toEqual(
+      expect.arrayContaining([variant.id, alternateVariant.id]),
+    );
+    expect(cartConflict.conflictingProductVariantIds).toEqual([variant2.id]);
 
     const order = await ordersService.createFromCart(user.id, {
       shippingAddress: SHIPPING_ADDRESS,
