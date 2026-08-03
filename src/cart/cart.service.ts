@@ -7,14 +7,16 @@ import {
 import { Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { RedisClientType } from 'redis';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { OrderSource } from '../commerce/enums';
+import { IngredientConflict } from '../ingredients/ingredient-conflict.entity';
+import { ProductProtocol } from '../products/product-protocol.entity';
 import { ProductVariant } from '../products/product-variant.entity';
 import { RecommendationService } from '../recommendations/recommendation.service';
 import { REDIS_CLIENT } from '../redis/redis.constants';
 import { Customer } from '../users/customer.entity';
 import { AddCartItemDto } from './dto/add-cart-item.dto';
-import { CartResponseDto } from './dto/cart-response.dto';
+import { CartConflictDto, CartResponseDto } from './dto/cart-response.dto';
 import { CartState, emptyCart } from './cart.types';
 
 const CART_TTL_SECONDS = 60 * 60 * 24 * 7;
@@ -27,13 +29,17 @@ export class CartService {
     private readonly customerRepository: Repository<Customer>,
     @InjectRepository(ProductVariant)
     private readonly variantRepository: Repository<ProductVariant>,
+    @InjectRepository(ProductProtocol)
+    private readonly productProtocolRepository: Repository<ProductProtocol>,
+    @InjectRepository(IngredientConflict)
+    private readonly ingredientConflictRepository: Repository<IngredientConflict>,
     private readonly recommendationService: RecommendationService,
   ) {}
 
   async getCart(userId: string): Promise<CartResponseDto> {
     const customer = await this.requireCustomer(userId);
     const cart = await this.loadCart(customer.id);
-    return cart;
+    return this.toResponse(cart);
   }
 
   async addItem(userId: string, dto: AddCartItemDto): Promise<CartResponseDto> {
@@ -102,7 +108,7 @@ export class CartService {
     }
 
     await this.saveCart(customer.id, cart);
-    return cart;
+    return this.toResponse(cart);
   }
 
   async removeItem(
@@ -118,14 +124,14 @@ export class CartService {
       Object.assign(cart, emptyCart());
     }
     await this.saveCart(customer.id, cart);
-    return cart;
+    return this.toResponse(cart);
   }
 
   async clearCart(userId: string): Promise<CartResponseDto> {
     const customer = await this.requireCustomer(userId);
     const cart = emptyCart();
     await this.saveCart(customer.id, cart);
-    return cart;
+    return this.toResponse(cart);
   }
 
   /** Used by OrdersService — returns cart without requiring user session remap. */
@@ -162,6 +168,95 @@ export class CartService {
     await this.redis.set(this.cartKey(customerId), JSON.stringify(cart), {
       EX: CART_TTL_SECONDS,
     });
+  }
+
+  private async toResponse(cart: CartState): Promise<CartResponseDto> {
+    return {
+      source: cart.source,
+      surveyRecommendationId: cart.surveyRecommendationId,
+      items: cart.items,
+      conflicts: await this.resolveConflicts(cart),
+    };
+  }
+
+  private async resolveConflicts(cart: CartState): Promise<CartConflictDto[]> {
+    if (cart.items.length === 0) {
+      return [];
+    }
+
+    const variantIds = cart.items.map((i) => i.productVariantId);
+    const variants = await this.variantRepository.find({
+      where: { id: In(variantIds) },
+    });
+    if (variants.length === 0) {
+      return [];
+    }
+
+    const productIdByVariantId = new Map(
+      variants.map((v) => [v.id, v.productId]),
+    );
+    const productIds = [...new Set(variants.map((v) => v.productId))];
+
+    const mappings = await this.productProtocolRepository.find({
+      where: { productId: In(productIds) },
+      relations: ['protocol'],
+    });
+    if (mappings.length === 0) {
+      return [];
+    }
+
+    const variantIdsByProtocolId = new Map<string, string[]>();
+    for (const mapping of mappings) {
+      const relatedVariantIds = variantIds.filter(
+        (id) => productIdByVariantId.get(id) === mapping.productId,
+      );
+      if (relatedVariantIds.length === 0) continue;
+      const existing = variantIdsByProtocolId.get(mapping.protocolId) ?? [];
+      for (const id of relatedVariantIds) {
+        if (!existing.includes(id)) {
+          existing.push(id);
+        }
+      }
+      variantIdsByProtocolId.set(mapping.protocolId, existing);
+    }
+
+    const protocolIds = [...variantIdsByProtocolId.keys()];
+    if (protocolIds.length === 0) {
+      return [];
+    }
+
+    const conflicts = await this.ingredientConflictRepository.find({
+      where: {
+        protocolId: In(protocolIds),
+        conflictingProtocolId: In(protocolIds),
+      },
+      relations: ['protocol', 'conflictingProtocol'],
+    });
+
+    const resolved: CartConflictDto[] = [];
+    for (const conflict of conflicts) {
+      const productVariantIds =
+        variantIdsByProtocolId.get(conflict.protocolId) ?? [];
+      const conflictingProductVariantIds =
+        variantIdsByProtocolId.get(conflict.conflictingProtocolId) ?? [];
+      if (
+        productVariantIds.length === 0 ||
+        conflictingProductVariantIds.length === 0
+      ) {
+        continue;
+      }
+      resolved.push({
+        protocolCode: conflict.protocol?.code ?? conflict.protocolId,
+        conflictingProtocolCode:
+          conflict.conflictingProtocol?.code ?? conflict.conflictingProtocolId,
+        severity: conflict.severity,
+        description: conflict.description ?? conflict.reason ?? '',
+        reason: conflict.reason,
+        productVariantIds,
+        conflictingProductVariantIds,
+      });
+    }
+    return resolved;
   }
 
   private async requireCustomer(userId: string): Promise<Customer> {

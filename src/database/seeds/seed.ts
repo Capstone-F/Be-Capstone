@@ -3113,24 +3113,28 @@ const PROTOCOL_CONFLICTS: Array<{
   conflictingProtocolCode: string;
   severity: ConflictSeverity;
   reason: string;
+  description: string;
 }> = [
   {
     protocolCode: 'retinol_0.3_anti_aging',
     conflictingProtocolCode: 'glycolic_exfoliation',
     severity: ConflictSeverity.HIGH,
     reason: 'Retinol + AHA may cause excessive irritation',
+    description: 'Retinol kết hợp AHA có thể gây kích ứng mạnh',
   },
   {
     protocolCode: 'retinol_0.3_anti_aging',
     conflictingProtocolCode: 'salicylic_acne',
     severity: ConflictSeverity.MEDIUM,
     reason: 'Combining retinol with BHA may increase dryness',
+    description: 'Kết hợp retinol với BHA có thể làm da khô hơn',
   },
   {
     protocolCode: 'retinol_0.3_anti_aging',
     conflictingProtocolCode: 'benzoyl_acne',
     severity: ConflictSeverity.HIGH,
     reason: 'Benzoyl peroxide can deactivate retinol',
+    description: 'Benzoyl peroxide có thể làm giảm hiệu quả của retinol',
   },
 ];
 
@@ -3779,11 +3783,13 @@ async function seed(): Promise<void> {
           conflictingProtocolId: conflicting.id,
           severity: conflict.severity,
           reason: conflict.reason,
+          description: conflict.description,
         }),
       );
     } else {
       existing.severity = conflict.severity;
       existing.reason = conflict.reason;
+      existing.description = conflict.description;
       await conflictRepo.save(existing);
     }
   }
