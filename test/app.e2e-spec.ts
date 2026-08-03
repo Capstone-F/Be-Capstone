@@ -2521,13 +2521,17 @@ describe('BE Capstone API (e2e)', () => {
 
       it('should return 400 when scheduledAt is outside expert availability', async () => {
         const expert = await seedExpertForBookings();
+        await seedAvailability(expert.id, [
+          { dayOfWeek: 3, startHour: 9, endHour: 18 },
+        ]);
 
         await request(app.getHttpServer())
           .post('/bookings')
           .set('Cookie', customerSid)
           .send({
             expertId: expert.id,
-            scheduledAt: futureSlot,
+            // Wednesday block is 09–18; 20:00 is outside (empty availability = open all hours)
+            scheduledAt: '2030-01-09T20:00:00.000Z',
           })
           .expect(400);
       });
