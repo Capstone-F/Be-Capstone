@@ -3941,6 +3941,19 @@ async function seed(): Promise<void> {
     );
   }
 
+  const existingMinSubtotalSetting = await commerceSettingRepo.findOneBy({
+    key: CommerceSettingKey.SURVEY_COMBO_MIN_SUBTOTAL_VND,
+  });
+  if (!existingMinSubtotalSetting) {
+    await commerceSettingRepo.save(
+      commerceSettingRepo.create({
+        key: CommerceSettingKey.SURVEY_COMBO_MIN_SUBTOTAL_VND,
+        value: '300000',
+        updatedByUserId: null,
+      }),
+    );
+  }
+
   for (const clinicSeed of CLINICS) {
     let clinic = await clinicRepo.findOneBy({ name: clinicSeed.name });
     if (!clinic) {

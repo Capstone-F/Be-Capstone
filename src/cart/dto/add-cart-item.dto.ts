@@ -21,7 +21,8 @@ export class AddCartItemDto {
   source!: OrderSource;
 
   @ApiPropertyOptional({
-    description: 'Required when source is SURVEY',
+    description:
+      'Required when source is SURVEY. Cart may include recommended and other catalog variants.',
   })
   @IsOptional()
   @IsUUID()

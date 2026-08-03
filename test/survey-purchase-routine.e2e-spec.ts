@@ -195,6 +195,19 @@ describe('Survey purchase → routine generation (e2e)', () => {
       );
     }
 
+    const existingMinSubtotal = await settingRepo.findOneBy({
+      key: CommerceSettingKey.SURVEY_COMBO_MIN_SUBTOTAL_VND,
+    });
+    if (!existingMinSubtotal) {
+      await settingRepo.save(
+        settingRepo.create({
+          key: CommerceSettingKey.SURVEY_COMBO_MIN_SUBTOTAL_VND,
+          value: '300000',
+          updatedByUserId: null,
+        }),
+      );
+    }
+
     const user = await userRepo.save(
       userRepo.create({
         keycloakSub: `sub-${suffix}`,
@@ -479,12 +492,13 @@ describe('Survey purchase → routine generation (e2e)', () => {
     expect(step).toHaveProperty('amountMl');
   });
 
-  it('applies combo when a non-default ranked variant covers a protocol', async () => {
+  it('applies combo when subtotal exceeds the minimum threshold', async () => {
     const { user, alternateVariant, variant2 } = await seedScenario();
     const recommendation = await recommendationService.getLatestForUser(
       user.id,
     );
 
+    // 250000 + 100000 = 350000 > 300000
     await cartService.addItem(user.id, {
       productVariantId: alternateVariant.id,
       quantity: 1,
@@ -505,7 +519,7 @@ describe('Survey purchase → routine generation (e2e)', () => {
     expect(order.discountVnd).toBeGreaterThan(0);
   });
 
-  it('does not apply combo discount for a partial survey purchase', async () => {
+  it('does not apply combo discount when subtotal is at or below the threshold', async () => {
     const { user } = await seedScenario();
     const recommendation = await recommendationService.getLatestForUser(
       user.id,
@@ -522,8 +536,89 @@ describe('Survey purchase → routine generation (e2e)', () => {
     const order = await ordersService.createFromCart(user.id, {
       shippingAddress: SHIPPING_ADDRESS,
     });
+    expect(order.subtotalVnd).toBeLessThanOrEqual(300000);
     expect(order.discountVnd).toBe(0);
     expect(order.discountType).toBeNull();
+  });
+
+  it('allows non-recommended catalog products in a SURVEY cart and routine', async () => {
+    const { user, variant, variant2 } = await seedScenario();
+    const recommendation = await recommendationService.getLatestForUser(
+      user.id,
+    );
+
+    const suffix = Date.now().toString(36);
+    const brandRepo = dataSource.getRepository(ProductBrand);
+    const categoryRepo = dataSource.getRepository(ProductCategory);
+    const productRepo = dataSource.getRepository(Product);
+    const variantRepo = dataSource.getRepository(ProductVariant);
+    const batchRepo = dataSource.getRepository(StockBatch);
+
+    const brand = await brandRepo.find({ take: 1 });
+    const category = await categoryRepo.find({ take: 1 });
+    const extraProduct = await productRepo.save(
+      productRepo.create({
+        name: `Extra Moisturizer ${suffix}`,
+        brandId: brand[0].id,
+        categoryId: category[0].id,
+        isActive: true,
+      }),
+    );
+    const extraVariant = await variantRepo.save(
+      variantRepo.create({
+        productId: extraProduct.id,
+        sku: `EXTRA-${suffix}`,
+        priceVnd: 50000,
+        isActive: true,
+      }),
+    );
+    const today = new Date();
+    const nextYear = new Date(today);
+    nextYear.setFullYear(today.getFullYear() + 1);
+    await batchRepo.save(
+      batchRepo.create({
+        productVariantId: extraVariant.id,
+        batchCode: `SEED-EXTRA-${suffix}`,
+        initialQuantity: 20,
+        remainingQuantity: 20,
+        manufacturingDate: today,
+        expirationDate: nextYear,
+      }),
+    );
+
+    // Recommended + non-recommended extras; subtotal 200k+100k+50k = 350k > 300k
+    for (const productVariantId of [variant.id, variant2.id, extraVariant.id]) {
+      await cartService.addItem(user.id, {
+        productVariantId,
+        quantity: 1,
+        source: OrderSource.SURVEY,
+        surveyRecommendationId: recommendation.id,
+      });
+    }
+
+    const order = await ordersService.createFromCart(user.id, {
+      shippingAddress: SHIPPING_ADDRESS,
+    });
+    expect(order.source).toBe(OrderSource.SURVEY);
+    expect(order.items).toHaveLength(3);
+    expect(order.discountType).toBe(OrderDiscountType.COMBO);
+    const extraItem = order.items.find(
+      (item) => item.productVariantId === extraVariant.id,
+    );
+    expect(extraItem).toBeDefined();
+    expect(extraItem!.surveyRecommendationItemId).toBeNull();
+
+    await dataSource
+      .getRepository(Order)
+      .update({ id: order.id }, { status: OrderStatus.PAID });
+
+    const routine = await routineGenerator.generateForUser(user.id, {
+      orderId: order.id,
+    });
+    const stepVariantIds = routine.steps.map((s) => s.productVariant.id);
+    expect(stepVariantIds).toEqual(
+      expect.arrayContaining([variant.id, variant2.id, extraVariant.id]),
+    );
   });
 
   it('blocks routine generation for catalog orders', async () => {

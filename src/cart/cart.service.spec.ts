@@ -13,7 +13,6 @@ describe('CartService', () => {
   let redisStore: Map<string, string>;
   let recommendationService: {
     getByIdForCustomer: jest.Mock;
-    getAllowedVariantIds: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -23,27 +22,6 @@ describe('CartService', () => {
         id: 'rec-1',
         items: [{ productVariantId: 'v1' }, { productVariantId: 'v2' }],
       }),
-      getAllowedVariantIds: jest.fn(
-        (recommendation: {
-          items?: Array<{
-            productVariantId?: string;
-            rankedVariants?: Array<{ productVariantId: string }>;
-          }>;
-        }) => {
-          const ids = new Set<string>();
-          for (const item of recommendation.items ?? []) {
-            const ranked = (item.rankedVariants ?? []).map(
-              (variant) => variant.productVariantId,
-            );
-            if (ranked.length > 0) {
-              for (const id of ranked) ids.add(id);
-            } else if (item.productVariantId) {
-              ids.add(item.productVariantId);
-            }
-          }
-          return [...ids];
-        },
-      ),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -101,15 +79,16 @@ describe('CartService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('rejects survey cart items outside the recommendation', async () => {
-    await expect(
-      service.addItem('u1', {
-        productVariantId: 'v-other',
-        quantity: 1,
-        source: OrderSource.SURVEY,
-        surveyRecommendationId: 'rec-1',
-      }),
-    ).rejects.toBeInstanceOf(BadRequestException);
+  it('allows survey cart items outside the recommendation', async () => {
+    const cart = await service.addItem('u1', {
+      productVariantId: 'v-other',
+      quantity: 1,
+      source: OrderSource.SURVEY,
+      surveyRecommendationId: 'rec-1',
+    });
+    expect(cart.source).toBe(OrderSource.SURVEY);
+    expect(cart.surveyRecommendationId).toBe('rec-1');
+    expect(cart.items).toEqual([{ productVariantId: 'v-other', quantity: 1 }]);
   });
 
   it('clears source when cart is emptied', async () => {

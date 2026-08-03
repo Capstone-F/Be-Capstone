@@ -70,7 +70,7 @@ See also: [VNPay Payment Integration](payments.md) · [User Management & RBAC](u
 4. Complete the survey → backend derives and saves Baumann skin type from answer labels.
 5. Fetch recommendations → rule engine matches **ingredient protocols** → maps to ranked **product variants** (stock + allergy filtered) → persists an immutable snapshot.
 6. User reviews protocols + products → adds selected variants to cart with `source: SURVEY` + `surveyRecommendationId`.
-7. Create order from cart (`source: SURVEY`). If **every protocol** has ≥1 ranked variant in the cart, apply survey combo discount.
+7. Create order from cart (`source: SURVEY`). If **subtotal > admin min threshold** (default 300,000 VND), apply survey combo discount.
 8. Attach shipping → VNPay checkout → wait until order is `PAID`.
 9. **Generate the AI routine** with `POST /routines/generate` (`orderId` of the paid survey order), then show it via `GET /routines/me` (or the generate response). This is the **end state** of the survey flow.
 
@@ -420,7 +420,7 @@ Response (abbreviated):
 1. First screen: show `protocols[]` (ingredient protocol list — what the engine prescribed). Optionally surface `conflicts[]` as warnings.
 2. User taps Continue → show each `products[].variants[]` ranked by price then SKU. Flat product fields are the default (cheapest in-stock, non-allergenic) display hint only.
 3. Keep `id` (`surveyRecommendationId`) for the cart step.
-4. Add any ranked `productVariantId` directly to the SURVEY cart (no selection PATCH). Multiple variants of the same protocol are allowed.
+4. Add any ranked `productVariantId` directly to the SURVEY cart (no selection PATCH). Multiple variants of the same protocol are allowed. Customers may also add other active catalog variants (browse via `GET /products`) into the same SURVEY cart.
 
 **Errors you should handle:**
 
@@ -460,12 +460,12 @@ Content-Type: application/json
 
 - First item sets cart `source`. Later items must keep `source: SURVEY`.
 - `surveyRecommendationId` required for SURVEY carts.
-- Every `productVariantId` must be in the recommendation’s frozen ranked lists (`products[].variants[]`). Multiple ranked variants of the same protocol may be added.
+- Recommended variants come from `products[].variants[]`. Customers may also add **any other active catalog** `productVariantId` (e.g. from `GET /products`) into the same SURVEY cart.
 - Re-posting the same `productVariantId` updates quantity.
 - Mixing `CATALOG` and `SURVEY` in one cart is rejected.
 - Cart is Redis-backed (TTL ~7 days).
 
-To unlock the **combo discount** at order time, cover **every protocol** with at least one ranked variant (extras and higher quantities are fine).
+To unlock the **combo discount** at order time, the cart **subtotal** (before shipping) must be **greater than** `SURVEY_COMBO_MIN_SUBTOTAL_VND` (default 300,000 VND).
 
 ---
 
@@ -483,10 +483,10 @@ GET  /payments/:id          ← poll until PAID
 
 **Survey-specific order behavior:**
 
-| Cart source | Behavior                                                                                                                                      |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SURVEY`    | Validates variants ⊆ ranked snapshot; if **every protocol** has ≥1 cart variant → applies `SURVEY_COMBO_DISCOUNT_PCT` (`discountType: COMBO`) |
-| `CATALOG`   | Normal e-commerce (no survey discount)                                                                                                        |
+| Cart source | Behavior                                                                                                                                                      |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SURVEY`    | Allows recommended + other catalog variants; if **subtotalVnd > SURVEY_COMBO_MIN_SUBTOTAL_VND** → applies `SURVEY_COMBO_DISCOUNT_PCT` (`discountType: COMBO`) |
+| `CATALOG`   | Normal e-commerce (no survey discount)                                                                                                                        |
 
 Money formula (unchanged):
 
@@ -494,12 +494,14 @@ Money formula (unchanged):
 totalVnd = max(0, subtotalVnd - discountVnd + shippingFeeVnd)
 ```
 
-Admin combo % (not customer-facing):
+Admin combo settings (not customer-facing):
 
 | Method | Path                                             | Auth      | Status   |
 | ------ | ------------------------------------------------ | --------- | -------- |
 | GET    | `/admin/commerce-settings/survey-combo-discount` | App Admin | ✅ Ready |
 | PATCH  | `/admin/commerce-settings/survey-combo-discount` | App Admin | ✅ Ready |
+
+Response / body fields: `percent` (0–100) and `minSubtotalVnd` (≥ 0). PATCH accepts either or both.
 
 ---
 
@@ -847,10 +849,10 @@ Survey-specific reminders:
 ```
 Empty cart
   └─ POST /cart/items  source=SURVEY + surveyRecommendationId
-       └─ more SURVEY items (any ranked variants ⊆ snapshot)
+       └─ more SURVEY items (recommended and/or other catalog variants)
             └─ POST /orders
-                 ├─ missing a protocol → no combo discount
-                 └─ every protocol covered (≥1 variant) → discountType=COMBO
+                 ├─ subtotalVnd ≤ min threshold → no combo discount
+                 └─ subtotalVnd > min threshold → discountType=COMBO
                       └─ POST /orders/:id/delivery
                            └─ POST /payments/checkout
                                 └─ IPN / poll → Order PAID
@@ -858,13 +860,13 @@ Empty cart
                                           └─ GET /routines/me     ← show / refresh
 ```
 
-| Rule                  | Detail                                                               |
-| --------------------- | -------------------------------------------------------------------- |
-| Variant id            | Any `productVariantId` from `recommendation.products[].variants[]`   |
-| Ownership             | Recommendation and order must belong to the same customer            |
-| Snapshot immutability | Cart validates against the stored ranked snapshot, not a live re-run |
-| Combo                 | Discount when **every protocol** has at least one cart variant       |
-| Quantity              | Same variant may be increased; does not affect combo eligibility     |
+| Rule             | Detail                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------ |
+| Variant id       | Recommended ids from `recommendation.products[].variants[]`, or any active catalog variant |
+| Ownership        | Recommendation and order must belong to the same customer                                  |
+| Snapshot linkage | Variants in the snapshot get `surveyRecommendationItemId`; extras are stored with `null`   |
+| Combo            | Discount when **subtotalVnd > SURVEY_COMBO_MIN_SUBTOTAL_VND** (default 300,000)            |
+| Quantity         | Same variant may be increased; contributes to subtotal for combo eligibility               |
 
 ---
 
@@ -943,7 +945,7 @@ Canonical source: `src/database/seeds/survey-demo-cases.ts` (also asserted by `s
 | Survey session CRUD                       | ✅     | Use as-is                                      |
 | Question bank + options + light branching | ✅     | Re-fetch with `surveyId` after core answers    |
 | Rule engine + recommendation snapshot     | ✅     | Ranked variants; stock/allergy; conflicts      |
-| SURVEY cart + combo order                 | ✅     | Protocol coverage combo                        |
+| SURVEY cart + combo order                 | ✅     | Subtotal-threshold combo                       |
 | Shipping + VNPay                          | ✅     | [ecommerce-flow.md](ecommerce-flow.md)         |
 | AI routine (`/routines/generate`, `/me`)  | ✅     | **Flow outcome**; multi-routine + Ollama/mock  |
 | Admin customer cheat                      | ✅     | [users.md](users.md)                           |

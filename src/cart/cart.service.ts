@@ -62,10 +62,6 @@ export class CartService {
             dto.surveyRecommendationId,
             customer.id,
           );
-        this.assertVariantInRecommendation(
-          dto.productVariantId,
-          this.recommendationService.getAllowedVariantIds(recommendation),
-        );
         cart.surveyRecommendationId = recommendation.id;
       } else {
         cart.surveyRecommendationId = null;
@@ -85,14 +81,10 @@ export class CartService {
             'Cart is locked to a different survey recommendation',
           );
         }
-        const recommendation =
-          await this.recommendationService.getByIdForCustomer(
-            cart.surveyRecommendationId!,
-            customer.id,
-          );
-        this.assertVariantInRecommendation(
-          dto.productVariantId,
-          this.recommendationService.getAllowedVariantIds(recommendation),
+        // Ensure the locked recommendation still belongs to this customer.
+        await this.recommendationService.getByIdForCustomer(
+          cart.surveyRecommendationId!,
+          customer.id,
         );
       }
     }
@@ -143,17 +135,6 @@ export class CartService {
 
   async clearCartByCustomerId(customerId: string): Promise<void> {
     await this.saveCart(customerId, emptyCart());
-  }
-
-  private assertVariantInRecommendation(
-    productVariantId: string,
-    allowedVariantIds: string[],
-  ): void {
-    if (!allowedVariantIds.includes(productVariantId)) {
-      throw new BadRequestException(
-        'Only recommended products from the survey can be added to a SURVEY cart',
-      );
-    }
   }
 
   private cartKey(customerId: string): string {

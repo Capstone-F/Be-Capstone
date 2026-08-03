@@ -70,7 +70,7 @@ See also:
 
 > **Pricing model:** Live GHN fee quote at order creation (and optional `POST /delivery/fee-quote` preview). Fee is snapshotted onto `Order.shippingFeeVnd` / `Delivery`. Free-text addresses are **not** accepted — use GHN `provinceId` / `districtId` / `wardCode` from the master-data endpoints. Full carrier details: [shipping.md](shipping.md).
 
-There is also a **survey / recommendation** path (`source: SURVEY`) that reuses cart → order → payment, with extra validation and optional combo discount. Full survey → protocols → products integration: [Survey Flow Guide](survey-flow.md).
+There is also a **survey / recommendation** path (`source: SURVEY`) that reuses cart → order → payment, with optional combo discount when subtotal exceeds an admin threshold. Full survey → protocols → products integration: [Survey Flow Guide](survey-flow.md).
 
 ---
 
@@ -192,7 +192,7 @@ For survey-driven carts:
 **Rules (enforced by API):**
 
 - First item sets cart `source`. Later items must use the same `source`.
-- `SURVEY` requires `surveyRecommendationId` on the first item; variants must belong to that recommendation.
+- `SURVEY` requires `surveyRecommendationId` on the first item; recommended and other catalog variants may share the same SURVEY cart.
 - Cart is Redis-backed (TTL ~7 days), scoped to the customer.
 
 Example response:
@@ -323,10 +323,10 @@ Returns the same order shape for the authenticated owner only.
 
 **Catalog vs survey:**
 
-| Cart source | Behavior                                                                                                        |
-| ----------- | --------------------------------------------------------------------------------------------------------------- |
-| `CATALOG`   | Normal e-commerce order                                                                                         |
-| `SURVEY`    | Validates recommended variants; if **every protocol** has ≥1 ranked cart variant, applies survey combo discount |
+| Cart source | Behavior                                                                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `CATALOG`   | Normal e-commerce order                                                                                                        |
+| `SURVEY`    | Allows recommended + other catalog variants; if **subtotalVnd > SURVEY_COMBO_MIN_SUBTOTAL_VND**, applies survey combo discount |
 
 **Money formula:**
 
@@ -336,7 +336,7 @@ totalVnd = max(0, subtotalVnd - discountVnd) + shippingFeeVnd
 
 Shipping is added **after** the discount floor, so a 100% product discount still charges shipping.
 
-Admin combo-discount setting (not customer-facing):
+Admin combo-discount settings (not customer-facing) — `percent` and `minSubtotalVnd`:
 
 | Method | Path                                             | Auth      | Status   |
 | ------ | ------------------------------------------------ | --------- | -------- |
@@ -527,7 +527,7 @@ Empty cart
 | Empty cart checkout | `POST /orders` fails with `Cart is empty`                                           |
 | Order ownership     | `GET /orders`, `GET /orders/:id`, and payment checkout only for the owning customer |
 | Mixed sources       | Not allowed in one cart                                                             |
-| Survey combo        | Discount when cart covers **every protocol** with ≥1 ranked variant                 |
+| Survey combo        | Discount when **subtotalVnd > SURVEY_COMBO_MIN_SUBTOTAL_VND** (default 300,000)     |
 | Shipping on create  | `shippingAddress` required; checkout rejects orders without a Delivery row          |
 | Address format      | GHN IDs only — not free-text province/district                                      |
 

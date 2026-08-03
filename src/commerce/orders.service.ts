@@ -93,15 +93,7 @@ export class OrdersService {
       customerSurveyId = recommendation.customerSurveyId;
       surveyRecommendationId = recommendation.id;
 
-      const allowed = new Set(
-        this.recommendationService.getAllowedVariantIds(recommendation),
-      );
       for (const item of cart.items) {
-        if (!allowed.has(item.productVariantId)) {
-          throw new BadRequestException(
-            'Cart contains products not in the survey recommendation',
-          );
-        }
         const recommendationItemId =
           this.recommendationService.findItemIdForVariant(
             recommendation,
@@ -115,18 +107,13 @@ export class OrdersService {
         }
       }
 
-      const cartVariantIds = cart.items.map((i) => i.productVariantId);
-      if (
-        this.recommendationService.isProtocolCoverageComplete(
-          recommendation,
-          cartVariantIds,
-        )
-      ) {
+      const subtotalPreview = cart.items.reduce((sum, item) => {
+        const variant = variantById.get(item.productVariantId)!;
+        return sum + variant.priceVnd * item.quantity;
+      }, 0);
+      const minSubtotalVnd = await this.getComboMinSubtotalVnd();
+      if (subtotalPreview > minSubtotalVnd) {
         const percent = await this.getComboDiscountPercent();
-        const subtotalPreview = cart.items.reduce((sum, item) => {
-          const variant = variantById.get(item.productVariantId)!;
-          return sum + variant.priceVnd * item.quantity;
-        }, 0);
         discountVnd = Math.floor((subtotalPreview * percent) / 100);
         discountType = OrderDiscountType.COMBO;
       }
@@ -265,35 +252,56 @@ export class OrdersService {
   }
 
   async getComboDiscountSetting(): Promise<ComboDiscountSettingDto> {
-    const percent = await this.getComboDiscountPercent();
-    return {
-      key: CommerceSettingKey.SURVEY_COMBO_DISCOUNT_PCT,
-      percent,
-    };
+    const [percent, minSubtotalVnd] = await Promise.all([
+      this.getComboDiscountPercent(),
+      this.getComboMinSubtotalVnd(),
+    ]);
+    return { percent, minSubtotalVnd };
   }
 
   async updateComboDiscountSetting(
     userId: string,
     dto: UpdateComboDiscountDto,
   ): Promise<ComboDiscountSettingDto> {
-    let setting = await this.settingRepository.findOneBy({
-      key: CommerceSettingKey.SURVEY_COMBO_DISCOUNT_PCT,
-    });
+    if (dto.percent === undefined && dto.minSubtotalVnd === undefined) {
+      throw new BadRequestException(
+        'At least one of percent or minSubtotalVnd is required',
+      );
+    }
+    if (dto.percent !== undefined) {
+      await this.upsertSetting(
+        CommerceSettingKey.SURVEY_COMBO_DISCOUNT_PCT,
+        String(dto.percent),
+        userId,
+      );
+    }
+    if (dto.minSubtotalVnd !== undefined) {
+      await this.upsertSetting(
+        CommerceSettingKey.SURVEY_COMBO_MIN_SUBTOTAL_VND,
+        String(dto.minSubtotalVnd),
+        userId,
+      );
+    }
+    return this.getComboDiscountSetting();
+  }
+
+  private async upsertSetting(
+    key: CommerceSettingKey,
+    value: string,
+    userId: string,
+  ): Promise<void> {
+    let setting = await this.settingRepository.findOneBy({ key });
     if (!setting) {
       setting = this.settingRepository.create({
-        key: CommerceSettingKey.SURVEY_COMBO_DISCOUNT_PCT,
-        value: String(dto.percent),
+        key,
+        value,
         updatedByUserId: userId,
       });
     } else {
-      setting.value = String(dto.percent);
+      setting.value = value;
       setting.updatedByUserId = userId;
     }
     await this.settingRepository.save(setting);
-    return {
-      key: CommerceSettingKey.SURVEY_COMBO_DISCOUNT_PCT,
-      percent: dto.percent,
-    };
   }
 
   private async getComboDiscountPercent(): Promise<number> {
@@ -305,6 +313,17 @@ export class OrdersService {
       return 10;
     }
     return Math.min(100, parsed);
+  }
+
+  private async getComboMinSubtotalVnd(): Promise<number> {
+    const setting = await this.settingRepository.findOneBy({
+      key: CommerceSettingKey.SURVEY_COMBO_MIN_SUBTOTAL_VND,
+    });
+    const parsed = Number.parseFloat(setting?.value ?? '300000');
+    if (Number.isNaN(parsed) || parsed < 0) {
+      return 300000;
+    }
+    return parsed;
   }
 
   private async requireCustomer(userId: string): Promise<Customer> {
