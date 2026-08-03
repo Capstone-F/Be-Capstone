@@ -74,6 +74,14 @@ export class SurveyFaceLabelDto {
 
   @ApiPropertyOptional({ nullable: true })
   vietnameseNormalized!: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Short AI explanation of why this label was inferred from the face photo',
+    example: 'Visible inflammatory spots along the T-zone.',
+  })
+  explanation!: string | null;
 }
 
 export class SurveyResponseDto {

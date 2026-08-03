@@ -127,7 +127,7 @@ export class AppConfigService {
     return this.env.MOBILE_OAUTH_STATE_TTL_SECONDS;
   }
 
-  /** LLM provider key for routine generation (mock by default). */
+  /** LLM provider key for routine generation and face-scan (mock by default). */
   get llmProvider(): string {
     return this.env.LLM_PROVIDER;
   }
@@ -147,12 +147,13 @@ export class AppConfigService {
     };
   }
 
-  /** Grouped LLM / Ollama settings for routine generation. */
+  /** Grouped LLM / Ollama settings for routines and face-scan. */
   get llmConfig(): LlmConfig {
     return {
       provider: this.env.LLM_PROVIDER,
       ollamaBaseUrl: this.env.OLLAMA_BASE_URL,
       ollamaModel: this.env.OLLAMA_MODEL,
+      ollamaVisionModel: this.env.OLLAMA_VISION_MODEL,
       ollamaTimeoutMs: this.env.OLLAMA_TIMEOUT_MS,
     };
   }

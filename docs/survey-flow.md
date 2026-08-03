@@ -289,7 +289,7 @@ Response = full `SurveyResponseDto` including saved `answers[].labels` (`code`, 
 
 ### 4.3b Face scan (optional) ✅ Ready
 
-Upload a facial image for the in-progress survey. The backend stores the image in R2 on the survey, runs the skin-vision provider (`LLM_PROVIDER=mock` by default), and attaches **face labels** used later as a lower-weight OPTIONAL boost in the rule engine.
+Upload a facial image for the in-progress survey. The backend stores the image in R2 on the survey, runs the skin-vision provider (`LLM_PROVIDER=mock` by default, or `ollama` with `OLLAMA_VISION_MODEL`), and attaches **face labels** used later as a lower-weight OPTIONAL boost in the rule engine.
 
 | Method | Path                     | Auth     | Status   |
 | ------ | ------------------------ | -------- | -------- |
@@ -313,9 +313,36 @@ file=<facial-image.jpeg>
 - Image is **always persisted** on the survey (`faceImageUrl`, `faceScannedAt`) even if AI returns no labels.
 - Re-scanning replaces the stored image and face labels.
 - Unknown AI label codes are dropped (logged); only active taxonomy codes are saved.
+- Each face label includes a short AI **`explanation`** of visual evidence (EN, ≤200 chars).
 - Face labels do **not** affect Baumann derivation on complete (answers only).
 
-Response includes `faceImageUrl`, `faceScannedAt`, and `faceLabels[]`.
+**Providers:**
+
+| `LLM_PROVIDER`      | Behavior                                                                         |
+| ------------------- | -------------------------------------------------------------------------------- |
+| `mock` (default)    | Deterministic labels + explanations from image URL hash                          |
+| `ollama`            | Multimodal model (`OLLAMA_VISION_MODEL`, default `llava`) via Ollama `/api/chat` |
+| `openai` / `gemini` | Not implemented (503)                                                            |
+
+Example response fields:
+
+```json
+{
+  "id": "<survey-uuid>",
+  "faceImageUrl": "https://cdn.example.com/images/....jpg",
+  "faceScannedAt": "2026-08-03T12:00:00.000Z",
+  "faceLabels": [
+    {
+      "code": "ACNE",
+      "name": "Acne",
+      "vietnameseNormalized": "Mụn",
+      "explanation": "Visible inflammatory spots consistent with acne along the T-zone."
+    }
+  ],
+  "answers": [],
+  "isCompleted": false
+}
+```
 
 ---
 

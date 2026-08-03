@@ -173,7 +173,7 @@ export const ENV_DEFINITIONS = {
     required: false,
     defaultValue: 'mock',
     description:
-      'LLM provider for routine generation (mock | ollama | openai | gemini). mock and ollama are implemented.',
+      'LLM provider for routine generation and survey face-scan (mock | ollama | openai | gemini). mock and ollama are implemented.',
   },
   OLLAMA_BASE_URL: {
     required: false,
@@ -185,6 +185,12 @@ export const ENV_DEFINITIONS = {
     required: false,
     defaultValue: 'gpt-oss:120b-cloud',
     description: 'Ollama model tag used for routine generation.',
+  },
+  OLLAMA_VISION_MODEL: {
+    required: false,
+    defaultValue: 'llava',
+    description:
+      'Ollama multimodal model tag used for survey facial skin analysis.',
   },
   OLLAMA_TIMEOUT_MS: {
     required: false,
@@ -293,6 +299,7 @@ export type AppEnv = {
   LLM_PROVIDER: string;
   OLLAMA_BASE_URL: string;
   OLLAMA_MODEL: string;
+  OLLAMA_VISION_MODEL: string;
   OLLAMA_TIMEOUT_MS: number;
   GHN_TOKEN: string;
   GHN_SHOP_ID: string;
@@ -505,6 +512,9 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
     ).replace(/\/+$/, ''),
     OLLAMA_MODEL:
       raw.OLLAMA_MODEL?.trim() || ENV_DEFINITIONS.OLLAMA_MODEL.defaultValue,
+    OLLAMA_VISION_MODEL:
+      raw.OLLAMA_VISION_MODEL?.trim() ||
+      ENV_DEFINITIONS.OLLAMA_VISION_MODEL.defaultValue,
     OLLAMA_TIMEOUT_MS: parsePositiveInt(
       raw.OLLAMA_TIMEOUT_MS,
       'OLLAMA_TIMEOUT_MS',

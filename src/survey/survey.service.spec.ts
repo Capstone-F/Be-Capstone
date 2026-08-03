@@ -514,6 +514,7 @@ describe('SurveyService face scan', () => {
         answers: [],
         faceLabels: [
           {
+            explanation: 'Visible inflammatory spots on the T-zone.',
             label: {
               code: 'ACNE',
               name: 'Acne',
@@ -527,7 +528,16 @@ describe('SurveyService face scan', () => {
       key: 'images/face.jpg',
     });
     skinVisionProvider.analyze.mockResolvedValue({
-      labelCodes: ['ACNE', 'UNKNOWN_FROM_AI'],
+      findings: [
+        {
+          labelCode: 'ACNE',
+          explanation: 'Visible inflammatory spots on the T-zone.',
+        },
+        {
+          labelCode: 'UNKNOWN_FROM_AI',
+          explanation: 'Should be ignored',
+        },
+      ],
     });
     labelRepository.find.mockResolvedValue([
       { id: 'label-acne', code: 'ACNE', isActive: true },
@@ -536,6 +546,13 @@ describe('SurveyService face scan', () => {
     const result = await service.submitFaceScan('user-id', 'survey-id', file);
 
     expect(storageService.uploadImage).toHaveBeenCalled();
+    expect(skinVisionProvider.analyze).toHaveBeenCalledWith(
+      expect.objectContaining({
+        imageUrl: 'https://cdn.example.com/face.jpg',
+        mimeType: 'image/jpeg',
+        imageBase64: expect.any(String),
+      }),
+    );
     expect(surveyRepository.save).toHaveBeenCalledWith(
       expect.objectContaining({
         faceImageUrl: 'https://cdn.example.com/face.jpg',
@@ -546,7 +563,11 @@ describe('SurveyService face scan', () => {
       surveyId: 'survey-id',
     });
     expect(surveyFaceLabelRepository.save).toHaveBeenCalledWith([
-      { surveyId: 'survey-id', labelId: 'label-acne' },
+      {
+        surveyId: 'survey-id',
+        labelId: 'label-acne',
+        explanation: 'Visible inflammatory spots on the T-zone.',
+      },
     ]);
     expect(result.faceImageUrl).toBe('https://cdn.example.com/face.jpg');
     expect(result.faceLabels).toEqual([
@@ -554,6 +575,7 @@ describe('SurveyService face scan', () => {
         code: 'ACNE',
         name: 'Acne',
         vietnameseNormalized: 'Mun',
+        explanation: 'Visible inflammatory spots on the T-zone.',
       },
     ]);
   });
