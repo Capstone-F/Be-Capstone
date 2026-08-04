@@ -30,10 +30,8 @@ describe('PayosPaymentProvider', () => {
       },
       webhooks: { verify: jest.fn() },
     };
-    const provider = new PayosPaymentProvider(
-      config,
-      payos as unknown as PayOS,
-    );
+    const provider = new PayosPaymentProvider(config);
+    provider.replaceClient(payos as unknown as PayOS);
 
     const { paymentUrl } = await provider.createCheckout({
       amountVnd: '199000',
@@ -89,10 +87,8 @@ describe('PayosPaymentProvider', () => {
         }),
       },
     };
-    const provider = new PayosPaymentProvider(
-      config,
-      payos as unknown as PayOS,
-    );
+    const provider = new PayosPaymentProvider(config);
+    provider.replaceClient(payos as unknown as PayOS);
 
     const body = {
       code: '00',
@@ -122,10 +118,8 @@ describe('PayosPaymentProvider', () => {
         verify: jest.fn().mockRejectedValue(new Error('bad signature')),
       },
     };
-    const provider = new PayosPaymentProvider(
-      config,
-      payos as unknown as PayOS,
-    );
+    const provider = new PayosPaymentProvider(config);
+    provider.replaceClient(payos as unknown as PayOS);
 
     const result = await provider.verifyIpn({});
     expect(result).toMatchObject({ ok: false, success: false, txnRef: '' });

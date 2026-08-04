@@ -26,17 +26,20 @@ function queryString(value: unknown): string | undefined {
 export class PayosPaymentProvider implements PaymentGateway {
   readonly code = PaymentProvider.PAYOS;
   private readonly logger = new Logger(PayosPaymentProvider.name);
-  private readonly payos: PayOS;
+  private payos: PayOS;
 
-  constructor(config: AppConfigService, payosClient?: PayOS) {
+  constructor(config: AppConfigService) {
     const c = config.payosConfig;
-    this.payos =
-      payosClient ??
-      new PayOS({
-        clientId: c.clientId || 'unused',
-        apiKey: c.apiKey || 'unused',
-        checksumKey: c.checksumKey || 'unused',
-      });
+    this.payos = new PayOS({
+      clientId: c.clientId || 'unused',
+      apiKey: c.apiKey || 'unused',
+      checksumKey: c.checksumKey || 'unused',
+    });
+  }
+
+  /** Test-only seam — do not register PayOS as a Nest constructor dependency. */
+  replaceClient(client: PayOS): void {
+    this.payos = client;
   }
 
   /**
