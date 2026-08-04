@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { VnpayService } from 'nestjs-vnpay';
 import { ProductCode, VnpLocale } from 'vnpay';
 import type { ReturnQueryFromVNPay } from 'vnpay';
@@ -14,6 +15,10 @@ export class VnpayPaymentProvider implements PaymentGateway {
   readonly code = PaymentProvider.VNPAY;
 
   constructor(private readonly vnpay: VnpayService) {}
+
+  createTxnRef(): string {
+    return randomUUID().replace(/-/g, '');
+  }
 
   createCheckout(input: CreateCheckoutInput): Promise<{ paymentUrl: string }> {
     const paymentUrl = this.vnpay.buildPaymentUrl({

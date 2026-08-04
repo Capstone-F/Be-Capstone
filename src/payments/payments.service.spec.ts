@@ -32,8 +32,18 @@ const PAYMENT_CONFIG = {
   vnpayHost: 'https://sandbox.vnpayment.vn',
   returnUrl: 'http://localhost:3000/payments/vnpay/return',
   ipnUrl: '',
-  clientReturnUrl: 'http://localhost:3000/vnpay_return',
-  mobileReturnUrl: 'glowscan://vnpay-return',
+};
+
+const CLIENT_RETURN_URL = 'http://localhost:3000/vnpay_return';
+const MOBILE_RETURN_URL = 'glowscan://vnpay-return';
+
+const PAYOS_CONFIG = {
+  clientId: 'payos-client',
+  apiKey: 'payos-key',
+  checksumKey: 'payos-checksum',
+  returnUrl: 'http://localhost:3000/payments/payos/return',
+  cancelUrl: 'http://localhost:3000/payments/payos/return',
+  webhookUrl: '',
 };
 
 type Mocked<T> = { [K in keyof T]: jest.Mock };
@@ -41,6 +51,9 @@ type Mocked<T> = { [K in keyof T]: jest.Mock };
 const makeConfig = (provider = 'vnpay') =>
   ({
     paymentConfig: PAYMENT_CONFIG,
+    payosConfig: PAYOS_CONFIG,
+    clientReturnUrl: CLIENT_RETURN_URL,
+    mobileReturnUrl: MOBILE_RETURN_URL,
     paymentProvider: provider,
     nodeEnv: 'test',
   }) as unknown as AppConfigService;
@@ -67,6 +80,7 @@ describe('PaymentsService', () => {
     customerRepo = { findOne: jest.fn() };
     gateway = {
       code: PaymentProvider.VNPAY,
+      createTxnRef: jest.fn().mockReturnValue('txn-ref-1'),
       createCheckout: jest.fn(),
       verifyReturn: jest.fn(),
       verifyIpn: jest.fn(),
@@ -166,7 +180,7 @@ describe('PaymentsService', () => {
       );
 
       const created = paymentRepo.create.mock.calls[0][0];
-      expect(created.clientReturnUrl).toBe(PAYMENT_CONFIG.mobileReturnUrl);
+      expect(created.clientReturnUrl).toBe(MOBILE_RETURN_URL);
     });
 
     it('rejects an order that does not belong to the caller', async () => {
@@ -285,8 +299,95 @@ describe('PaymentsService', () => {
 
       const { redirectUrl } = await service.handleReturn({} as never);
 
-      expect(redirectUrl).toContain(PAYMENT_CONFIG.clientReturnUrl);
+      expect(redirectUrl).toContain(CLIENT_RETURN_URL);
       expect(redirectUrl).toContain('status=invalid');
+    });
+  });
+
+  describe('handlePayosWebhook', () => {
+    const runTransaction = () =>
+      dataSource.transaction.mockImplementation(
+        async (cb: (m: unknown) => Promise<unknown>) =>
+          cb({
+            update: managerUpdate,
+            findOne: jest.fn().mockResolvedValue({
+              id: 'pay-1',
+              orderId: 'order-1',
+              purpose: 'ORDER',
+            }),
+          }),
+      );
+    let managerUpdate: jest.Mock;
+
+    beforeEach(() => {
+      managerUpdate = jest.fn();
+      orderRepo.findOne.mockResolvedValue({ id: 'order-1', items: [] });
+      paymentRepo.findOne.mockResolvedValue({
+        id: 'pay-1',
+        orderId: 'order-1',
+        purpose: 'ORDER',
+      });
+    });
+
+    it('returns invalid signature and does not touch the DB on bad verify', async () => {
+      gateway.verifyIpn.mockResolvedValue({
+        ok: false,
+        success: false,
+        txnRef: '',
+      });
+
+      const res = await service.handlePayosWebhook({});
+
+      expect(res).toEqual({ code: '01', desc: 'invalid signature' });
+      expect(attemptRepo.findOne).not.toHaveBeenCalled();
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('finalizes and returns success', async () => {
+      gateway.verifyIpn.mockResolvedValue({
+        ok: true,
+        success: true,
+        txnRef: '123456',
+        amountVnd: '199000',
+        responseCode: '00',
+        providerTransactionId: 'ref-1',
+      });
+      attemptRepo.findOne.mockResolvedValue({
+        id: 'att-1',
+        paymentId: 'pay-1',
+        amountVnd: '199000',
+      });
+      runTransaction();
+      managerUpdate.mockResolvedValue({ affected: 1 });
+
+      const res = await service.handlePayosWebhook({
+        code: '00',
+        data: { orderCode: 123456 },
+      });
+
+      expect(res).toEqual({ code: '00', desc: 'success' });
+      expect(deliveryService.createGhnOrderForPaidOrder).toHaveBeenCalledWith(
+        'order-1',
+      );
+    });
+
+    it('acks duplicates as success', async () => {
+      gateway.verifyIpn.mockResolvedValue({
+        ok: true,
+        success: true,
+        txnRef: '123456',
+        amountVnd: '199000',
+      });
+      attemptRepo.findOne.mockResolvedValue({
+        id: 'att-1',
+        paymentId: 'pay-1',
+        amountVnd: '199000',
+      });
+      runTransaction();
+      managerUpdate.mockResolvedValue({ affected: 0 });
+
+      const res = await service.handlePayosWebhook({});
+      expect(res).toEqual({ code: '00', desc: 'success' });
     });
   });
 

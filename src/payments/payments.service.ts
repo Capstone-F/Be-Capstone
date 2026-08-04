@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ForbiddenException,
@@ -18,7 +17,7 @@ import {
   IpnSuccess,
   IpnUnknownError,
 } from 'vnpay';
-import type { IpnResponse, ReturnQueryFromVNPay } from 'vnpay';
+import type { IpnResponse } from 'vnpay';
 import { AppConfigService } from '../config/config.service';
 import { Order } from '../commerce/order.entity';
 import { OrderStatus, TransactionType } from '../commerce/enums';
@@ -44,6 +43,11 @@ import {
   type PaymentGateway,
   type ProviderVerifyResult,
 } from './providers/payment-provider.types';
+
+export type PayosWebhookResponse = {
+  code: string;
+  desc: string;
+};
 
 type FinalizeOutcome =
   | { kind: 'applied'; success: boolean }
@@ -104,11 +108,10 @@ export class PaymentsService {
       throw new BadRequestException('Order has no shipping selection');
     }
 
-    const { paymentConfig } = this.config;
     const clientReturnUrl: string =
       dto.client === PaymentClient.MOBILE
-        ? paymentConfig.mobileReturnUrl
-        : paymentConfig.clientReturnUrl;
+        ? this.config.mobileReturnUrl
+        : this.config.clientReturnUrl;
 
     const amountVnd = String(order.totalVnd);
 
@@ -156,11 +159,10 @@ export class PaymentsService {
   ): Promise<CheckoutResponseDto> {
     await this.walletService.getOrCreateWallet(userId);
 
-    const { paymentConfig } = this.config;
     const clientReturnUrl: string =
       dto.client === PaymentClient.MOBILE
-        ? paymentConfig.mobileReturnUrl
-        : paymentConfig.clientReturnUrl;
+        ? this.config.mobileReturnUrl
+        : this.config.clientReturnUrl;
 
     const amountVnd = String(dto.amountVnd);
 
@@ -186,11 +188,9 @@ export class PaymentsService {
   }
 
   async handleReturn(
-    query: ReturnQueryFromVNPay,
+    query: Record<string, unknown>,
   ): Promise<{ redirectUrl: string }> {
-    const verify = await this.gateway.verifyReturn(
-      query as unknown as Record<string, unknown>,
-    );
+    const verify = await this.gateway.verifyReturn(query);
 
     const attempt = await this.attemptRepo.findOne({
       where: { vnpTxnRef: verify.txnRef },
@@ -198,8 +198,7 @@ export class PaymentsService {
     });
 
     const base =
-      attempt?.payment?.clientReturnUrl ??
-      this.config.paymentConfig.clientReturnUrl;
+      attempt?.payment?.clientReturnUrl ?? this.config.clientReturnUrl;
     const status = !verify.ok
       ? 'invalid'
       : verify.success
@@ -221,11 +220,9 @@ export class PaymentsService {
     };
   }
 
-  async handleIpn(query: ReturnQueryFromVNPay): Promise<IpnResponse> {
+  async handleIpn(query: Record<string, unknown>): Promise<IpnResponse> {
     try {
-      const verify = await this.gateway.verifyIpn(
-        query as unknown as Record<string, unknown>,
-      );
+      const verify = await this.gateway.verifyIpn(query);
       if (!verify.ok) {
         this.logger.warn('IPN checksum verification failed');
         return IpnFailChecksum;
@@ -259,6 +256,48 @@ export class PaymentsService {
     }
   }
 
+  /**
+   * PayOS webhook (sole PayOS mutator). Always returns HTTP-friendly JSON;
+   * duplicates are acknowledged so PayOS stops retrying.
+   */
+  async handlePayosWebhook(
+    body: Record<string, unknown>,
+  ): Promise<PayosWebhookResponse> {
+    try {
+      const verify = await this.gateway.verifyIpn(body);
+      if (!verify.ok) {
+        this.logger.warn('PayOS webhook signature verification failed');
+        return { code: '01', desc: 'invalid signature' };
+      }
+
+      const outcome = await this.finalizeAttemptFromProviderResult(verify, {
+        rawIpn: body,
+      });
+
+      if (outcome.kind === 'not_found') {
+        this.logger.warn(`PayOS webhook for unknown txnRef=${verify.txnRef}`);
+        return { code: '01', desc: 'order not found' };
+      }
+      if (outcome.kind === 'amount_mismatch') {
+        return { code: '01', desc: 'invalid amount' };
+      }
+      if (outcome.kind === 'duplicate') {
+        return { code: '00', desc: 'success' };
+      }
+
+      this.logger.log(
+        `PayOS webhook processed txnRef=${verify.txnRef} success=${outcome.success} responseCode=${verify.responseCode ?? ''}`,
+      );
+      return { code: '00', desc: 'success' };
+    } catch (error) {
+      this.logger.error(
+        `PayOS webhook processing error: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      return { code: '01', desc: 'unknown error' };
+    }
+  }
+
   async handleMockComplete(
     paymentId: string,
     txnRef: string,
@@ -276,8 +315,7 @@ export class PaymentsService {
     });
 
     const base =
-      attempt?.payment?.clientReturnUrl ??
-      this.config.paymentConfig.clientReturnUrl;
+      attempt?.payment?.clientReturnUrl ?? this.config.clientReturnUrl;
 
     if (!attempt) {
       this.logger.warn(
@@ -316,7 +354,7 @@ export class PaymentsService {
   }
 
   /**
-   * Shared idempotent finalize used by VNPay IPN and mock complete.
+   * Shared idempotent finalize used by VNPay IPN, PayOS webhook, and mock complete.
    * On first successful apply: payment PAID, order PAID, then post-payment side effects.
    */
   private async finalizeAttemptFromProviderResult(
@@ -545,7 +583,7 @@ export class PaymentsService {
     gatewayOrderId: string;
   }): Promise<CheckoutResponseDto> {
     const { payment, amountVnd, ipAddr, orderInfo, gatewayOrderId } = params;
-    const txnRef = randomUUID().replace(/-/g, '');
+    const txnRef = this.gateway.createTxnRef();
     await this.attemptRepo.save(
       this.attemptRepo.create({
         paymentId: payment.id,
@@ -555,13 +593,20 @@ export class PaymentsService {
       }),
     );
 
+    const isPayos = this.gateway.code === PaymentProvider.PAYOS;
+    const returnUrl = isPayos
+      ? this.config.payosConfig.returnUrl
+      : this.config.paymentConfig.returnUrl;
+    const cancelUrl = isPayos ? this.config.payosConfig.cancelUrl : undefined;
+
     const { paymentUrl } = await this.gateway.createCheckout({
       amountVnd,
       txnRef,
       orderId: gatewayOrderId,
       orderInfo,
       ipAddr,
-      returnUrl: this.config.paymentConfig.returnUrl,
+      returnUrl,
+      cancelUrl,
       paymentId: payment.id,
     });
 

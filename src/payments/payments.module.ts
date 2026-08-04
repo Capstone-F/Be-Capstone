@@ -16,6 +16,7 @@ import { PaymentAttempt } from './payment-attempt.entity';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { MockPaymentProvider } from './providers/mock.payment-provider';
+import { PayosPaymentProvider } from './providers/payos.payment-provider';
 import { PAYMENT_GATEWAY } from './providers/payment-provider.types';
 import { VnpayPaymentProvider } from './providers/vnpay.payment-provider';
 
@@ -54,17 +55,26 @@ import { VnpayPaymentProvider } from './providers/vnpay.payment-provider';
     SessionGuard,
     MockPaymentProvider,
     VnpayPaymentProvider,
+    PayosPaymentProvider,
     {
       provide: PAYMENT_GATEWAY,
-      inject: [AppConfigService, MockPaymentProvider, VnpayPaymentProvider],
+      inject: [
+        AppConfigService,
+        MockPaymentProvider,
+        VnpayPaymentProvider,
+        PayosPaymentProvider,
+      ],
       useFactory: (
         config: AppConfigService,
         mock: MockPaymentProvider,
         vnpay: VnpayPaymentProvider,
+        payos: PayosPaymentProvider,
       ) => {
         switch (config.paymentProvider) {
           case 'mock':
             return mock;
+          case 'payos':
+            return payos;
           case 'vnpay':
           default:
             return vnpay;

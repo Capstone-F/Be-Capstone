@@ -116,9 +116,17 @@ const TEST_CONFIG: Record<string, unknown> = {
     vnpayHost: 'https://sandbox.vnpayment.vn',
     returnUrl: 'http://localhost:3000/payments/vnpay/return',
     ipnUrl: 'http://localhost:3000/payments/vnpay/ipn',
-    clientReturnUrl: 'http://localhost:3000/vnpay_return',
-    mobileReturnUrl: 'glowscan://vnpay-return',
   },
+  payosConfig: {
+    clientId: '',
+    apiKey: '',
+    checksumKey: '',
+    returnUrl: 'http://localhost:3000/payments/payos/return',
+    cancelUrl: 'http://localhost:3000/payments/payos/return',
+    webhookUrl: '',
+  },
+  clientReturnUrl: 'http://localhost:3000/vnpay_return',
+  mobileReturnUrl: 'glowscan://vnpay-return',
   getMissingRequiredKeys: () => [],
 };
 

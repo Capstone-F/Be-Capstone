@@ -63,14 +63,36 @@ export class PaymentsController {
     @Query() query: ReturnQueryFromVNPay,
     @Res() res: Response,
   ): Promise<void> {
-    const { redirectUrl } = await this.paymentsService.handleReturn(query);
+    const { redirectUrl } = await this.paymentsService.handleReturn(
+      query as unknown as Record<string, unknown>,
+    );
     res.redirect(redirectUrl);
   }
 
   @Get('vnpay/ipn')
   @ApiExcludeEndpoint()
   async vnpayIpn(@Query() query: ReturnQueryFromVNPay): Promise<unknown> {
-    return this.paymentsService.handleIpn(query);
+    return this.paymentsService.handleIpn(
+      query as unknown as Record<string, unknown>,
+    );
+  }
+
+  @Get('payos/return')
+  @ApiExcludeEndpoint()
+  async payosReturn(
+    @Query() query: Record<string, unknown>,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { redirectUrl } = await this.paymentsService.handleReturn(query);
+    res.redirect(redirectUrl);
+  }
+
+  @Post('payos/webhook')
+  @ApiExcludeEndpoint()
+  payosWebhook(
+    @Body() body: Record<string, unknown>,
+  ): Promise<{ code: string; desc: string }> {
+    return this.paymentsService.handlePayosWebhook(body ?? {});
   }
 
   @Get('mock/complete')

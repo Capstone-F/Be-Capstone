@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { AppConfigService } from '../../config/config.service';
 import { PaymentProvider } from '../enums';
 import {
@@ -16,6 +17,10 @@ export class MockPaymentProvider implements PaymentGateway {
   readonly code = PaymentProvider.MOCK;
 
   constructor(private readonly config: AppConfigService) {}
+
+  createTxnRef(): string {
+    return randomUUID().replace(/-/g, '');
+  }
 
   createCheckout(input: CreateCheckoutInput): Promise<{ paymentUrl: string }> {
     const url = new URL(this.mockCompleteBaseUrl());

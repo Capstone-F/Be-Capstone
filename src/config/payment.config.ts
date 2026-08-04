@@ -9,8 +9,19 @@ export type PaymentConfig = {
   returnUrl: string;
   /** IPN URL registered in the VNPay portal — informational only. */
   ipnUrl: string;
-  /** Web client landing URL the return endpoint redirects to. */
-  clientReturnUrl: string;
-  /** Mobile deep link the return endpoint redirects to. */
-  mobileReturnUrl: string;
+};
+
+export type PayosConfig = {
+  /** PayOS Client ID from the merchant dashboard. */
+  clientId: string;
+  /** PayOS API key. */
+  apiKey: string;
+  /** PayOS checksum key used to verify webhooks / payment signatures. */
+  checksumKey: string;
+  /** Backend endpoint PayOS redirects the browser to after payment (returnUrl). */
+  returnUrl: string;
+  /** Backend endpoint PayOS redirects to when the user cancels. */
+  cancelUrl: string;
+  /** Webhook URL registered in the PayOS portal — informational only. */
+  webhookUrl: string;
 };
