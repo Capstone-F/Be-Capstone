@@ -131,16 +131,46 @@ export const ENV_DEFINITIONS = {
     description:
       'VNPay IPN callback URL, registered in the VNPay merchant portal (server-to-server). Informational only — not sent in the payment request.',
   },
-  VNP_CLIENT_RETURN_URL: {
+  CLIENT_RETURN_URL: {
     required: false,
     description:
-      'Web client landing URL the return endpoint 302s to after verifying. Defaults to FRONTEND_URL + /vnpay_return.',
+      'Web client landing URL payment return endpoints 302 to after verifying. Shared by all gateways. Defaults to FRONTEND_URL + /vnpay_return.',
   },
-  VNP_MOBILE_RETURN_URL: {
+  MOBILE_RETURN_URL: {
     required: false,
     defaultValue: 'glowscan://vnpay-return',
     description:
-      'Mobile deep link the return endpoint 302s to when checkout was initiated by the mobile client.',
+      'Mobile deep link payment return endpoints 302 to when checkout was initiated by the mobile client. Shared by all gateways.',
+  },
+  PAYOS_CLIENT_ID: {
+    required: false,
+    description: 'PayOS Client ID from the merchant dashboard.',
+  },
+  PAYOS_API_KEY: {
+    required: false,
+    description: 'PayOS API key from the merchant dashboard.',
+  },
+  PAYOS_CHECKSUM_KEY: {
+    required: false,
+    description:
+      'PayOS checksum key used to verify payment link and webhook signatures.',
+  },
+  PAYOS_RETURN_URL: {
+    required: false,
+    defaultValue: 'http://localhost:3000/payments/payos/return',
+    description:
+      'Backend endpoint PayOS redirects the browser to after payment. It verifies, then 302s the user to the client landing URL. In production include the /api prefix.',
+  },
+  PAYOS_CANCEL_URL: {
+    required: false,
+    defaultValue: 'http://localhost:3000/payments/payos/return',
+    description:
+      'Backend endpoint PayOS redirects to when the user cancels checkout. Defaults to the same as PAYOS_RETURN_URL.',
+  },
+  PAYOS_WEBHOOK_URL: {
+    required: false,
+    description:
+      'PayOS webhook URL registered in the merchant portal (server-to-server). Informational only — not sent in the payment request.',
   },
   MOBILE_REDIRECT_URIS: {
     required: false,
@@ -167,7 +197,7 @@ export const ENV_DEFINITIONS = {
     required: false,
     defaultValue: 'vnpay',
     description:
-      'Active payment gateway for order checkout (vnpay | mock). Client checkout/status APIs stay the same; mock completes via GET /payments/mock/complete.',
+      'Active payment gateway for order checkout (vnpay | mock | payos). Client checkout/status APIs stay the same; mock completes via GET /payments/mock/complete.',
   },
   LLM_PROVIDER: {
     required: false,
@@ -290,8 +320,14 @@ export type AppEnv = {
   VNP_URL: string;
   VNP_RETURN_URL: string;
   VNP_IPN_URL: string;
-  VNP_CLIENT_RETURN_URL: string;
-  VNP_MOBILE_RETURN_URL: string;
+  CLIENT_RETURN_URL: string;
+  MOBILE_RETURN_URL: string;
+  PAYOS_CLIENT_ID: string;
+  PAYOS_API_KEY: string;
+  PAYOS_CHECKSUM_KEY: string;
+  PAYOS_RETURN_URL: string;
+  PAYOS_CANCEL_URL: string;
+  PAYOS_WEBHOOK_URL: string;
   MOBILE_REDIRECT_URIS: string[];
   MOBILE_AUTH_CODE_TTL_SECONDS: number;
   MOBILE_OAUTH_STATE_TTL_SECONDS: number;
@@ -472,12 +508,23 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
     VNP_RETURN_URL:
       raw.VNP_RETURN_URL?.trim() || ENV_DEFINITIONS.VNP_RETURN_URL.defaultValue,
     VNP_IPN_URL: raw.VNP_IPN_URL?.trim() || '',
-    VNP_CLIENT_RETURN_URL:
-      raw.VNP_CLIENT_RETURN_URL?.trim() ||
+    CLIENT_RETURN_URL:
+      raw.CLIENT_RETURN_URL?.trim() ||
       `${raw.FRONTEND_URL!.trim().replace(/\/+$/, '')}/vnpay_return`,
-    VNP_MOBILE_RETURN_URL:
-      raw.VNP_MOBILE_RETURN_URL?.trim() ||
-      ENV_DEFINITIONS.VNP_MOBILE_RETURN_URL.defaultValue,
+    MOBILE_RETURN_URL:
+      raw.MOBILE_RETURN_URL?.trim() ||
+      ENV_DEFINITIONS.MOBILE_RETURN_URL.defaultValue,
+    PAYOS_CLIENT_ID: raw.PAYOS_CLIENT_ID?.trim() || '',
+    PAYOS_API_KEY: raw.PAYOS_API_KEY?.trim() || '',
+    PAYOS_CHECKSUM_KEY: raw.PAYOS_CHECKSUM_KEY?.trim() || '',
+    PAYOS_RETURN_URL:
+      raw.PAYOS_RETURN_URL?.trim() ||
+      ENV_DEFINITIONS.PAYOS_RETURN_URL.defaultValue,
+    PAYOS_CANCEL_URL:
+      raw.PAYOS_CANCEL_URL?.trim() ||
+      raw.PAYOS_RETURN_URL?.trim() ||
+      ENV_DEFINITIONS.PAYOS_CANCEL_URL.defaultValue,
+    PAYOS_WEBHOOK_URL: raw.PAYOS_WEBHOOK_URL?.trim() || '',
     MOBILE_REDIRECT_URIS: parseCommaSeparatedList(
       raw.MOBILE_REDIRECT_URIS,
       ENV_DEFINITIONS.MOBILE_REDIRECT_URIS.defaultValue,
@@ -497,9 +544,9 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
         raw.PAYMENT_PROVIDER?.trim() ||
         ENV_DEFINITIONS.PAYMENT_PROVIDER.defaultValue
       ).toLowerCase();
-      if (value !== 'vnpay' && value !== 'mock') {
+      if (value !== 'vnpay' && value !== 'mock' && value !== 'payos') {
         throw new Error(
-          `Invalid PAYMENT_PROVIDER "${value}". Expected "vnpay" or "mock".`,
+          `Invalid PAYMENT_PROVIDER "${value}". Expected "vnpay", "mock", or "payos".`,
         );
       }
       return value;

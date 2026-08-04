@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AppEnv, getMissingRequiredEnv, resolveAppEnv } from './env.config';
 import { LlmConfig } from './llm.config';
-import { PaymentConfig } from './payment.config';
+import { PaymentConfig, PayosConfig } from './payment.config';
 import { ShippingConfig } from './shipping.config';
 
 @Injectable()
@@ -102,12 +102,32 @@ export class AppConfigService {
       vnpayHost: this.env.VNP_URL,
       returnUrl: this.env.VNP_RETURN_URL,
       ipnUrl: this.env.VNP_IPN_URL,
-      clientReturnUrl: this.env.VNP_CLIENT_RETURN_URL,
-      mobileReturnUrl: this.env.VNP_MOBILE_RETURN_URL,
     };
   }
 
-  /** Active order-payment gateway (vnpay | mock). */
+  /** PayOS integration config. */
+  get payosConfig(): PayosConfig {
+    return {
+      clientId: this.env.PAYOS_CLIENT_ID,
+      apiKey: this.env.PAYOS_API_KEY,
+      checksumKey: this.env.PAYOS_CHECKSUM_KEY,
+      returnUrl: this.env.PAYOS_RETURN_URL,
+      cancelUrl: this.env.PAYOS_CANCEL_URL,
+      webhookUrl: this.env.PAYOS_WEBHOOK_URL,
+    };
+  }
+
+  /** Web client landing URL shared by all payment gateways after return. */
+  get clientReturnUrl(): string {
+    return this.env.CLIENT_RETURN_URL;
+  }
+
+  /** Mobile deep link landing URL shared by all payment gateways after return. */
+  get mobileReturnUrl(): string {
+    return this.env.MOBILE_RETURN_URL;
+  }
+
+  /** Active order-payment gateway (vnpay | mock | payos). */
   get paymentProvider(): string {
     return this.env.PAYMENT_PROVIDER;
   }

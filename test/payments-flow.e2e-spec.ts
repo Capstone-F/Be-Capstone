@@ -34,9 +34,10 @@ const PAYMENT_CONFIG = {
   vnpayHost: 'https://sandbox.vnpayment.vn',
   returnUrl: 'http://localhost:3000/payments/vnpay/return',
   ipnUrl: '',
-  clientReturnUrl: 'http://localhost:3000/vnpay_return',
-  mobileReturnUrl: 'glowscan://vnpay-return',
 };
+
+const CLIENT_RETURN_URL = 'http://localhost:3000/vnpay_return';
+const MOBILE_RETURN_URL = 'glowscan://vnpay-return';
 
 /** Forge a validly-signed VNPay callback (return and IPN share the format). */
 function signCallback(fields: Record<string, unknown>): Record<string, string> {
@@ -171,6 +172,8 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
 
     const config = {
       paymentConfig: PAYMENT_CONFIG,
+      clientReturnUrl: CLIENT_RETURN_URL,
+      mobileReturnUrl: MOBILE_RETURN_URL,
       paymentProvider: 'vnpay',
       nodeEnv: 'test',
     } as unknown as AppConfigService;
@@ -432,6 +435,8 @@ describe('Mock payment flow (in-memory repos)', () => {
         ...PAYMENT_CONFIG,
         returnUrl: 'http://localhost:3000/payments/vnpay/return',
       },
+      clientReturnUrl: CLIENT_RETURN_URL,
+      mobileReturnUrl: MOBILE_RETURN_URL,
       paymentProvider: 'mock',
       port: 3000,
       nodeEnv: 'test',

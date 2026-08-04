@@ -15,7 +15,7 @@ export enum PaymentAttemptStatus {
 export enum PaymentProvider {
   VNPAY = 'VNPAY',
   MOCK = 'MOCK',
-  // PAYOS reserved for a future production provider — do not add until implemented.
+  PAYOS = 'PAYOS',
 }
 
 /** Which client initiated checkout — selects the landing URL the return endpoint redirects to. */

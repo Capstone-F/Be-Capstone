@@ -13,6 +13,8 @@ export interface CreateCheckoutInput {
   ipAddr: string;
   /** Backend return URL for real gateways (e.g. VNPay vnp_ReturnUrl). */
   returnUrl: string;
+  /** Backend cancel URL (PayOS cancelUrl). */
+  cancelUrl?: string;
   paymentId: string;
 }
 
@@ -31,6 +33,9 @@ export interface ProviderVerifyResult {
 
 export interface PaymentGateway {
   readonly code: PaymentProvider;
+
+  /** Provider-specific opaque txn ref stored on PaymentAttempt.vnpTxnRef. */
+  createTxnRef(): string;
 
   createCheckout(input: CreateCheckoutInput): Promise<{ paymentUrl: string }>;
 
