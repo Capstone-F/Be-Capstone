@@ -7,7 +7,6 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
-  IsUrl,
   IsUUID,
   MaxLength,
   Min,
@@ -258,7 +257,7 @@ export class CreateTreatmentEventDto {
       o.type === TreatmentEventType.PROGRESS_PHOTO,
   )
   @IsNotEmpty()
-  @IsUrl({ require_tld: false })
+  @IsString()
   photoUrl?: string | null;
 
   @ApiPropertyOptional({
@@ -275,6 +274,6 @@ export class UpdateTreatmentEventPhotoDto {
     description:
       'Progress photo URL (e.g. from POST /uploads/images). Only for PROGRESS_PHOTO events.',
   })
-  @IsUrl({ require_tld: false })
+  @IsString()
   photoUrl!: string;
 }
