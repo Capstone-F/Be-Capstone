@@ -30,10 +30,10 @@ Object key pattern: `images/{yyyy}/{mm}/{uuid}.{ext}`.
 
 Multipart form field: **`file`**.
 
-| Constraint | Value                                                |
-| ---------- | ---------------------------------------------------- |
-| MIME       | `image/jpeg`, `image/png`, `image/webp`, `image/gif` |
-| Max size   | 5 MB                                                 |
+| Constraint | Value                                                                            |
+| ---------- | -------------------------------------------------------------------------------- |
+| MIME       | `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `image/heic`, `image/heif` |
+| Max size   | 5 MB                                                                             |
 
 **Response**
 

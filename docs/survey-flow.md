@@ -289,7 +289,7 @@ Response = full `SurveyResponseDto` including saved `answers[].labels` (`code`, 
 
 ### 4.3b Face scan (optional) ✅ Ready
 
-Upload a facial image for the in-progress survey. The backend stores the image in R2 on the survey, runs the skin-vision provider (`LLM_PROVIDER=mock` by default, or `ollama` with `OLLAMA_VISION_MODEL`), and attaches **face labels** used later as a lower-weight OPTIONAL boost in the rule engine.
+Upload a facial image for the in-progress survey. The backend stores the image in R2 on the survey, runs the skin-vision provider (`LLM_PROVIDER=mock` by default, `ollama` with `OLLAMA_VISION_MODEL`, or `gemini` with `GEMINI_MODEL`), and attaches **face labels** used later as a lower-weight OPTIONAL boost in the rule engine.
 
 | Method | Path                     | Auth     | Status   |
 | ------ | ------------------------ | -------- | -------- |
@@ -302,10 +302,10 @@ Content-Type: multipart/form-data
 file=<facial-image.jpeg>
 ```
 
-| Constraint | Value                                                |
-| ---------- | ---------------------------------------------------- |
-| MIME       | `image/jpeg`, `image/png`, `image/webp`, `image/gif` |
-| Max size   | 5 MB                                                 |
+| Constraint | Value                                                                            |
+| ---------- | -------------------------------------------------------------------------------- |
+| MIME       | `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `image/heic`, `image/heif` |
+| Max size   | 5 MB                                                                             |
 
 **Rules:**
 
@@ -318,11 +318,12 @@ file=<facial-image.jpeg>
 
 **Providers:**
 
-| `LLM_PROVIDER`      | Behavior                                                                         |
-| ------------------- | -------------------------------------------------------------------------------- |
-| `mock` (default)    | Deterministic labels + explanations from image URL hash                          |
-| `ollama`            | Multimodal model (`OLLAMA_VISION_MODEL`, default `llava`) via Ollama `/api/chat` |
-| `openai` / `gemini` | Not implemented (503)                                                            |
+| `LLM_PROVIDER`   | Behavior                                                                         |
+| ---------------- | -------------------------------------------------------------------------------- |
+| `mock` (default) | Deterministic labels + explanations from image URL hash                          |
+| `ollama`         | Multimodal model (`OLLAMA_VISION_MODEL`, default `llava`) via Ollama `/api/chat` |
+| `gemini`         | Gemini multimodal (`GEMINI_MODEL`, default `gemini-2.5-flash-lite`)              |
+| `openai`         | Not implemented (503)                                                            |
 
 Example response fields:
 
@@ -645,12 +646,14 @@ Returns `RoutineResponseDto[]` (newest first). Use this after generate, on app h
 
 **LLM provider env** (see README / `.env.example`):
 
-| Variable            | Default                             | Notes                                                                   |
-| ------------------- | ----------------------------------- | ----------------------------------------------------------------------- |
-| `LLM_PROVIDER`      | `mock`                              | `mock` (deterministic) or `ollama` (live). `openai` / `gemini` reserved |
-| `OLLAMA_BASE_URL`   | `http://host.docker.internal:11434` | Use when API runs in Docker and Ollama on the host                      |
-| `OLLAMA_MODEL`      | `gpt-oss:120b-cloud`                | Model tag passed to Ollama                                              |
-| `OLLAMA_TIMEOUT_MS` | `120000`                            | Chat request timeout                                                    |
+| Variable            | Default                             | Notes                                                   |
+| ------------------- | ----------------------------------- | ------------------------------------------------------- |
+| `LLM_PROVIDER`      | `mock`                              | `mock`, `ollama`, or `gemini` (live). `openai` reserved |
+| `OLLAMA_BASE_URL`   | `http://host.docker.internal:11434` | Use when API runs in Docker and Ollama on the host      |
+| `OLLAMA_MODEL`      | `gpt-oss:120b-cloud`                | Model tag passed to Ollama                              |
+| `OLLAMA_TIMEOUT_MS` | `120000`                            | Shared Ollama / Gemini chat request timeout             |
+| `GEMINI_API_KEY`    | —                                   | Required when `LLM_PROVIDER=gemini`                     |
+| `GEMINI_MODEL`      | `gemini-2.5-flash-lite`             | Gemini model for routines and face-scan                 |
 
 Use `OLLAMA_BASE_URL=http://localhost:11434` only when the Nest API also runs on the host (not in Docker).
 
@@ -980,7 +983,7 @@ GET   /routines/me                     ← list / refresh routines
 
 ### 10.4 Out of scope for this guide
 
-- Live Ollama/OpenAI vision for face scan (`LLM_PROVIDER=mock` ships; other providers reserved).
+- OpenAI vision for face scan (`LLM_PROVIDER=mock` / `ollama` / `gemini` ship; `openai` reserved).
 - Staff delivery `PATCH` — see ecommerce gaps.
 - Replacing VNPay / catalog browse flows.
 

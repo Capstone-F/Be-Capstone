@@ -607,4 +607,47 @@ describe('SurveyService face scan', () => {
       } as Express.Multer.File),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
+
+  it('accepts HEIC phone camera mime types', async () => {
+    const survey = {
+      id: 'survey-id',
+      customerId: 'customer-id',
+      isCompleted: false,
+      faceImageUrl: null,
+      faceImageKey: null,
+      faceScannedAt: null,
+      answers: [],
+      faceLabels: [],
+    };
+    surveyRepository.findOne
+      .mockResolvedValueOnce(survey)
+      .mockResolvedValueOnce({
+        ...survey,
+        faceImageUrl: 'https://cdn.example.com/face.heic',
+        faceImageKey: 'images/face.heic',
+        faceScannedAt: new Date('2026-08-03T10:00:00Z'),
+        answers: [],
+        faceLabels: [],
+      });
+    storageService.uploadImage.mockResolvedValue({
+      url: 'https://cdn.example.com/face.heic',
+      key: 'images/face.heic',
+    });
+    skinVisionProvider.analyze.mockResolvedValue({ findings: [] });
+    surveyFaceLabelRepository.delete.mockResolvedValue(undefined);
+    labelRepository.find.mockResolvedValue([]);
+
+    await service.submitFaceScan('user-id', 'survey-id', {
+      ...file,
+      mimetype: 'image/heic',
+      originalname: 'face.heic',
+    } as Express.Multer.File);
+
+    expect(storageService.uploadImage).toHaveBeenCalledWith(
+      expect.objectContaining({ contentType: 'image/heic' }),
+    );
+    expect(skinVisionProvider.analyze).toHaveBeenCalledWith(
+      expect.objectContaining({ mimeType: 'image/heic' }),
+    );
+  });
 });

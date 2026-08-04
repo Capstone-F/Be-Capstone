@@ -203,7 +203,7 @@ export const ENV_DEFINITIONS = {
     required: false,
     defaultValue: 'mock',
     description:
-      'LLM provider for routine generation and survey face-scan (mock | ollama | openai | gemini). mock and ollama are implemented.',
+      'LLM provider for routine generation and survey face-scan (mock | ollama | openai | gemini). mock, ollama, and gemini are implemented.',
   },
   OLLAMA_BASE_URL: {
     required: false,
@@ -225,7 +225,16 @@ export const ENV_DEFINITIONS = {
   OLLAMA_TIMEOUT_MS: {
     required: false,
     defaultValue: '120000',
-    description: 'Timeout in milliseconds for Ollama chat requests.',
+    description: 'Timeout in milliseconds for Ollama and Gemini chat requests.',
+  },
+  GEMINI_API_KEY: {
+    required: false,
+    description: 'Google AI Studio API key. Required when LLM_PROVIDER=gemini.',
+  },
+  GEMINI_MODEL: {
+    required: false,
+    defaultValue: 'gemini-2.5-flash-lite',
+    description: 'Gemini model id for routine generation and survey face-scan.',
   },
   GHN_TOKEN: {
     required: false,
@@ -337,6 +346,8 @@ export type AppEnv = {
   OLLAMA_MODEL: string;
   OLLAMA_VISION_MODEL: string;
   OLLAMA_TIMEOUT_MS: number;
+  GEMINI_API_KEY: string;
+  GEMINI_MODEL: string;
   GHN_TOKEN: string;
   GHN_SHOP_ID: string;
   GHN_BASE_URL: string;
@@ -567,6 +578,9 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
       'OLLAMA_TIMEOUT_MS',
       ENV_DEFINITIONS.OLLAMA_TIMEOUT_MS.defaultValue,
     ),
+    GEMINI_API_KEY: raw.GEMINI_API_KEY?.trim() || '',
+    GEMINI_MODEL:
+      raw.GEMINI_MODEL?.trim() || ENV_DEFINITIONS.GEMINI_MODEL.defaultValue,
     GHN_TOKEN: raw.GHN_TOKEN?.trim() || '',
     GHN_SHOP_ID: raw.GHN_SHOP_ID?.trim() || '',
     GHN_BASE_URL: (
