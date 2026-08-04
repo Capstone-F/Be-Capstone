@@ -34,8 +34,16 @@ describe('SurveyService question bank', () => {
   const labelRepository = {
     find: jest.fn(),
   };
+  const labelCategoryRepository = {
+    findOneBy: jest.fn(),
+  };
   const customerRepository = {
     findOne: jest.fn(),
+  };
+  const customerAllergyRepository = {
+    delete: jest.fn(),
+    save: jest.fn(),
+    create: jest.fn((value) => value),
   };
   const skinTypeRepository = {
     findOne: jest.fn(),
@@ -47,6 +55,9 @@ describe('SurveyService question bank', () => {
   };
   const surveyRecommendationRepository = {
     delete: jest.fn(),
+  };
+  const dataSource = {
+    transaction: jest.fn(),
   };
   const storageService = {
     uploadImage: jest.fn(),
@@ -67,10 +78,13 @@ describe('SurveyService question bank', () => {
       questionRepository as never,
       questionOptionRepository as never,
       labelRepository as never,
+      labelCategoryRepository as never,
       customerRepository as never,
+      customerAllergyRepository as never,
       skinTypeRepository as never,
       customerSkinTypeDetailsRepository as never,
       surveyRecommendationRepository as never,
+      dataSource as never,
       storageService as never,
       skinVisionProvider as never,
     );
@@ -184,7 +198,10 @@ describe('SurveyService question bank', () => {
       },
     ]);
 
-    const questions = await service.listQuestions('user-id', 'survey-id');
+    const questions = await service.listQuestions(
+      { kind: 'user', userId: 'user-id' },
+      'survey-id',
+    );
 
     expect(questions.map((question) => question.code)).toEqual([
       'PRIMARY_CONCERN',
@@ -280,7 +297,10 @@ describe('SurveyService question bank', () => {
       },
     ]);
 
-    const questions = await service.listQuestions('user-id', 'survey-id');
+    const questions = await service.listQuestions(
+      { kind: 'user', userId: 'user-id' },
+      'survey-id',
+    );
     expect(questions.map((q) => q.code)).toEqual([
       'PRIMARY_CONCERN',
       'AGE_2635_EARLY_AGING',
@@ -311,7 +331,7 @@ describe('SurveyService question bank', () => {
     ]);
 
     await expect(
-      service.submitAnswers('user-id', 'survey-id', {
+      service.submitAnswers({ kind: 'user', userId: 'user-id' }, 'survey-id', {
         answers: [
           {
             questionId: 'question-id',
@@ -449,12 +469,23 @@ describe('SurveyService face scan', () => {
   const labelRepository = {
     find: jest.fn(),
   };
+  const labelCategoryRepository = {
+    findOneBy: jest.fn(),
+  };
   const customerRepository = {
     findOne: jest.fn(),
+  };
+  const customerAllergyRepository = {
+    delete: jest.fn(),
+    save: jest.fn(),
+    create: jest.fn((value) => value),
   };
   const skinTypeRepository = {};
   const customerSkinTypeDetailsRepository = {};
   const surveyRecommendationRepository = {};
+  const dataSource = {
+    transaction: jest.fn(),
+  };
   const storageService = {
     uploadImage: jest.fn(),
   };
@@ -474,10 +505,13 @@ describe('SurveyService face scan', () => {
       questionRepository as never,
       questionOptionRepository as never,
       labelRepository as never,
+      labelCategoryRepository as never,
       customerRepository as never,
+      customerAllergyRepository as never,
       skinTypeRepository as never,
       customerSkinTypeDetailsRepository as never,
       surveyRecommendationRepository as never,
+      dataSource as never,
       storageService as never,
       skinVisionProvider as never,
     );

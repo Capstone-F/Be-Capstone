@@ -6,11 +6,20 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
+import {
+  generateGuestToken,
+  guestExpiresAt,
+  hashGuestToken,
+  type SurveyActor,
+} from '../auth/guest-token';
+import { CustomerAllergy } from '../users/customer-allergy.entity';
 import { Customer } from '../users/customer.entity';
 import { CustomerSkinTypeDetails } from '../users/customer-skin-type-details.entity';
+import { Gender } from '../users/gender.enum';
 import { SkinType } from '../users/skin-type.entity';
 import { SurveyRecommendation } from '../recommendations/survey-recommendation.entity';
 import {
@@ -22,6 +31,7 @@ import { AnswerLabel } from './answer-label.entity';
 import { Answer } from './answer.entity';
 import { CustomerSurvey } from './customer-survey.entity';
 import { SubmitAnswersDto } from './dto/submit-answers.dto';
+import { StartSurveyDto } from './dto/start-survey.dto';
 import {
   AdminQuestionOptionInputDto,
   AdminSurveyQuestionDto,
@@ -34,10 +44,13 @@ import {
   SurveyResponseDto,
 } from './dto/survey-response.dto';
 import { buildAskWhenContext, matchesAskWhen } from './ask-when.util';
+import { LabelCategory } from './label-category.entity';
 import { Label } from './label.entity';
 import { Question, QuestionPriority } from './question.entity';
 import { QuestionOption } from './question-option.entity';
 import { SurveyFaceLabel } from './survey-face-label.entity';
+
+const ALLERGY_CATEGORY_CODE = 'ALLERGY';
 
 const ALLOWED_FACE_MIME = new Set([
   'image/jpeg',
@@ -68,14 +81,19 @@ export class SurveyService {
     private readonly questionOptionRepository: Repository<QuestionOption>,
     @InjectRepository(Label)
     private readonly labelRepository: Repository<Label>,
+    @InjectRepository(LabelCategory)
+    private readonly labelCategoryRepository: Repository<LabelCategory>,
     @InjectRepository(Customer)
     private readonly customerRepository: Repository<Customer>,
+    @InjectRepository(CustomerAllergy)
+    private readonly customerAllergyRepository: Repository<CustomerAllergy>,
     @InjectRepository(SkinType)
     private readonly skinTypeRepository: Repository<SkinType>,
     @InjectRepository(CustomerSkinTypeDetails)
     private readonly customerSkinTypeDetailsRepository: Repository<CustomerSkinTypeDetails>,
     @InjectRepository(SurveyRecommendation)
     private readonly surveyRecommendationRepository: Repository<SurveyRecommendation>,
+    private readonly dataSource: DataSource,
     private readonly storageService: StorageService,
     @Inject(SKIN_VISION_PROVIDER)
     private readonly skinVisionProvider: SkinVisionProvider,
@@ -170,13 +188,18 @@ export class SurveyService {
   }
 
   async listQuestions(
-    userId: string,
+    actor: SurveyActor | null,
     surveyId?: string,
   ): Promise<SurveyQuestionDto[]> {
     let answeredLabelCodes = new Set<string>();
     let dateOfBirth: Date | null = null;
     if (surveyId) {
-      const customer = await this.requireCustomer(userId);
+      if (!actor) {
+        throw new UnauthorizedException(
+          'Authentication or X-Guest-Token required for survey-scoped questions',
+        );
+      }
+      const customer = await this.resolveCustomer(actor);
       dateOfBirth = customer.dateOfBirth ?? null;
       const survey = await this.surveyRepository.findOne({
         where: { id: surveyId, customerId: customer.id },
@@ -251,8 +274,12 @@ export class SurveyService {
       .filter((question) => question.options.length > 0);
   }
 
-  async startSurvey(userId: string): Promise<SurveyResponseDto> {
+  async startSurvey(
+    userId: string,
+    dto: StartSurveyDto = {},
+  ): Promise<SurveyResponseDto> {
     const customer = await this.getOrCreateCustomerByUserId(userId);
+    await this.applyOptionalProfile(customer, dto);
     const survey = await this.surveyRepository.save(
       this.surveyRepository.create({
         customerId: customer.id,
@@ -266,12 +293,40 @@ export class SurveyService {
     return this.toSurveyDto(survey, [], []);
   }
 
+  async startGuestSurvey(dto: StartSurveyDto = {}): Promise<SurveyResponseDto> {
+    const rawToken = generateGuestToken();
+    const customer = await this.customerRepository.save(
+      this.customerRepository.create({
+        userId: null,
+        guestTokenHash: hashGuestToken(rawToken),
+        guestExpiresAt: guestExpiresAt(),
+        dateOfBirth: null,
+        gender: Gender.NOT_PREFER_TO_SAY,
+      }),
+    );
+    await this.applyOptionalProfile(customer, dto);
+    const survey = await this.surveyRepository.save(
+      this.surveyRepository.create({
+        customerId: customer.id,
+        isCompleted: false,
+        completedAt: null,
+        faceImageUrl: null,
+        faceImageKey: null,
+        faceScannedAt: null,
+      }),
+    );
+    return { ...this.toSurveyDto(survey, [], []), guestToken: rawToken };
+  }
+
   async submitFaceScan(
     userId: string,
     surveyId: string,
     file: Express.Multer.File,
   ): Promise<SurveyResponseDto> {
-    const { survey } = await this.getOwnedInProgressSurvey(userId, surveyId);
+    const { survey } = await this.getOwnedInProgressSurvey(
+      { kind: 'user', userId },
+      surveyId,
+    );
 
     if (!file?.buffer?.length) {
       throw new BadRequestException('file is required');
@@ -336,15 +391,15 @@ export class SurveyService {
       );
     }
 
-    return this.getSurveyForUser(userId, surveyId);
+    return this.getSurveyForActor({ kind: 'user', userId }, surveyId);
   }
 
   async submitAnswers(
-    userId: string,
+    actor: SurveyActor,
     surveyId: string,
     dto: SubmitAnswersDto,
   ): Promise<SurveyResponseDto> {
-    const { survey } = await this.getOwnedInProgressSurvey(userId, surveyId);
+    const { survey } = await this.getOwnedInProgressSurvey(actor, surveyId);
 
     const questionIds = [...new Set(dto.answers.map((a) => a.questionId))];
     const questions = await this.questionRepository.find({
@@ -418,15 +473,15 @@ export class SurveyService {
       );
     }
 
-    return this.getSurveyForUser(userId, surveyId);
+    return this.getSurveyForActor(actor, surveyId);
   }
 
   async completeSurvey(
-    userId: string,
+    actor: SurveyActor,
     surveyId: string,
   ): Promise<SurveyResponseDto> {
     const { customer, survey } = await this.getOwnedInProgressSurvey(
-      userId,
+      actor,
       surveyId,
     );
 
@@ -445,7 +500,7 @@ export class SurveyService {
 
     await this.deriveAndSaveSkinType(customer.id, survey.id);
 
-    return this.getSurveyForUser(userId, surveyId);
+    return this.getSurveyForActor(actor, surveyId);
   }
 
   public async deriveAndSaveSkinType(customerId: string, surveyId: string) {
@@ -680,7 +735,14 @@ export class SurveyService {
     userId: string,
     surveyId: string,
   ): Promise<SurveyResponseDto> {
-    const customer = await this.requireCustomer(userId);
+    return this.getSurveyForActor({ kind: 'user', userId }, surveyId);
+  }
+
+  async getSurveyForActor(
+    actor: SurveyActor,
+    surveyId: string,
+  ): Promise<SurveyResponseDto> {
+    const customer = await this.resolveCustomer(actor);
     const survey = await this.surveyRepository.findOne({
       where: { id: surveyId, customerId: customer.id },
       relations: [
@@ -699,6 +761,113 @@ export class SurveyService {
       survey.answers ?? [],
       survey.faceLabels ?? [],
     );
+  }
+
+  /**
+   * Merge a guest Customer (surveys, recommendations, skin type, allergies,
+   * profile fields) into the authenticated Customer's account.
+   */
+  async claimGuestSurvey(
+    userId: string,
+    guestToken: string,
+  ): Promise<SurveyResponseDto | null> {
+    const token = guestToken?.trim();
+    if (!token) {
+      throw new BadRequestException('guestToken is required');
+    }
+
+    const guest = await this.findGuestCustomerByToken(token);
+    const authCustomer = await this.getOrCreateCustomerByUserId(userId);
+
+    if (guest.id === authCustomer.id) {
+      throw new BadRequestException(
+        'Guest survey already belongs to this user',
+      );
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager
+        .createQueryBuilder()
+        .update(CustomerSurvey)
+        .set({ customerId: authCustomer.id })
+        .where('customerId = :guestId', { guestId: guest.id })
+        .execute();
+
+      await manager
+        .createQueryBuilder()
+        .update(SurveyRecommendation)
+        .set({ customerId: authCustomer.id })
+        .where('customerId = :guestId', { guestId: guest.id })
+        .execute();
+
+      const authSkin = await manager.findOne(CustomerSkinTypeDetails, {
+        where: { customerId: authCustomer.id },
+      });
+      const guestSkin = await manager.findOne(CustomerSkinTypeDetails, {
+        where: { customerId: guest.id },
+      });
+      if (guestSkin) {
+        if (!authSkin) {
+          guestSkin.customerId = authCustomer.id;
+          await manager.save(guestSkin);
+        } else {
+          await manager.remove(guestSkin);
+        }
+      }
+
+      const guestAllergies = await manager.find(CustomerAllergy, {
+        where: { customerId: guest.id },
+      });
+      if (guestAllergies.length > 0) {
+        const authAllergies = await manager.find(CustomerAllergy, {
+          where: { customerId: authCustomer.id },
+        });
+        const existingLabelIds = new Set(
+          authAllergies.map((row) => row.labelId),
+        );
+        const toInsert = guestAllergies.filter(
+          (row) => !existingLabelIds.has(row.labelId),
+        );
+        if (toInsert.length > 0) {
+          await manager.save(
+            toInsert.map((row) =>
+              manager.create(CustomerAllergy, {
+                customerId: authCustomer.id,
+                labelId: row.labelId,
+              }),
+            ),
+          );
+        }
+        await manager.delete(CustomerAllergy, { customerId: guest.id });
+      }
+
+      let profileDirty = false;
+      if (!authCustomer.dateOfBirth && guest.dateOfBirth) {
+        authCustomer.dateOfBirth = guest.dateOfBirth;
+        profileDirty = true;
+      }
+      if (
+        authCustomer.gender === Gender.NOT_PREFER_TO_SAY &&
+        guest.gender !== Gender.NOT_PREFER_TO_SAY
+      ) {
+        authCustomer.gender = guest.gender;
+        profileDirty = true;
+      }
+      if (profileDirty) {
+        await manager.save(authCustomer);
+      }
+
+      await manager.delete(Customer, { id: guest.id });
+    });
+
+    const latest = await this.surveyRepository.findOne({
+      where: { customerId: authCustomer.id },
+      order: { completedAt: 'DESC', createdAt: 'DESC' },
+    });
+    if (!latest) {
+      return null;
+    }
+    return this.getSurveyForUser(userId, latest.id);
   }
 
   private async requireQuestionWithOptions(id: string): Promise<Question> {
@@ -773,10 +942,10 @@ export class SurveyService {
   }
 
   private async getOwnedInProgressSurvey(
-    userId: string,
+    actor: SurveyActor,
     surveyId: string,
   ): Promise<{ customer: Customer; survey: CustomerSurvey }> {
-    const customer = await this.requireCustomer(userId);
+    const customer = await this.resolveCustomer(actor);
     const survey = await this.surveyRepository.findOne({
       where: { id: surveyId, customerId: customer.id },
     });
@@ -787,6 +956,106 @@ export class SurveyService {
       throw new BadRequestException('Survey is already completed');
     }
     return { customer, survey };
+  }
+
+  async resolveCustomer(actor: SurveyActor): Promise<Customer> {
+    if (actor.kind === 'user') {
+      return this.requireCustomer(actor.userId);
+    }
+    return this.findGuestCustomerByToken(actor.guestToken);
+  }
+
+  private async findGuestCustomerByToken(
+    guestToken: string,
+  ): Promise<Customer> {
+    const customer = await this.customerRepository.findOne({
+      where: {
+        guestTokenHash: hashGuestToken(guestToken),
+        userId: IsNull(),
+      },
+    });
+    if (!customer) {
+      throw new UnauthorizedException('Invalid guest token');
+    }
+    if (
+      customer.guestExpiresAt &&
+      customer.guestExpiresAt.getTime() < Date.now()
+    ) {
+      throw new UnauthorizedException('Guest token expired');
+    }
+    return customer;
+  }
+
+  private async applyOptionalProfile(
+    customer: Customer,
+    dto: StartSurveyDto,
+  ): Promise<void> {
+    let dirty = false;
+    if (dto.dateOfBirth !== undefined) {
+      const dob = new Date(dto.dateOfBirth);
+      if (dob > new Date()) {
+        throw new BadRequestException('dateOfBirth must not be in the future');
+      }
+      customer.dateOfBirth = dob;
+      dirty = true;
+    }
+    if (dto.gender !== undefined) {
+      customer.gender = dto.gender;
+      dirty = true;
+    }
+    if (dirty) {
+      await this.customerRepository.save(customer);
+    }
+    if (dto.allergyCodes !== undefined) {
+      await this.replaceAllergies(customer.id, dto.allergyCodes);
+    }
+  }
+
+  private async replaceAllergies(
+    customerId: string,
+    codes: string[],
+  ): Promise<void> {
+    const uniqueCodes = [...new Set(codes.map((code) => code.trim()))].filter(
+      Boolean,
+    );
+
+    const allergyCategory = await this.labelCategoryRepository.findOneBy({
+      code: ALLERGY_CATEGORY_CODE,
+    });
+    if (!allergyCategory) {
+      throw new BadRequestException('ALLERGY label category is not configured');
+    }
+
+    let allergyLabels: Label[] = [];
+    if (uniqueCodes.length > 0) {
+      allergyLabels = await this.labelRepository.find({
+        where: {
+          code: In(uniqueCodes),
+          isActive: true,
+          categoryId: allergyCategory.id,
+        },
+      });
+
+      if (allergyLabels.length !== uniqueCodes.length) {
+        const foundCodes = new Set(allergyLabels.map((label) => label.code));
+        const invalid = uniqueCodes.filter((code) => !foundCodes.has(code));
+        throw new BadRequestException(
+          `Invalid allergy label codes: ${invalid.join(', ')}`,
+        );
+      }
+    }
+
+    await this.customerAllergyRepository.delete({ customerId });
+    if (allergyLabels.length > 0) {
+      await this.customerAllergyRepository.save(
+        allergyLabels.map((label) =>
+          this.customerAllergyRepository.create({
+            customerId,
+            labelId: label.id,
+          }),
+        ),
+      );
+    }
   }
 
   private async requireCustomer(userId: string): Promise<Customer> {
@@ -807,7 +1076,11 @@ export class SurveyService {
       return existing;
     }
     return this.customerRepository.save(
-      this.customerRepository.create({ userId }),
+      this.customerRepository.create({
+        userId,
+        guestTokenHash: null,
+        guestExpiresAt: null,
+      }),
     );
   }
 

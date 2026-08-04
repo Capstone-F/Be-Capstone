@@ -24,6 +24,7 @@ import {
   ApiConsumes,
   ApiCookieAuth,
   ApiCreatedResponse,
+  ApiHeader,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -31,13 +32,16 @@ import {
 } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { memoryStorage } from 'multer';
+import { getAuthContext } from '../auth/auth-context';
+import { Public } from '../auth/decorators/public.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
+import { getGuestToken, type SurveyActor } from '../auth/guest-token';
 import { Role } from '../auth/roles.enum';
-import { getAuthContext } from '../auth/auth-context';
 import { SubmitAnswersDto } from './dto/submit-answers.dto';
 import { ListSurveyQuestionsDto } from './dto/list-survey-questions.dto';
+import { ClaimGuestSurveyDto, StartSurveyDto } from './dto/start-survey.dto';
 import {
   SurveyQuestionDto,
   SurveyResponseDto,
@@ -56,41 +60,82 @@ export class SurveysController {
   constructor(private readonly surveyService: SurveyService) {}
 
   @Get('questions')
+  @Public()
   @Roles(Role.Customer)
-  @ApiOperation({ summary: 'List active survey questions' })
+  @ApiHeader({
+    name: 'X-Guest-Token',
+    required: false,
+    description: 'Required with surveyId when not logged in',
+  })
+  @ApiOperation({
+    summary: 'List active survey questions',
+    description:
+      'Public for CORE questions. With surveyId, requires session/Bearer or X-Guest-Token.',
+  })
   @ApiOkResponse({ type: [SurveyQuestionDto] })
   listQuestions(
     @Req() req: Request,
     @Query() query: ListSurveyQuestionsDto,
   ): Promise<SurveyQuestionDto[]> {
-    return this.surveyService.listQuestions(
-      this.requireUserId(req),
-      query.surveyId,
-    );
+    const actor = this.resolveOptionalActor(req);
+    return this.surveyService.listQuestions(actor, query.surveyId);
   }
 
   @Post()
+  @Public()
   @Roles(Role.Customer)
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Start a new skincare survey session' })
+  @ApiOperation({
+    summary: 'Start a new skincare survey session',
+    description:
+      'Authenticated customers start under their profile. Guests receive a guestToken to send as X-Guest-Token.',
+  })
   @ApiCreatedResponse({ type: SurveyResponseDto })
-  start(@Req() req: Request): Promise<SurveyResponseDto> {
-    return this.surveyService.startSurvey(this.requireUserId(req));
+  start(
+    @Req() req: Request,
+    @Body() body: StartSurveyDto = {},
+  ): Promise<SurveyResponseDto> {
+    const userId = getAuthContext(req)?.userId;
+    if (userId) {
+      return this.surveyService.startSurvey(userId, body ?? {});
+    }
+    return this.surveyService.startGuestSurvey(body ?? {});
+  }
+
+  @Post('claim')
+  @Roles(Role.Customer)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Claim a guest survey into the authenticated customer account',
+  })
+  @ApiOkResponse({ type: SurveyResponseDto })
+  claim(
+    @Req() req: Request,
+    @Body() body: ClaimGuestSurveyDto,
+  ): Promise<SurveyResponseDto | null> {
+    return this.surveyService.claimGuestSurvey(
+      this.requireUserId(req),
+      body.guestToken,
+    );
   }
 
   @Get(':id')
+  @Public()
   @Roles(Role.Customer)
+  @ApiHeader({ name: 'X-Guest-Token', required: false })
   @ApiOperation({ summary: 'Get a survey session' })
   @ApiOkResponse({ type: SurveyResponseDto })
   getOne(
     @Req() req: Request,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<SurveyResponseDto> {
-    return this.surveyService.getSurveyForUser(this.requireUserId(req), id);
+    return this.surveyService.getSurveyForActor(this.requireActor(req), id);
   }
 
   @Post(':id/answers')
+  @Public()
   @Roles(Role.Customer)
+  @ApiHeader({ name: 'X-Guest-Token', required: false })
   @ApiOperation({ summary: 'Submit or replace answers for a survey' })
   @ApiOkResponse({ type: SurveyResponseDto })
   submitAnswers(
@@ -98,7 +143,7 @@ export class SurveysController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: SubmitAnswersDto,
   ): Promise<SurveyResponseDto> {
-    return this.surveyService.submitAnswers(this.requireUserId(req), id, body);
+    return this.surveyService.submitAnswers(this.requireActor(req), id, body);
   }
 
   @Post(':id/face-scan')
@@ -113,7 +158,7 @@ export class SurveysController {
   @ApiOperation({
     summary: 'Upload facial image, persist it, and extract AI skin labels',
     description:
-      'Accepts multipart field `file` (jpeg/png/webp/gif/heic/heif, max 5MB). Uploads to R2, stores URL on the survey, runs the skin-vision provider (`LLM_PROVIDER=mock`, `ollama`, or `gemini`), and saves face labels with short explanations for weighted recommendations.',
+      'Logged-in customers only. Guests cannot use face-scan. Accepts multipart field `file` (jpeg/png/webp/gif/heic/heif, max 5MB).',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -146,14 +191,16 @@ export class SurveysController {
   }
 
   @Post(':id/complete')
+  @Public()
   @Roles(Role.Customer)
+  @ApiHeader({ name: 'X-Guest-Token', required: false })
   @ApiOperation({ summary: 'Mark a survey as completed' })
   @ApiOkResponse({ type: SurveyResponseDto })
   complete(
     @Req() req: Request,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<SurveyResponseDto> {
-    return this.surveyService.completeSurvey(this.requireUserId(req), id);
+    return this.surveyService.completeSurvey(this.requireActor(req), id);
   }
 
   private requireUserId(req: Request): string {
@@ -162,5 +209,27 @@ export class SurveysController {
       throw new UnauthorizedException('Not authenticated');
     }
     return auth.userId;
+  }
+
+  private requireActor(req: Request): SurveyActor {
+    const actor = this.resolveOptionalActor(req);
+    if (!actor) {
+      throw new UnauthorizedException(
+        'Not authenticated. Log in or send X-Guest-Token',
+      );
+    }
+    return actor;
+  }
+
+  private resolveOptionalActor(req: Request): SurveyActor | null {
+    const userId = getAuthContext(req)?.userId;
+    if (userId) {
+      return { kind: 'user', userId };
+    }
+    const guestToken = getGuestToken(req);
+    if (guestToken) {
+      return { kind: 'guest', guestToken };
+    }
+    return null;
   }
 }

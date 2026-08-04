@@ -11,7 +11,7 @@ The **final deliverable of this flow is a personalized routine** (`POST /routine
 
 **After cart creation:** reuse the shared checkout stack in [E-Commerce Integration Guide](ecommerce-flow.md) (order → shipping → VNPay → tracking), then return here for routine generation.
 
-See also: [VNPay Payment Integration](payments.md) · [User Management & RBAC](users.md) · [Routine Tracking](routine-tracking-flow.md) (Today / check-in / history after generate) · [Mock vs Ollama routines](llm-routine-mock-vs-ollama.md)
+See also: [Guest Survey → Recommendations](guest-survey-flow.md) · [VNPay Payment Integration](payments.md) · [User Management & RBAC](users.md) · [Routine Tracking](routine-tracking-flow.md) (Today / check-in / history after generate) · [Mock vs Ollama routines](llm-routine-mock-vs-ollama.md)
 
 ---
 
@@ -101,9 +101,9 @@ There is also a lighter path: `GET /products/suggestion` ranks products from **p
 | Web SPA | Session cookie `sid` (`credentials: 'include'`) — see [auth-web.md](auth-web.md) |
 | Mobile  | `Authorization: Bearer <accessToken>` — see [auth-mobile.md](auth-mobile.md)     |
 
-Survey, recommendations, cart, orders, and payment checkout require an authenticated **Customer**.
+Survey and recommendations accept either an authenticated **Customer** **or** a guest token (`X-Guest-Token`). Cart, orders, payment checkout, routines, and **face-scan** require an authenticated Customer.
 
----
+## **Guest / not-logged-in survey:** full client integration (token header, start → recommend → claim on login, what guests cannot do) lives in **[Guest Survey → Recommendations](guest-survey-flow.md)**.
 
 ## 3. Prerequisites — base profile
 
@@ -291,9 +291,9 @@ Response = full `SurveyResponseDto` including saved `answers[].labels` (`code`, 
 
 Upload a facial image for the in-progress survey. The backend stores the image in R2 on the survey, runs the skin-vision provider (`LLM_PROVIDER=mock` by default, `ollama` with `OLLAMA_VISION_MODEL`, or `gemini` with `GEMINI_MODEL`), and attaches **face labels** used later as a lower-weight OPTIONAL boost in the rule engine.
 
-| Method | Path                     | Auth     | Status   |
-| ------ | ------------------------ | -------- | -------- |
-| POST   | `/surveys/:id/face-scan` | Customer | ✅ Ready |
+| Method    | Path | Auth                     | Status               |
+| --------- | ---- | ------------------------ | -------------------- | -------- |
+| Face scan | POST | `/surveys/:id/face-scan` | Customer (not guest) | ✅ Ready |
 
 ```http
 POST /surveys/<surveyId>/face-scan
@@ -668,9 +668,10 @@ Use `OLLAMA_BASE_URL=http://localhost:11434` only when the Nest API also runs on
 | Get / update base profile            | GET / PATCH | `/customers/me`                            | ✅ Ready |
 | Allergy options                      | GET         | `/customers/allergies`                     | ✅ Ready |
 | List questions (+ options)           | GET         | `/surveys/questions`                       | ✅ Ready |
-| Start survey                         | POST        | `/surveys`                                 | ✅ Ready |
+| Start survey (auth or guest)         | POST        | `/surveys`                                 | ✅ Ready |
+| Claim guest survey                   | POST        | `/surveys/claim`                           | ✅ Ready |
 | Submit answers                       | POST        | `/surveys/:id/answers`                     | ✅ Ready |
-| Face scan (optional)                 | POST        | `/surveys/:id/face-scan`                   | ✅ Ready |
+| Face scan (logged-in only)           | POST        | `/surveys/:id/face-scan`                   | ✅ Ready |
 | Get survey                           | GET         | `/surveys/:id`                             | ✅ Ready |
 | Complete survey (+ derive skin type) | POST        | `/surveys/:id/complete`                    | ✅ Ready |
 | Protocols + products snapshot        | GET         | `/recommendations/latest`                  | ✅ Ready |

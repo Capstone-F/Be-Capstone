@@ -7,6 +7,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { getAuthContext } from '../auth-context';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { hasAnyRole, Role } from '../roles.enum';
 
@@ -26,6 +27,16 @@ export class RolesGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest<Request>();
     const auth = getAuthContext(request);
+
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    if (isPublic && !auth?.userId) {
+      return true;
+    }
+
     const roles = auth?.roles;
 
     if (!hasAnyRole(roles, requiredRoles)) {
