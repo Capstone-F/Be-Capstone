@@ -1,6 +1,8 @@
 import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { SessionGuard } from './session.guard';
 import { AuthService } from '../auth.service';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
 describe('SessionGuard', () => {
   const authService = {
@@ -8,17 +10,24 @@ describe('SessionGuard', () => {
     authenticateBearerToken: jest.fn(),
   } as unknown as jest.Mocked<AuthService>;
 
-  const guard = new SessionGuard(authService);
+  const reflector = {
+    getAllAndOverride: jest.fn(),
+  } as unknown as Reflector;
+
+  const guard = new SessionGuard(authService, reflector);
 
   const buildContext = (request: Record<string, unknown>): ExecutionContext =>
     ({
       switchToHttp: () => ({
         getRequest: () => request,
       }),
+      getHandler: () => ({}),
+      getClass: () => ({}),
     }) as unknown as ExecutionContext;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(false);
   });
 
   it('should allow session cookie path', async () => {
@@ -40,6 +49,15 @@ describe('SessionGuard', () => {
     await expect(
       guard.canActivate(buildContext(request)),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('should allow unauthenticated access on @Public routes', async () => {
+    jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
+      if (key === IS_PUBLIC_KEY) return true;
+      return false;
+    });
+    const request = { headers: {}, session: {} };
+    await expect(guard.canActivate(buildContext(request))).resolves.toBe(true);
   });
 
   it('should authenticate valid Bearer token', async () => {

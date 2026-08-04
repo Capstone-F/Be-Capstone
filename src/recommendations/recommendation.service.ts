@@ -3,9 +3,11 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
+import { hashGuestToken, type SurveyActor } from '../auth/guest-token';
 import { IngredientConflict } from '../ingredients/ingredient-conflict.entity';
 import { ProductIngredient } from '../products/product-ingredient.entity';
 import { ProductProtocol } from '../products/product-protocol.entity';
@@ -41,7 +43,13 @@ export class RecommendationService {
   ) {}
 
   async getLatestForUser(userId: string): Promise<RecommendationResponseDto> {
-    const customer = await this.requireCustomer(userId);
+    return this.getLatestForActor({ kind: 'user', userId });
+  }
+
+  async getLatestForActor(
+    actor: SurveyActor,
+  ): Promise<RecommendationResponseDto> {
+    const customer = await this.resolveCustomer(actor);
     const survey = await this.surveyRepository.findOne({
       where: { customerId: customer.id, isCompleted: true },
       order: { completedAt: 'DESC', createdAt: 'DESC' },
@@ -445,6 +453,28 @@ export class RecommendationService {
 
   private normalizeIngredientName(name: string): string {
     return name.toUpperCase().trim();
+  }
+
+  private async resolveCustomer(actor: SurveyActor): Promise<Customer> {
+    if (actor.kind === 'user') {
+      return this.requireCustomer(actor.userId);
+    }
+    const customer = await this.customerRepository.findOne({
+      where: {
+        guestTokenHash: hashGuestToken(actor.guestToken),
+        userId: IsNull(),
+      },
+    });
+    if (!customer) {
+      throw new UnauthorizedException('Invalid guest token');
+    }
+    if (
+      customer.guestExpiresAt &&
+      customer.guestExpiresAt.getTime() < Date.now()
+    ) {
+      throw new UnauthorizedException('Guest token expired');
+    }
+    return customer;
   }
 
   private async requireCustomer(userId: string): Promise<Customer> {

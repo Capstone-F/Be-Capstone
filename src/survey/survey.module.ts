@@ -5,6 +5,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
 import { SkinVisionModule } from '../skin-vision/skin-vision.module';
 import { UploadsModule } from '../uploads/uploads.module';
+import { CustomerAllergy } from '../users/customer-allergy.entity';
 import { Customer } from '../users/customer.entity';
 import { CustomerSkinTypeDetails } from '../users/customer-skin-type-details.entity';
 import { SkinType } from '../users/skin-type.entity';
@@ -33,6 +34,7 @@ import { AdminSurveyQuestionsController } from './admin-survey-questions.control
       LabelCategory,
       Label,
       Customer,
+      CustomerAllergy,
       SkinType,
       CustomerSkinTypeDetails,
       SurveyRecommendation,

@@ -1,5 +1,6 @@
 import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { RolesGuard } from './roles.guard';
 import { Role } from '../roles.enum';
@@ -54,6 +55,36 @@ describe('RolesGuard', () => {
 
     expect(() =>
       guard.canActivate(buildContext({ roles: [Role.Customer] })),
+    ).toThrow(ForbiddenException);
+  });
+
+  it('should allow unauthenticated callers on @Public routes', () => {
+    jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
+      if (key === ROLES_KEY) return [Role.Customer];
+      if (key === IS_PUBLIC_KEY) return true;
+      return undefined;
+    });
+
+    expect(
+      guard.canActivate({
+        switchToHttp: () => ({
+          getRequest: () => ({ session: {} }),
+        }),
+        getHandler: () => ({}),
+        getClass: () => ({}),
+      } as unknown as ExecutionContext),
+    ).toBe(true);
+  });
+
+  it('should still enforce roles when authenticated on @Public routes', () => {
+    jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
+      if (key === ROLES_KEY) return [Role.Customer];
+      if (key === IS_PUBLIC_KEY) return true;
+      return undefined;
+    });
+
+    expect(() =>
+      guard.canActivate(buildContext({ roles: [Role.Staff] })),
     ).toThrow(ForbiddenException);
   });
 });

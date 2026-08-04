@@ -111,4 +111,10 @@ export class SurveyResponseDto {
 
   @ApiProperty()
   createdAt!: Date;
+
+  @ApiPropertyOptional({
+    description:
+      'Present only when starting a survey as a guest. Send as X-Guest-Token on later calls.',
+  })
+  guestToken?: string;
 }

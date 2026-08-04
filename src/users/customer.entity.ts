@@ -18,12 +18,23 @@ export class Customer {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ unique: true })
-  userId: string;
+  /** Null for guest customers created via survey without login. */
+  @Column({ unique: true, nullable: true, type: 'uuid' })
+  userId: string | null;
 
-  @OneToOne(() => User, (user) => user.customer, { onDelete: 'CASCADE' })
+  @OneToOne(() => User, (user) => user.customer, {
+    onDelete: 'CASCADE',
+    nullable: true,
+  })
   @JoinColumn({ name: 'userId' })
-  user: User;
+  user: User | null;
+
+  /** SHA-256 hex of guest token; null for authenticated customers. */
+  @Column({ nullable: true, type: 'varchar' })
+  guestTokenHash: string | null;
+
+  @Column({ nullable: true, type: 'timestamptz' })
+  guestExpiresAt: Date | null;
 
   @Column({ nullable: true, type: 'varchar' })
   phone: string | null;
