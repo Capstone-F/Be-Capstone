@@ -113,7 +113,7 @@ export class SurveysController {
   @ApiOperation({
     summary: 'Upload facial image, persist it, and extract AI skin labels',
     description:
-      'Accepts multipart field `file` (jpeg/png/webp/gif, max 5MB). Uploads to R2, stores URL on the survey, runs the skin-vision provider (`LLM_PROVIDER=mock` or `ollama`), and saves face labels with short explanations for weighted recommendations.',
+      'Accepts multipart field `file` (jpeg/png/webp/gif/heic/heif, max 5MB). Uploads to R2, stores URL on the survey, runs the skin-vision provider (`LLM_PROVIDER=mock`, `ollama`, or `gemini`), and saves face labels with short explanations for weighted recommendations.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({

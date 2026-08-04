@@ -7,6 +7,10 @@ export type LlmConfig = {
   ollamaModel: string;
   /** Ollama multimodal model tag for survey face-scan, e.g. llava. */
   ollamaVisionModel: string;
-  /** Request timeout for Ollama chat calls (milliseconds). */
+  /** Request timeout for Ollama / Gemini chat calls (milliseconds). */
   ollamaTimeoutMs: number;
+  /** Google AI Studio / Gemini API key (required when provider is gemini). */
+  geminiApiKey: string;
+  /** Gemini model id for routine generation and face-scan. */
+  geminiModel: string;
 };

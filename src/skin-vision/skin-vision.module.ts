@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AppConfigService } from '../config/config.service';
 import { ConfigModule } from '../config/config.module';
+import { GeminiSkinVisionProvider } from './gemini-skin-vision.provider';
 import { MockSkinVisionProvider } from './mock-skin-vision.provider';
 import { OllamaSkinVisionProvider } from './ollama-skin-vision.provider';
 import { SKIN_VISION_PROVIDER } from './skin-vision.types';
@@ -11,6 +12,7 @@ import { UnimplementedSkinVisionProvider } from './unimplemented-skin-vision.pro
   providers: [
     MockSkinVisionProvider,
     OllamaSkinVisionProvider,
+    GeminiSkinVisionProvider,
     UnimplementedSkinVisionProvider,
     {
       provide: SKIN_VISION_PROVIDER,
@@ -18,19 +20,22 @@ import { UnimplementedSkinVisionProvider } from './unimplemented-skin-vision.pro
         AppConfigService,
         MockSkinVisionProvider,
         OllamaSkinVisionProvider,
+        GeminiSkinVisionProvider,
         UnimplementedSkinVisionProvider,
       ],
       useFactory: (
         config: AppConfigService,
         mock: MockSkinVisionProvider,
         ollama: OllamaSkinVisionProvider,
+        gemini: GeminiSkinVisionProvider,
         unimplemented: UnimplementedSkinVisionProvider,
       ) => {
         switch (config.llmProvider) {
+          case 'gemini':
+            return gemini;
           case 'ollama':
             return ollama;
           case 'openai':
-          case 'gemini':
             return unimplemented;
           case 'mock':
           default:

@@ -59,6 +59,29 @@ describe('UploadsController', () => {
     expect(storageService.uploadImage).not.toHaveBeenCalled();
   });
 
+  it('accepts HEIC phone camera mime types', async () => {
+    storageService.uploadImage.mockResolvedValue({
+      url: 'https://cdn.example.com/images/a.heic',
+      key: 'images/a.heic',
+    });
+
+    const file = {
+      buffer: Buffer.from('img'),
+      mimetype: 'image/heic',
+      originalname: 'a.heic',
+    } as Express.Multer.File;
+
+    await expect(controller.uploadImage(file)).resolves.toEqual({
+      url: 'https://cdn.example.com/images/a.heic',
+      key: 'images/a.heic',
+    });
+    expect(storageService.uploadImage).toHaveBeenCalledWith({
+      buffer: file.buffer,
+      contentType: 'image/heic',
+      originalName: 'a.heic',
+    });
+  });
+
   it('rejects empty file buffer', async () => {
     const file = {
       buffer: Buffer.alloc(0),

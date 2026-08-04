@@ -28,9 +28,12 @@ import { StorageService } from './storage.service';
 
 const ALLOWED_MIME = new Set([
   'image/jpeg',
+  'image/jpg',
   'image/png',
   'image/webp',
   'image/gif',
+  'image/heic',
+  'image/heif',
 ]);
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -55,7 +58,7 @@ export class UploadsController {
   @ApiOperation({
     summary: 'Upload an image to object storage (R2)',
     description:
-      'Accepts multipart field `file` (jpeg/png/webp/gif, max 5MB). Returns a public URL to store on product variants, expert avatars, or treatment progress photos.',
+      'Accepts multipart field `file` (jpeg/png/webp/gif/heic/heif, max 5MB). Returns a public URL to store on product variants, expert avatars, or treatment progress photos.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -82,7 +85,7 @@ export class UploadsController {
     }
     if (!ALLOWED_MIME.has(file.mimetype)) {
       throw new BadRequestException(
-        'Unsupported file type. Allowed: jpeg, png, webp, gif',
+        'Unsupported file type. Allowed: jpeg, png, webp, gif, heic, heif',
       );
     }
 

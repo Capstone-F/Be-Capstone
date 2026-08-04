@@ -41,9 +41,12 @@ import { SurveyFaceLabel } from './survey-face-label.entity';
 
 const ALLOWED_FACE_MIME = new Set([
   'image/jpeg',
+  'image/jpg',
   'image/png',
   'image/webp',
   'image/gif',
+  'image/heic',
+  'image/heif',
 ]);
 
 @Injectable()
@@ -275,7 +278,7 @@ export class SurveyService {
     }
     if (!ALLOWED_FACE_MIME.has(file.mimetype)) {
       throw new BadRequestException(
-        'Unsupported file type. Allowed: jpeg, png, webp, gif',
+        'Unsupported file type. Allowed: jpeg, png, webp, gif, heic, heif',
       );
     }
 

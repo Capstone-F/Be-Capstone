@@ -289,29 +289,32 @@ The API is now running at http://localhost:3000 with hot-reload.
 
 All env vars are centrally managed in `src/config/env.config.ts`. The app validates them at startup and logs any missing required keys.
 
-| Variable                         | Required | Default                               | Description                                                 |
-| -------------------------------- | -------- | ------------------------------------- | ----------------------------------------------------------- |
-| `NODE_ENV`                       | No       | `development`                         | Runtime mode                                                |
-| `PORT`                           | No       | `3000`                                | API listen port                                             |
-| `DATABASE_URL`                   | **Yes**  | —                                     | Postgres connection URL                                     |
-| `KEYCLOAK_PUBLIC_URL`            | **Yes**  | —                                     | Keycloak URL reachable by the browser                       |
-| `KEYCLOAK_INTERNAL_URL`          | No       | `KEYCLOAK_PUBLIC_URL`                 | Keycloak URL for server-to-server calls                     |
-| `KEYCLOAK_HEALTH_URL`            | No       | derived (port 9000)                   | Keycloak management health endpoint                         |
-| `KEYCLOAK_REALM`                 | No       | `be-capstone`                         | Keycloak realm name                                         |
-| `KEYCLOAK_CLIENT_ID`             | No       | `be-capstone-api`                     | OIDC client ID                                              |
-| `KEYCLOAK_CLIENT_SECRET`         | No       | `be-capstone-secret`                  | OIDC client secret                                          |
-| `KEYCLOAK_REDIRECT_URI`          | No       | `http://localhost:3000/auth/callback` | OAuth callback URI registered in Keycloak                   |
-| `REDIS_URL`                      | No       | `redis://localhost:6379`              | Redis for sessions + mobile OAuth state/codes               |
-| `SESSION_SECRET`                 | **Yes**  | —                                     | Secret for signing the session cookie                       |
-| `FRONTEND_URL`                   | **Yes**  | —                                     | Web SPA origin (post-login redirect whitelist)              |
-| `CORS_ORIGIN`                    | No       | `FRONTEND_URL`                        | Allowed CORS origin                                         |
-| `MOBILE_REDIRECT_URIS`           | No       | `glowscan://auth/callback`            | Comma-separated whitelist of mobile deep-link redirect URIs |
-| `MOBILE_AUTH_CODE_TTL_SECONDS`   | No       | `120`                                 | TTL for one-time mobile auth codes in Redis                 |
-| `MOBILE_OAUTH_STATE_TTL_SECONDS` | No       | `600`                                 | TTL for mobile OAuth state entries in Redis                 |
-| `LLM_PROVIDER`                   | No       | `mock`                                | Routine LLM: `mock` \| `ollama` (openai/gemini reserved)    |
-| `OLLAMA_BASE_URL`                | No       | `http://host.docker.internal:11434`   | Ollama API base (Docker API → host Ollama)                  |
-| `OLLAMA_MODEL`                   | No       | `gpt-oss:120b-cloud`                  | Ollama model tag for routine generation                     |
-| `OLLAMA_TIMEOUT_MS`              | No       | `120000`                              | Ollama chat request timeout (ms)                            |
+| Variable                         | Required | Default                               | Description                                                               |
+| -------------------------------- | -------- | ------------------------------------- | ------------------------------------------------------------------------- |
+| `NODE_ENV`                       | No       | `development`                         | Runtime mode                                                              |
+| `PORT`                           | No       | `3000`                                | API listen port                                                           |
+| `DATABASE_URL`                   | **Yes**  | —                                     | Postgres connection URL                                                   |
+| `KEYCLOAK_PUBLIC_URL`            | **Yes**  | —                                     | Keycloak URL reachable by the browser                                     |
+| `KEYCLOAK_INTERNAL_URL`          | No       | `KEYCLOAK_PUBLIC_URL`                 | Keycloak URL for server-to-server calls                                   |
+| `KEYCLOAK_HEALTH_URL`            | No       | derived (port 9000)                   | Keycloak management health endpoint                                       |
+| `KEYCLOAK_REALM`                 | No       | `be-capstone`                         | Keycloak realm name                                                       |
+| `KEYCLOAK_CLIENT_ID`             | No       | `be-capstone-api`                     | OIDC client ID                                                            |
+| `KEYCLOAK_CLIENT_SECRET`         | No       | `be-capstone-secret`                  | OIDC client secret                                                        |
+| `KEYCLOAK_REDIRECT_URI`          | No       | `http://localhost:3000/auth/callback` | OAuth callback URI registered in Keycloak                                 |
+| `REDIS_URL`                      | No       | `redis://localhost:6379`              | Redis for sessions + mobile OAuth state/codes                             |
+| `SESSION_SECRET`                 | **Yes**  | —                                     | Secret for signing the session cookie                                     |
+| `FRONTEND_URL`                   | **Yes**  | —                                     | Web SPA origin (post-login redirect whitelist)                            |
+| `CORS_ORIGIN`                    | No       | `FRONTEND_URL`                        | Allowed CORS origin                                                       |
+| `MOBILE_REDIRECT_URIS`           | No       | `glowscan://auth/callback`            | Comma-separated whitelist of mobile deep-link redirect URIs               |
+| `MOBILE_AUTH_CODE_TTL_SECONDS`   | No       | `120`                                 | TTL for one-time mobile auth codes in Redis                               |
+| `MOBILE_OAUTH_STATE_TTL_SECONDS` | No       | `600`                                 | TTL for mobile OAuth state entries in Redis                               |
+| `LLM_PROVIDER`                   | No       | `mock`                                | Routine + face-scan LLM: `mock` \| `ollama` \| `gemini` (openai reserved) |
+| `OLLAMA_BASE_URL`                | No       | `http://host.docker.internal:11434`   | Ollama API base (Docker API → host Ollama)                                |
+| `OLLAMA_MODEL`                   | No       | `gpt-oss:120b-cloud`                  | Ollama model tag for routine generation                                   |
+| `OLLAMA_VISION_MODEL`            | No       | `llava`                               | Ollama multimodal model for face-scan                                     |
+| `OLLAMA_TIMEOUT_MS`              | No       | `120000`                              | Ollama / Gemini chat request timeout (ms)                                 |
+| `GEMINI_API_KEY`                 | No       | —                                     | Google AI Studio key (required when `LLM_PROVIDER=gemini`)                |
+| `GEMINI_MODEL`                   | No       | `gemini-2.5-flash-lite`               | Gemini model for routine generation and face-scan                         |
 
 ---
 

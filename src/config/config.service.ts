@@ -167,7 +167,7 @@ export class AppConfigService {
     };
   }
 
-  /** Grouped LLM / Ollama settings for routines and face-scan. */
+  /** Grouped LLM / Ollama / Gemini settings for routines and face-scan. */
   get llmConfig(): LlmConfig {
     return {
       provider: this.env.LLM_PROVIDER,
@@ -175,6 +175,8 @@ export class AppConfigService {
       ollamaModel: this.env.OLLAMA_MODEL,
       ollamaVisionModel: this.env.OLLAMA_VISION_MODEL,
       ollamaTimeoutMs: this.env.OLLAMA_TIMEOUT_MS,
+      geminiApiKey: this.env.GEMINI_API_KEY,
+      geminiModel: this.env.GEMINI_MODEL,
     };
   }
 

@@ -71,4 +71,16 @@ describe('StorageService', () => {
     expect(result.key).toMatch(/^images\/\d{4}\/\d{2}\/[a-f0-9-]+\.png$/);
     expect(result.url).toBe(`https://cdn.example.com/${result.key}`);
   });
+
+  it('uses .heic extension for image/heic content type', async () => {
+    sendMock.mockResolvedValue({});
+
+    const result = await service.uploadImage({
+      buffer: Buffer.from('img'),
+      contentType: 'image/heic',
+      originalName: 'photo.heic',
+    });
+
+    expect(result.key).toMatch(/^images\/\d{4}\/\d{2}\/[a-f0-9-]+\.heic$/);
+  });
 });
