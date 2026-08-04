@@ -182,6 +182,46 @@ describe('RoutineGeneratorService', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
+  it('generates an enriched routine from a processing survey order', async () => {
+    orderRepository.findOne.mockResolvedValue({
+      id: 'order-1',
+      customerId: 'cust-1',
+      source: OrderSource.SURVEY,
+      status: OrderStatus.PROCESSING,
+      customerSurveyId: 'survey-1',
+      surveyRecommendationId: 'rec-1',
+      items: [
+        {
+          productVariantId: 'v1',
+          productVariant: {
+            id: 'v1',
+            sku: 'SKU-1',
+            product: { name: 'Serum A' },
+          },
+          surveyRecommendationItem: {
+            protocolId: 'p1',
+            protocol: {
+              id: 'p1',
+              code: 'niacinamide_general',
+              name: 'Niacinamide',
+              timeOfUse: 'AM_PM',
+              instructions: 'Apply morning and night',
+            },
+          },
+        },
+      ],
+      customerSurvey: { answers: [] },
+    });
+
+    routineRepository.findOne.mockResolvedValue(enrichedRoutine);
+
+    const routine = await service.generateForUser('user-1', {
+      orderId: 'order-1',
+    });
+
+    expect(routine.id).toBe('routine-1');
+  });
+
   it('generates an enriched routine from a paid survey order', async () => {
     orderRepository.findOne.mockResolvedValue({
       id: 'order-1',

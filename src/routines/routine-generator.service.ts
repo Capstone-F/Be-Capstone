@@ -195,7 +195,13 @@ export class RoutineGeneratorService {
         'Routine generation is only available for products purchased from a skincare survey recommendation',
       );
     }
-    if (order.status !== OrderStatus.PAID) {
+    const paidStatuses: OrderStatus[] = [
+      OrderStatus.PAID,
+      OrderStatus.PROCESSING,
+      OrderStatus.SHIPPED,
+      OrderStatus.DELIVERED,
+    ];
+    if (!paidStatuses.includes(order.status)) {
       throw new ForbiddenException(
         'Order must be paid before generating a routine',
       );
