@@ -95,6 +95,7 @@ type ProductSeed = {
   sku: string;
   volume?: string;
   packaging?: string;
+  imageUrl?: string;
   priceVnd: number;
   shelfLifeValue?: number;
   shelfLifeUnit?: ShelfLifeUnit;
@@ -102,6 +103,9 @@ type ProductSeed = {
   weightGram?: number;
   ingredients: ProductIngredientSeed[];
 };
+
+const PRODUCT_IMAGE_BASE =
+  'https://pub-f732c20cbbfa4108925f9c52884439a3.r2.dev/products';
 
 /** Packaging (bottle, pump, box) on top of the product's own volume. */
 const PACKAGING_WEIGHT_GRAM = 40;
@@ -1506,14 +1510,15 @@ const PRODUCT_CATEGORIES: ProductCategorySeed[] = [
 
 const PRODUCTS: ProductSeed[] = [
   {
-    name: 'CeraVe Foaming Facial Cleanser',
+    name: 'Sữa rửa mặt tạo bọt CeraVe',
     brandName: 'CeraVe',
     categoryCode: 'CLEANSER',
     description:
       'Gentle foaming cleanser for normal to oily skin with ceramides',
     sku: 'CERAVE-FOAM-CLEANSER-236ML',
     volume: '236ml',
-    packaging: 'Pump bottle',
+    packaging: 'Chai bơm',
+    imageUrl: `${PRODUCT_IMAGE_BASE}/cerave.webp`,
     priceVnd: 320000,
     ingredients: [
       { ingredientName: 'Ceramide', isKeyIngredient: true },
@@ -1521,13 +1526,14 @@ const PRODUCTS: ProductSeed[] = [
     ],
   },
   {
-    name: 'Some By Mi AHA BHA PHA 30 Days Miracle Toner',
+    name: 'Toner Some By Mi AHA BHA PHA 30 Days Miracle',
     brandName: 'Some By Mi',
     categoryCode: 'TONER',
     description: 'Exfoliating toner with AHA, BHA, and PHA for clearer skin',
     sku: 'SOMEBYMI-MIRACLE-TONER-150ML',
     volume: '150ml',
-    packaging: 'Bottle',
+    packaging: 'Chai',
+    imageUrl: `${PRODUCT_IMAGE_BASE}/SOME_BY_MI.webp`,
     priceVnd: 280000,
     ingredients: [
       {
@@ -1539,13 +1545,14 @@ const PRODUCTS: ProductSeed[] = [
     ],
   },
   {
-    name: 'The Ordinary Niacinamide 10% + Zinc 1%',
+    name: 'Tinh chất The Ordinary Niacinamide 10% + Zinc 1%',
     brandName: 'The Ordinary',
     categoryCode: 'SERUM',
     description: 'High-strength vitamin and mineral blemish formula',
     sku: 'TO-NIACINAMIDE-10-ZINC-30ML',
     volume: '30ml',
-    packaging: 'Dropper bottle',
+    packaging: 'Chai nhỏ giọt',
+    imageUrl: `${PRODUCT_IMAGE_BASE}/ORDINARY.webp`,
     priceVnd: 180000,
     ingredients: [
       {
@@ -1556,13 +1563,14 @@ const PRODUCTS: ProductSeed[] = [
     ],
   },
   {
-    name: 'CeraVe Moisturizing Cream',
+    name: 'Kem dưỡng ẩm CeraVe',
     brandName: 'CeraVe',
     categoryCode: 'MOISTURIZER',
     description: 'Rich moisturizing cream with ceramides and hyaluronic acid',
     sku: 'CERAVE-MOIST-CREAM-454G',
     volume: '454g',
-    packaging: 'Jar',
+    packaging: 'Hũ',
+    imageUrl: `${PRODUCT_IMAGE_BASE}/cerave_moisturising_cream.webp`,
     priceVnd: 450000,
     ingredients: [
       { ingredientName: 'Ceramide', isKeyIngredient: true },
@@ -1570,25 +1578,27 @@ const PRODUCTS: ProductSeed[] = [
     ],
   },
   {
-    name: 'La Roche-Posay Anthelios UVMune 400 SPF50+',
+    name: 'Kem chống nắng La Roche-Posay Anthelios UVMune 400 SPF50+',
     brandName: 'La Roche-Posay',
     categoryCode: 'SUNSCREEN',
     description: 'Broad-spectrum sunscreen with Mexoryl 400 for UVA protection',
     sku: 'LRP-ANTHELIOS-UVMUNE-50ML',
     volume: '50ml',
-    packaging: 'Tube',
+    packaging: 'Tuýp',
+    imageUrl: `${PRODUCT_IMAGE_BASE}/la_roche_posay.webp`,
     priceVnd: 520000,
     ingredients: [{ ingredientName: 'Hyaluronic Acid' }],
   },
   {
-    name: 'La Roche-Posay Effaclar Duo+ Anti-Acne Treatment',
+    name: 'Kem trị mụn La Roche-Posay Effaclar Duo+',
     brandName: 'La Roche-Posay',
     categoryCode: 'TREATMENT',
     description:
       'Dual-action acne treatment with benzoyl peroxide and niacinamide',
     sku: 'LRP-EFFAC-DUO-40ML',
     volume: '40ml',
-    packaging: 'Tube',
+    packaging: 'Tuýp',
+    imageUrl: `${PRODUCT_IMAGE_BASE}/La_Roche_Posay_Effaclar_Duo_M_Multi_Target_Acne_Treatment.webp`,
     priceVnd: 380000,
     ingredients: [
       {
@@ -1600,13 +1610,14 @@ const PRODUCTS: ProductSeed[] = [
     ],
   },
   {
-    name: 'The Ordinary Retinol 0.3% in Squalane',
+    name: 'Tinh chất The Ordinary Retinol 0.3% trong Squalane',
     brandName: 'The Ordinary',
     categoryCode: 'TREATMENT',
     description: 'Retinol treatment serum for fine lines and anti-aging',
     sku: 'TO-RETINOL-0.3-30ML',
     volume: '30ml',
-    packaging: 'Dropper bottle',
+    packaging: 'Chai nhỏ giọt',
+    imageUrl: `${PRODUCT_IMAGE_BASE}/the-ordinary-retinol-ulta.webp`,
     priceVnd: 220000,
     ingredients: [
       {
@@ -1617,14 +1628,15 @@ const PRODUCTS: ProductSeed[] = [
     ],
   },
   {
-    name: 'La Roche-Posay Toleriane Sensitive Fluid',
+    name: 'Kem dưỡng dịu nhẹ La Roche-Posay Toleriane Sensitive Fluid',
     brandName: 'La Roche-Posay',
     categoryCode: 'MOISTURIZER',
     description:
       'Fragrance-free calming moisturizer for redness-prone sensitive skin',
     sku: 'LRP-TOLERIANE-SENSITIVE-40ML',
     volume: '40ml',
-    packaging: 'Tube',
+    packaging: 'Tuýp',
+    imageUrl: `${PRODUCT_IMAGE_BASE}/Toleriane-sensitive-fluide.webp`,
     priceVnd: 390000,
     ingredients: [
       { ingredientName: 'Ceramide', isKeyIngredient: true },
@@ -3412,7 +3424,7 @@ async function upsertProductWithVariant(
     variant.shelfLifeValue = seed.shelfLifeValue ?? 365;
     variant.shelfLifeUnit = seed.shelfLifeUnit ?? ShelfLifeUnit.DAY;
     variant.weightGram = deriveWeightGram(seed);
-    variant.imageUrl = 'https://placehold.co/400';
+    variant.imageUrl = seed.imageUrl ?? 'https://placehold.co/400';
     variant.isActive = true;
     await variantRepo.save(variant);
   } else {
@@ -3436,7 +3448,7 @@ async function upsertProductWithVariant(
         shelfLifeValue: seed.shelfLifeValue ?? 365,
         shelfLifeUnit: seed.shelfLifeUnit ?? ShelfLifeUnit.DAY,
         weightGram: deriveWeightGram(seed),
-        imageUrl: 'https://placehold.co/400',
+        imageUrl: seed.imageUrl ?? 'https://placehold.co/400',
         isActive: true,
       }),
     );
