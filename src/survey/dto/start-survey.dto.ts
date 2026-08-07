@@ -24,6 +24,14 @@ export class StartSurveyDto {
   gender?: Gender;
 
   @ApiPropertyOptional({
+    description: 'Optional phone number for guests to pre-fill profile',
+    example: '0987654321',
+  })
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @ApiPropertyOptional({
     type: [String],
     example: ['FRAGRANCE', 'RETINOIDS'],
     description:

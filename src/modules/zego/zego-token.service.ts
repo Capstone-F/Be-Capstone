@@ -104,7 +104,7 @@ export class ZegoTokenService {
         throw new ConflictException('No expert assigned to this booking yet');
       }
     } else {
-      peerUserID = customerUserId;
+      peerUserID = customerUserId ?? undefined;
       if (!peerUserID) {
         throw new ConflictException('Booking customer is missing');
       }

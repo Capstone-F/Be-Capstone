@@ -4,6 +4,8 @@ import { MobileAuthCodeService } from './mobile-auth-code.service';
 import { KeycloakAdminService } from '../keycloak/keycloak-admin.service';
 import { UsersService } from '../users/users.service';
 
+import { SurveyService } from '../survey/survey.service';
+
 export type MobileTokenResponse = {
   accessToken: string;
   refreshToken: string;
@@ -21,6 +23,7 @@ export class MobileAuthService {
     private readonly usersService: UsersService,
     private readonly authService: AuthService,
     private readonly keycloakAdmin: KeycloakAdminService,
+    private readonly surveyService: SurveyService,
   ) {}
 
   async exchangeCode(code: string): Promise<MobileTokenResponse> {
@@ -43,14 +46,27 @@ export class MobileAuthService {
   async login(
     username: string,
     password: string,
+    guestToken?: string,
   ): Promise<MobileTokenResponse> {
-    return this.authService.loginWithPassword(username, password);
+    const result = await this.authService.loginWithPassword(username, password);
+    if (guestToken) {
+      try {
+        await this.surveyService.claimGuestSurvey(result.user.id, guestToken);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `Failed to claim guest survey for ${result.user.id}: ${msg}`,
+        );
+      }
+    }
+    return result;
   }
 
   async register(
     email: string,
     password: string,
     name?: string,
+    guestToken?: string,
   ): Promise<MobileTokenResponse> {
     const username = email.trim().toLowerCase();
     const { firstName, lastName } = splitName(name ?? username);
@@ -67,7 +83,7 @@ export class MobileAuthService {
     });
 
     this.logger.log(`Mobile self-registration — email: ${username}`);
-    return this.authService.loginWithPassword(username, password);
+    return this.login(username, password, guestToken);
   }
 
   async refresh(refreshToken: string): Promise<{

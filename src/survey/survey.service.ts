@@ -790,14 +790,14 @@ export class SurveyService {
         .createQueryBuilder()
         .update(CustomerSurvey)
         .set({ customerId: authCustomer.id })
-        .where('customerId = :guestId', { guestId: guest.id })
+        .where('"customerId" = :guestId', { guestId: guest.id })
         .execute();
 
       await manager
         .createQueryBuilder()
         .update(SurveyRecommendation)
         .set({ customerId: authCustomer.id })
-        .where('customerId = :guestId', { guestId: guest.id })
+        .where('"customerId" = :guestId', { guestId: guest.id })
         .execute();
 
       const authSkin = await manager.findOne(CustomerSkinTypeDetails, {
@@ -842,6 +842,10 @@ export class SurveyService {
       }
 
       let profileDirty = false;
+      if (!authCustomer.phone && guest.phone) {
+        authCustomer.phone = guest.phone;
+        profileDirty = true;
+      }
       if (!authCustomer.dateOfBirth && guest.dateOfBirth) {
         authCustomer.dateOfBirth = guest.dateOfBirth;
         profileDirty = true;
@@ -1001,6 +1005,10 @@ export class SurveyService {
     }
     if (dto.gender !== undefined) {
       customer.gender = dto.gender;
+      dirty = true;
+    }
+    if (dto.phone !== undefined) {
+      customer.phone = dto.phone;
       dirty = true;
     }
     if (dirty) {

@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsNotEmpty, IsString, IsOptional } from 'class-validator';
 
 export class MobileLoginDto {
   @ApiProperty({
@@ -16,4 +16,11 @@ export class MobileLoginDto {
   @IsString()
   @IsNotEmpty()
   password!: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional guest token to claim survey data upon login',
+  })
+  @IsOptional()
+  @IsString()
+  guestToken?: string;
 }

@@ -30,4 +30,11 @@ export class MobileRegisterDto {
   @IsOptional()
   @IsString()
   name?: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional guest token to claim survey data upon registration',
+  })
+  @IsOptional()
+  @IsString()
+  guestToken?: string;
 }

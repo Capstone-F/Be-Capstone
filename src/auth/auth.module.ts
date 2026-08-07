@@ -10,8 +10,14 @@ import { SessionGuard } from './guards/session.guard';
 import { UsersModule } from '../users/users.module';
 import { RedisModule } from '../redis/redis.module';
 
+import { SurveyModule } from '../survey/survey.module';
+
 @Module({
-  imports: [forwardRef(() => UsersModule), RedisModule],
+  imports: [
+    forwardRef(() => UsersModule),
+    forwardRef(() => SurveyModule),
+    RedisModule,
+  ],
   controllers: [AuthController, MobileAuthController],
   providers: [
     AuthService,
