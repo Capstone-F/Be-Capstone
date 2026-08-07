@@ -154,14 +154,14 @@ First load (CORE questions only — no token required):
 GET /surveys/questions
 ```
 
-After answers exist, unlock L2 conditional questions with ownership:
+After starting and submitting answers, fetch the progressive cumulative batch:
 
 ```http
 GET /surveys/questions?surveyId=<surveyId>
 X-Guest-Token: <guestToken>
 ```
 
-Without token/auth, `surveyId` returns **401**.
+Response is cumulative: answered questions first, then up to 10 unlocked unanswered questions appended at the end. Unlocked `CONDITIONAL` questions come from current labels (skip-friendly — CORE need not all be answered). Without token/auth, `surveyId` returns **401**.
 
 ### 4.3 Submit answers ✅
 

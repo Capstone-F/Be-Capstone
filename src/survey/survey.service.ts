@@ -46,8 +46,9 @@ import {
 import { buildAskWhenContext, matchesAskWhen } from './ask-when.util';
 import { LabelCategory } from './label-category.entity';
 import { Label } from './label.entity';
-import { Question, QuestionPriority } from './question.entity';
+import { Question, QuestionAskWhen, QuestionPriority } from './question.entity';
 import { QuestionOption } from './question-option.entity';
+import { NEXT_QUESTIONS_BATCH_SIZE } from './survey.constants';
 import { SurveyFaceLabel } from './survey-face-label.entity';
 
 const ALLERGY_CATEGORY_CODE = 'ALLERGY';
@@ -191,87 +192,175 @@ export class SurveyService {
     actor: SurveyActor | null,
     surveyId?: string,
   ): Promise<SurveyQuestionDto[]> {
-    let answeredLabelCodes = new Set<string>();
-    let dateOfBirth: Date | null = null;
     if (surveyId) {
       if (!actor) {
         throw new UnauthorizedException(
           'Authentication or X-Guest-Token required for survey-scoped questions',
         );
       }
-      const customer = await this.resolveCustomer(actor);
-      dateOfBirth = customer.dateOfBirth ?? null;
-      const survey = await this.surveyRepository.findOne({
-        where: { id: surveyId, customerId: customer.id },
-        relations: [
-          'answers',
-          'answers.answerLabels',
-          'answers.answerLabels.label',
-        ],
-      });
-      if (!survey) {
-        throw new NotFoundException(`Survey ${surveyId} not found`);
-      }
-      answeredLabelCodes = new Set(
-        (survey.answers ?? []).flatMap((answer) =>
-          (answer.answerLabels ?? []).map(
-            (answerLabel) => answerLabel.label.code,
-          ),
-        ),
-      );
+      return this.listProgressiveQuestions(actor, surveyId);
     }
 
-    const askWhenCtx = buildAskWhenContext(answeredLabelCodes, dateOfBirth);
     const questions = await this.questionRepository.find({
       where: { isActive: true },
       relations: ['options', 'options.label'],
       order: { displayOrder: 'ASC' },
     });
     return questions
-      .filter((question) => {
-        if (question.priority === QuestionPriority.CORE) return true;
-        if (!surveyId) return false;
-
-        if (question.priority === QuestionPriority.OPTIONAL) {
-          // Optional with no askWhen / empty gates: show in-session.
-          if (
-            !question.askWhen ||
-            (question.askWhen.always !== true &&
-              !question.askWhen.anyLabelCodes?.length &&
-              !question.askWhen.allLabelCodes?.length &&
-              !question.askWhen.anyAgeGroupCodes?.length &&
-              question.askWhen.minAge == null &&
-              question.askWhen.maxAge == null &&
-              !question.askWhen.noneLabelCodes?.length)
-          ) {
-            return true;
-          }
-          return matchesAskWhen(question.askWhen, askWhenCtx);
-        }
-        if (question.priority === QuestionPriority.CONDITIONAL) {
-          return matchesAskWhen(question.askWhen, askWhenCtx);
-        }
-        return false;
-      })
-      .map((q) => ({
-        id: q.id,
-        code: q.code,
-        text: q.text,
-        questionType: q.questionType,
-        displayOrder: q.displayOrder,
-        priority: q.priority,
-        category: q.category,
-        options: (q.options ?? [])
-          .filter((option) => option.isActive && option.label?.isActive)
-          .sort((a, b) => a.displayOrder - b.displayOrder)
-          .map((option) => ({
-            labelCode: option.label.code,
-            name: option.label.name,
-            description: option.label.description,
-            vietnameseNormalized: option.label.vietnameseNormalized ?? null,
-          })),
-      }))
+      .filter((question) => question.priority === QuestionPriority.CORE)
+      .map((q) => this.toQuestionDto(q))
       .filter((question) => question.options.length > 0);
+  }
+
+  /**
+   * Cumulative progressive list for an owned survey:
+   * answered prefix + next unanswered batch (unlocked CONDITIONAL first from current
+   * labels/DOB, then fill CORE; if no CONDITIONAL, OPTIONAL then fill CORE).
+   * Skipping CORE is allowed — CONDITIONAL unlock from whatever labels exist so far.
+   */
+  private async listProgressiveQuestions(
+    actor: SurveyActor,
+    surveyId: string,
+  ): Promise<SurveyQuestionDto[]> {
+    const customer = await this.resolveCustomer(actor);
+    const dateOfBirth = customer.dateOfBirth ?? null;
+    const survey = await this.surveyRepository.findOne({
+      where: { id: surveyId, customerId: customer.id },
+      relations: [
+        'answers',
+        'answers.answerLabels',
+        'answers.answerLabels.label',
+      ],
+    });
+    if (!survey) {
+      throw new NotFoundException(`Survey ${surveyId} not found`);
+    }
+
+    const answeredQuestionIds = new Set(
+      (survey.answers ?? [])
+        .map((answer) => answer.questionId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    const answeredLabelCodes = new Set(
+      (survey.answers ?? []).flatMap((answer) =>
+        (answer.answerLabels ?? []).map(
+          (answerLabel) => answerLabel.label.code,
+        ),
+      ),
+    );
+    const askWhenCtx = buildAskWhenContext(answeredLabelCodes, dateOfBirth);
+
+    const activeQuestions = (
+      await this.questionRepository.find({
+        where: { isActive: true },
+        relations: ['options', 'options.label'],
+        order: { displayOrder: 'ASC' },
+      })
+    ).filter((question) => this.questionHasActiveOptions(question));
+
+    const unansweredCore = activeQuestions
+      .filter(
+        (question) =>
+          question.priority === QuestionPriority.CORE &&
+          !answeredQuestionIds.has(question.id),
+      )
+      .sort((a, b) => a.displayOrder - b.displayOrder);
+    const unlockedUnansweredConditional = activeQuestions
+      .filter(
+        (question) =>
+          question.priority === QuestionPriority.CONDITIONAL &&
+          !answeredQuestionIds.has(question.id) &&
+          matchesAskWhen(question.askWhen, askWhenCtx),
+      )
+      .sort((a, b) => a.displayOrder - b.displayOrder);
+    const unansweredOptional = activeQuestions
+      .filter(
+        (question) =>
+          question.priority === QuestionPriority.OPTIONAL &&
+          !answeredQuestionIds.has(question.id) &&
+          this.isOptionalEligible(question.askWhen, askWhenCtx),
+      )
+      .sort((a, b) => a.displayOrder - b.displayOrder);
+
+    let nextBatch: Question[];
+    if (unlockedUnansweredConditional.length > 0) {
+      const conditionalSlice = unlockedUnansweredConditional.slice(
+        0,
+        NEXT_QUESTIONS_BATCH_SIZE,
+      );
+      const remainingSlots =
+        NEXT_QUESTIONS_BATCH_SIZE - conditionalSlice.length;
+      nextBatch = [
+        ...conditionalSlice,
+        ...unansweredCore.slice(0, remainingSlots),
+      ];
+    } else if (unansweredOptional.length > 0) {
+      // Skip-friendly: unanswered CORE does not block OPTIONAL.
+      const optionalSlice = unansweredOptional.slice(
+        0,
+        NEXT_QUESTIONS_BATCH_SIZE,
+      );
+      const remainingSlots = NEXT_QUESTIONS_BATCH_SIZE - optionalSlice.length;
+      nextBatch = [
+        ...optionalSlice,
+        ...unansweredCore.slice(0, remainingSlots),
+      ];
+    } else {
+      nextBatch = unansweredCore.slice(0, NEXT_QUESTIONS_BATCH_SIZE);
+    }
+
+    const prefix = activeQuestions
+      .filter((question) => answeredQuestionIds.has(question.id))
+      .sort((a, b) => a.displayOrder - b.displayOrder);
+
+    // Cumulative: answered prefix + next batch at end (do not re-sort combined).
+    return [...prefix, ...nextBatch].map((q) => this.toQuestionDto(q));
+  }
+
+  private isOptionalEligible(
+    askWhen: QuestionAskWhen | null | undefined,
+    askWhenCtx: ReturnType<typeof buildAskWhenContext>,
+  ): boolean {
+    if (
+      !askWhen ||
+      (askWhen.always !== true &&
+        !askWhen.anyLabelCodes?.length &&
+        !askWhen.allLabelCodes?.length &&
+        !askWhen.anyAgeGroupCodes?.length &&
+        askWhen.minAge == null &&
+        askWhen.maxAge == null &&
+        !askWhen.noneLabelCodes?.length)
+    ) {
+      return true;
+    }
+    return matchesAskWhen(askWhen, askWhenCtx);
+  }
+
+  private questionHasActiveOptions(question: Question): boolean {
+    return (question.options ?? []).some(
+      (option) => option.isActive && option.label?.isActive,
+    );
+  }
+
+  private toQuestionDto(q: Question): SurveyQuestionDto {
+    return {
+      id: q.id,
+      code: q.code,
+      text: q.text,
+      questionType: q.questionType,
+      displayOrder: q.displayOrder,
+      priority: q.priority,
+      category: q.category,
+      options: (q.options ?? [])
+        .filter((option) => option.isActive && option.label?.isActive)
+        .sort((a, b) => a.displayOrder - b.displayOrder)
+        .map((option) => ({
+          labelCode: option.label.code,
+          name: option.label.name,
+          description: option.label.description,
+          vietnameseNormalized: option.label.vietnameseNormalized ?? null,
+        })),
+    };
   }
 
   async startSurvey(

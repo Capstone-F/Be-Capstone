@@ -1,6 +1,21 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { SurveyService } from './survey.service';
 import { QuestionPriority } from './question.entity';
+import { NEXT_QUESTIONS_BATCH_SIZE } from './survey.constants';
+
+function activeOption(code: string, name = code) {
+  return {
+    displayOrder: 0,
+    isActive: true,
+    label: {
+      code,
+      name,
+      description: null,
+      vietnameseNormalized: null,
+      isActive: true,
+    },
+  };
+}
 
 describe('SurveyService question bank', () => {
   const surveyRepository = {
@@ -95,12 +110,112 @@ describe('SurveyService question bank', () => {
     });
   });
 
-  it('returns core questions and unlocks matching conditional questions', async () => {
+  it('returns unanswered CORE when nothing is unlocked yet (no DOB / no labels / no optional)', async () => {
+    customerRepository.findOne.mockResolvedValue({
+      id: 'customer-id',
+      userId: 'user-id',
+      dateOfBirth: null,
+    });
+    surveyRepository.findOne.mockResolvedValue({
+      id: 'survey-id',
+      customerId: 'customer-id',
+      answers: [],
+    });
+    questionRepository.find.mockResolvedValue([
+      {
+        id: 'core',
+        code: 'PRIMARY_CONCERN',
+        text: 'Concern?',
+        questionType: 'SINGLE_CHOICE',
+        displayOrder: 1,
+        priority: QuestionPriority.CORE,
+        category: 'SKIN_CONCERN',
+        options: [activeOption('ACNE', 'Acne')],
+      },
+      {
+        id: 'acne-details',
+        code: 'ACNE_DETAILS',
+        text: 'Details?',
+        questionType: 'MULTI_SELECT',
+        displayOrder: 10,
+        priority: QuestionPriority.CONDITIONAL,
+        category: 'ACNE',
+        askWhen: { anyLabelCodes: ['ACNE'] },
+        options: [activeOption('BLACKHEADS')],
+      },
+    ]);
+
+    const questions = await service.listQuestions(
+      { kind: 'user', userId: 'user-id' },
+      'survey-id',
+    );
+
+    expect(questions.map((q) => q.code)).toEqual(['PRIMARY_CONCERN']);
+  });
+
+  it('prefers age-gated CONDITIONAL over CORE when DOB unlocks them with no answers', async () => {
+    surveyRepository.findOne.mockResolvedValue({
+      id: 'survey-id',
+      customerId: 'customer-id',
+      answers: [],
+    });
+    questionRepository.find.mockResolvedValue([
+      {
+        id: 'core',
+        code: 'PRIMARY_CONCERN',
+        text: 'Concern?',
+        questionType: 'SINGLE_CHOICE',
+        displayOrder: 1,
+        priority: QuestionPriority.CORE,
+        category: 'SKIN_CONCERN',
+        options: [activeOption('ACNE', 'Acne')],
+      },
+      {
+        id: 'age-gated',
+        code: 'AGE_2635_EARLY_AGING',
+        text: 'Early aging?',
+        questionType: 'SINGLE_CHOICE',
+        displayOrder: 55,
+        priority: QuestionPriority.CONDITIONAL,
+        category: 'AGE_SEGMENT',
+        askWhen: {
+          anyAgeGroupCodes: ['AGE_26_35'],
+          minAge: 26,
+          maxAge: 35,
+        },
+        options: [activeOption('FINE_LINES', 'Fine Lines')],
+      },
+      {
+        id: 'optional',
+        code: 'PERSONALITY_TYPES',
+        text: 'Personality?',
+        questionType: 'MULTI_SELECT',
+        displayOrder: 80,
+        priority: QuestionPriority.OPTIONAL,
+        category: 'PERSONALITY',
+        askWhen: { always: true },
+        options: [activeOption('PERSONALITY_QUICK_RESULT')],
+      },
+    ]);
+
+    const questions = await service.listQuestions(
+      { kind: 'user', userId: 'user-id' },
+      'survey-id',
+    );
+
+    expect(questions.map((q) => q.code)).toEqual([
+      'AGE_2635_EARLY_AGING',
+      'PRIMARY_CONCERN',
+    ]);
+  });
+
+  it('appends unlocked conditional after answered core and withholds optional', async () => {
     surveyRepository.findOne.mockResolvedValue({
       id: 'survey-id',
       customerId: 'customer-id',
       answers: [
         {
+          questionId: 'core',
           answerLabels: [{ label: { code: 'ACNE' } }],
         },
       ],
@@ -160,19 +275,18 @@ describe('SurveyService question bank', () => {
         priority: QuestionPriority.CONDITIONAL,
         category: 'PIGMENTATION',
         askWhen: { anyLabelCodes: ['MELASMA'] },
-        options: [
-          {
-            displayOrder: 0,
-            isActive: true,
-            label: {
-              code: 'MELASMA',
-              name: 'Melasma',
-              description: null,
-              vietnameseNormalized: 'Nám da mặt',
-              isActive: true,
-            },
-          },
-        ],
+        options: [activeOption('MELASMA', 'Melasma')],
+      },
+      {
+        id: 'optional',
+        code: 'PERSONALITY_TYPES',
+        text: 'Personality?',
+        questionType: 'MULTI_SELECT',
+        displayOrder: 5,
+        priority: QuestionPriority.OPTIONAL,
+        category: 'PERSONALITY',
+        askWhen: { always: true },
+        options: [activeOption('PERSONALITY_QUICK_RESULT')],
       },
       {
         id: 'empty-options',
@@ -215,12 +329,84 @@ describe('SurveyService question bank', () => {
     });
   });
 
-  it('unlocks age-gated conditional questions from profile dateOfBirth', async () => {
-    // AGE_26_35 for DOB 2000-06-15 relative to 2026
+  it('unlocks CONDITIONAL when some CORE are skipped', async () => {
     surveyRepository.findOne.mockResolvedValue({
       id: 'survey-id',
       customerId: 'customer-id',
-      answers: [],
+      answers: [
+        {
+          questionId: 'core-concern',
+          answerLabels: [{ label: { code: 'ACNE' } }],
+        },
+      ],
+    });
+    questionRepository.find.mockResolvedValue([
+      {
+        id: 'core-concern',
+        code: 'PRIMARY_CONCERN',
+        text: 'Concern?',
+        questionType: 'SINGLE_CHOICE',
+        displayOrder: 1,
+        priority: QuestionPriority.CORE,
+        category: 'SKIN_CONCERN',
+        options: [activeOption('ACNE')],
+      },
+      {
+        id: 'core-skipped',
+        code: 'HAS_ROUTINE',
+        text: 'Routine?',
+        questionType: 'SINGLE_CHOICE',
+        displayOrder: 2,
+        priority: QuestionPriority.CORE,
+        category: 'ROUTINE',
+        options: [activeOption('HAS_SKINCARE_ROUTINE')],
+      },
+      {
+        id: 'acne-details',
+        code: 'ACNE_DETAILS',
+        text: 'Details?',
+        questionType: 'MULTI_SELECT',
+        displayOrder: 10,
+        priority: QuestionPriority.CONDITIONAL,
+        category: 'ACNE',
+        askWhen: { anyLabelCodes: ['ACNE'] },
+        options: [activeOption('BLACKHEADS')],
+      },
+      {
+        id: 'optional',
+        code: 'PERSONALITY_TYPES',
+        text: 'Personality?',
+        questionType: 'MULTI_SELECT',
+        displayOrder: 80,
+        priority: QuestionPriority.OPTIONAL,
+        category: 'PERSONALITY',
+        askWhen: { always: true },
+        options: [activeOption('PERSONALITY_QUICK_RESULT')],
+      },
+    ]);
+
+    const questions = await service.listQuestions(
+      { kind: 'user', userId: 'user-id' },
+      'survey-id',
+    );
+
+    expect(questions.map((q) => q.code)).toEqual([
+      'PRIMARY_CONCERN',
+      'ACNE_DETAILS',
+      'HAS_ROUTINE',
+    ]);
+  });
+
+  it('unlocks age-gated conditional from profile dateOfBirth', async () => {
+    surveyRepository.findOne.mockResolvedValue({
+      id: 'survey-id',
+      customerId: 'customer-id',
+      answers: [
+        {
+          questionId: 'core',
+          answerLabels: [{ label: { code: 'ACNE' } }],
+        },
+      ],
     });
     questionRepository.find.mockResolvedValue([
       {
@@ -231,19 +417,7 @@ describe('SurveyService question bank', () => {
         displayOrder: 1,
         priority: QuestionPriority.CORE,
         category: 'SKIN_CONCERN',
-        options: [
-          {
-            displayOrder: 0,
-            isActive: true,
-            label: {
-              code: 'ACNE',
-              name: 'Acne',
-              description: null,
-              vietnameseNormalized: null,
-              isActive: true,
-            },
-          },
-        ],
+        options: [activeOption('ACNE', 'Acne')],
       },
       {
         id: 'age-gated',
@@ -258,19 +432,7 @@ describe('SurveyService question bank', () => {
           minAge: 26,
           maxAge: 35,
         },
-        options: [
-          {
-            displayOrder: 0,
-            isActive: true,
-            label: {
-              code: 'FINE_LINES',
-              name: 'Fine Lines',
-              description: null,
-              vietnameseNormalized: null,
-              isActive: true,
-            },
-          },
-        ],
+        options: [activeOption('FINE_LINES', 'Fine Lines')],
       },
       {
         id: 'wrong-age',
@@ -281,19 +443,7 @@ describe('SurveyService question bank', () => {
         priority: QuestionPriority.CONDITIONAL,
         category: 'AGE_SEGMENT',
         askWhen: { anyAgeGroupCodes: ['UNDER_18'], maxAge: 17 },
-        options: [
-          {
-            displayOrder: 0,
-            isActive: true,
-            label: {
-              code: 'OILY_TENDENCY',
-              name: 'Oily',
-              description: null,
-              vietnameseNormalized: null,
-              isActive: true,
-            },
-          },
-        ],
+        options: [activeOption('OILY_TENDENCY', 'Oily')],
       },
     ]);
 
@@ -305,6 +455,232 @@ describe('SurveyService question bank', () => {
       'PRIMARY_CONCERN',
       'AGE_2635_EARLY_AGING',
     ]);
+  });
+
+  it('appends optional only after unlocked conditionals are answered', async () => {
+    surveyRepository.findOne.mockResolvedValue({
+      id: 'survey-id',
+      customerId: 'customer-id',
+      answers: [
+        {
+          questionId: 'core',
+          answerLabels: [{ label: { code: 'ACNE' } }],
+        },
+        {
+          questionId: 'acne-details',
+          answerLabels: [{ label: { code: 'BLACKHEADS' } }],
+        },
+      ],
+    });
+    questionRepository.find.mockResolvedValue([
+      {
+        id: 'core',
+        code: 'PRIMARY_CONCERN',
+        text: 'Concern?',
+        questionType: 'SINGLE_CHOICE',
+        displayOrder: 1,
+        priority: QuestionPriority.CORE,
+        category: 'SKIN_CONCERN',
+        options: [activeOption('ACNE')],
+      },
+      {
+        id: 'acne-details',
+        code: 'ACNE_DETAILS',
+        text: 'Details?',
+        questionType: 'MULTI_SELECT',
+        displayOrder: 10,
+        priority: QuestionPriority.CONDITIONAL,
+        category: 'ACNE',
+        askWhen: { anyLabelCodes: ['ACNE'] },
+        options: [activeOption('BLACKHEADS')],
+      },
+      {
+        id: 'optional',
+        code: 'PERSONALITY_TYPES',
+        text: 'Personality?',
+        questionType: 'MULTI_SELECT',
+        displayOrder: 80,
+        priority: QuestionPriority.OPTIONAL,
+        category: 'PERSONALITY',
+        askWhen: { always: true },
+        options: [activeOption('PERSONALITY_QUICK_RESULT')],
+      },
+    ]);
+
+    const questions = await service.listQuestions(
+      { kind: 'user', userId: 'user-id' },
+      'survey-id',
+    );
+    expect(questions.map((q) => q.code)).toEqual([
+      'PRIMARY_CONCERN',
+      'ACNE_DETAILS',
+      'PERSONALITY_TYPES',
+    ]);
+  });
+
+  it('allows OPTIONAL while CORE remain skipped if no CONDITIONAL are unlocked', async () => {
+    customerRepository.findOne.mockResolvedValue({
+      id: 'customer-id',
+      userId: 'user-id',
+      dateOfBirth: null,
+    });
+    surveyRepository.findOne.mockResolvedValue({
+      id: 'survey-id',
+      customerId: 'customer-id',
+      answers: [
+        {
+          questionId: 'core-concern',
+          answerLabels: [{ label: { code: 'ACNE' } }],
+        },
+      ],
+    });
+    questionRepository.find.mockResolvedValue([
+      {
+        id: 'core-concern',
+        code: 'PRIMARY_CONCERN',
+        text: 'Concern?',
+        questionType: 'SINGLE_CHOICE',
+        displayOrder: 1,
+        priority: QuestionPriority.CORE,
+        category: 'SKIN_CONCERN',
+        options: [activeOption('ACNE')],
+      },
+      {
+        id: 'core-skipped',
+        code: 'HAS_ROUTINE',
+        text: 'Routine?',
+        questionType: 'SINGLE_CHOICE',
+        displayOrder: 2,
+        priority: QuestionPriority.CORE,
+        category: 'ROUTINE',
+        options: [activeOption('HAS_SKINCARE_ROUTINE')],
+      },
+      {
+        id: 'optional',
+        code: 'PERSONALITY_TYPES',
+        text: 'Personality?',
+        questionType: 'MULTI_SELECT',
+        displayOrder: 80,
+        priority: QuestionPriority.OPTIONAL,
+        category: 'PERSONALITY',
+        askWhen: { always: true },
+        options: [activeOption('PERSONALITY_QUICK_RESULT')],
+      },
+    ]);
+
+    const questions = await service.listQuestions(
+      { kind: 'user', userId: 'user-id' },
+      'survey-id',
+    );
+    expect(questions.map((q) => q.code)).toEqual([
+      'PRIMARY_CONCERN',
+      'PERSONALITY_TYPES',
+      'HAS_ROUTINE',
+    ]);
+  });
+
+  it('caps the next unanswered batch and keeps answered prefix at the front', async () => {
+    const conditionals = Array.from({ length: 12 }, (_, index) => ({
+      id: `cond-${index}`,
+      code: `COND_${index}`,
+      text: `Cond ${index}?`,
+      questionType: 'SINGLE_CHOICE',
+      displayOrder: 20 + index,
+      priority: QuestionPriority.CONDITIONAL,
+      category: 'ACNE',
+      askWhen: { anyLabelCodes: ['ACNE'] },
+      options: [activeOption(`LABEL_${index}`)],
+    }));
+
+    surveyRepository.findOne.mockResolvedValue({
+      id: 'survey-id',
+      customerId: 'customer-id',
+      answers: [
+        {
+          questionId: 'core',
+          answerLabels: [{ label: { code: 'ACNE' } }],
+        },
+      ],
+    });
+    questionRepository.find.mockResolvedValue([
+      {
+        id: 'core',
+        code: 'PRIMARY_CONCERN',
+        text: 'Concern?',
+        questionType: 'SINGLE_CHOICE',
+        displayOrder: 1,
+        priority: QuestionPriority.CORE,
+        category: 'SKIN_CONCERN',
+        options: [activeOption('ACNE')],
+      },
+      ...conditionals,
+    ]);
+
+    const first = await service.listQuestions(
+      { kind: 'user', userId: 'user-id' },
+      'survey-id',
+    );
+    expect(first).toHaveLength(1 + NEXT_QUESTIONS_BATCH_SIZE);
+    expect(first[0].code).toBe('PRIMARY_CONCERN');
+    expect(first.slice(1).map((q) => q.code)).toEqual(
+      conditionals.slice(0, NEXT_QUESTIONS_BATCH_SIZE).map((q) => q.code),
+    );
+
+    surveyRepository.findOne.mockResolvedValue({
+      id: 'survey-id',
+      customerId: 'customer-id',
+      answers: [
+        {
+          questionId: 'core',
+          answerLabels: [{ label: { code: 'ACNE' } }],
+        },
+        ...conditionals.slice(0, NEXT_QUESTIONS_BATCH_SIZE).map((q) => ({
+          questionId: q.id,
+          answerLabels: [{ label: { code: `LABEL_${q.code.split('_')[1]}` } }],
+        })),
+      ],
+    });
+
+    const second = await service.listQuestions(
+      { kind: 'user', userId: 'user-id' },
+      'survey-id',
+    );
+    expect(second.map((q) => q.code)).toEqual([
+      'PRIMARY_CONCERN',
+      ...conditionals.slice(0, NEXT_QUESTIONS_BATCH_SIZE).map((q) => q.code),
+      ...conditionals.slice(NEXT_QUESTIONS_BATCH_SIZE).map((q) => q.code),
+    ]);
+  });
+
+  it('returns answered prefix only when nothing remains unanswered', async () => {
+    surveyRepository.findOne.mockResolvedValue({
+      id: 'survey-id',
+      customerId: 'customer-id',
+      answers: [
+        {
+          questionId: 'core',
+          answerLabels: [{ label: { code: 'ACNE' } }],
+        },
+      ],
+    });
+    questionRepository.find.mockResolvedValue([
+      {
+        id: 'core',
+        code: 'PRIMARY_CONCERN',
+        text: 'Concern?',
+        questionType: 'SINGLE_CHOICE',
+        displayOrder: 1,
+        priority: QuestionPriority.CORE,
+        category: 'SKIN_CONCERN',
+        options: [activeOption('ACNE')],
+      },
+    ]);
+
+    const questions = await service.listQuestions(
+      { kind: 'user', userId: 'user-id' },
+      'survey-id',
+    );
+    expect(questions.map((q) => q.code)).toEqual(['PRIMARY_CONCERN']);
   });
 
   it('rejects a label that is not mapped to the answered question', async () => {

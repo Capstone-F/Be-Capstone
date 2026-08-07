@@ -70,7 +70,7 @@ export class SurveysController {
   @ApiOperation({
     summary: 'List active survey questions',
     description:
-      'Public for CORE questions. With surveyId, requires session/Bearer or X-Guest-Token.',
+      'Without surveyId: public CORE questions. With surveyId: cumulative list (answered prefix + up to 10 unlocked unanswered). CONDITIONAL unlock from current labels even if some CORE are skipped; OPTIONAL only when no unlocked unanswered CONDITIONAL remain.',
   })
   @ApiOkResponse({ type: [SurveyQuestionDto] })
   listQuestions(

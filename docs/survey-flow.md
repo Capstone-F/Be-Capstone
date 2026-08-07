@@ -165,54 +165,64 @@ Example (shape abbreviated):
 
 ### 4.1 List survey questions ✅ Ready
 
-Returns active L1 core questions with selectable label options. Pass the current
-`surveyId` after submitting core answers to unlock matching L2 conditional
-questions.
+Returns active L1 **CORE** questions with selectable label options (no `surveyId`).
+After starting a survey and submitting answers, re-fetch with `surveyId` for the
+progressive cumulative batch (skip-friendly).
 
-| Method | Path                                 | Auth     | Status   |
-| ------ | ------------------------------------ | -------- | -------- |
-| GET    | `/surveys/questions?surveyId=<uuid>` | Customer | ✅ Ready |
+| Method | Path                                 | Auth                   | Status   |
+| ------ | ------------------------------------ | ---------------------- | -------- |
+| GET    | `/surveys/questions`                 | Public                 | ✅ Ready |
+| GET    | `/surveys/questions?surveyId=<uuid>` | Customer / guest token | ✅ Ready |
+
+```http
+GET /surveys/questions
+```
 
 ```http
 GET /surveys/questions?surveyId=<current-survey-uuid>
 ```
 
-Response shape:
+Response shape (`SurveyQuestionDto[]`):
 
 ```json
 [
   {
     "id": "...",
-    "code": "PRIMARY_CONCERN",
-    "text": "Vấn đề da nào làm bạn khó chịu nhất hiện tại?",
-    "questionType": "SINGLE_CHOICE",
+    "code": "ENVIRONMENT_EXPOSURE",
+    "text": "Môi trường bạn tiếp xúc nhiều nhất là gì?",
+    "questionType": "MULTI_SELECT",
     "displayOrder": 1,
     "priority": "CORE",
-    "category": "SKIN_CONCERN",
+    "category": "LIFESTYLE",
     "options": [
       {
-        "labelCode": "ACNE",
-        "name": "Acne",
-        "description": "Inflammatory and non-inflammatory acne lesions",
-        "vietnameseNormalized": "Mụn sưng, mụn viêm hoặc mụn trứng cá"
+        "labelCode": "HOT_HUMID",
+        "name": "Hot Humid Climate",
+        "description": "Lives or spends time in hot, humid conditions",
+        "vietnameseNormalized": "Sống/tiếp xúc khí hậu nóng ẩm"
       },
       {
-        "labelCode": "HYPERPIGMENTATION",
-        "name": "Hyperpigmentation",
+        "labelCode": "AIR_CONDITIONED_ENVIRONMENT",
+        "name": "Air-conditioned Environment",
         "description": "...",
-        "vietnameseNormalized": "Thâm sạm, đốm nâu"
+        "vietnameseNormalized": "Ngồi điều hòa/máy lạnh liên tục"
       }
     ]
   }
 ]
 ```
 
+**Progressive contract (`?surveyId=`):**
+
+- Each response is **cumulative**: answered questions first (`displayOrder` ASC), then up to **10** unanswered questions **appended at the end** (combined list is not re-sorted)
+- Next batch priority: unlocked unanswered `CONDITIONAL` (from current labels / DOB) first, then fill remaining slots with unanswered `CORE`; if no unlocked `CONDITIONAL`, use `OPTIONAL` then fill with unanswered `CORE`
+- **Skip-and-continue:** omit answers for some questions (including CORE); re-fetch still unlocks `CONDITIONAL` from whatever labels exist so far
+- `OPTIONAL` is not blocked by unanswered CORE; it is withheld only while unlocked unanswered `CONDITIONAL` remain
+- Select options by `questionId` on the survey answers API (not by shared label codes alone)
+
 **Locale contract:** `name` / `description` are English; `vietnameseNormalized` is the Vietnamese display name (nullable). Prefer `vietnameseNormalized` for VI UI when present, otherwise fall back to `name`.
 
-Without `surveyId`, only `CORE` questions are returned. With an owned survey,
-the API evaluates `askWhen.anyLabelCodes` against submitted answers and adds
-matching `CONDITIONAL` questions. Submitted labels are validated against the
-question's active options.
+Without `surveyId`, only `CORE` questions are returned. Submitted labels are validated against the question's active options.
 
 ---
 
@@ -755,7 +765,7 @@ Seed source: `src/database/seeds/seed.ts` (`SURVEY_QUESTIONS`). Age/gender stay 
 
 | Layer              | Codes (examples)                                                                                                                                                                                                                                               | Priority                                        |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| **L1 Core**        | `PRIMARY_CONCERN`, `SKIN_GOALS`, `POST_CLEANSE_FEEL`, `TZONE_OIL`, `PRODUCT_CHANGE_REACTION`, `SENSITIVITY_TRIGGERS`, `ENVIRONMENT_EXPOSURE`, `LIFESTYLE`, `HAS_ROUTINE`, `SUNSCREEN_HABIT`, `CURRENT_ACTIVES`, `COSMETIC_REACTION`, `ROUTINE_COMPLEXITY_PREF` | `CORE`                                          |
+| **L1 Core**        | `ENVIRONMENT_EXPOSURE`, `LIFESTYLE`, `PRIMARY_CONCERN`, `SKIN_GOALS`, `POST_CLEANSE_FEEL`, `TZONE_OIL`, `PRODUCT_CHANGE_REACTION`, `SENSITIVITY_TRIGGERS`, `HAS_ROUTINE`, `SUNSCREEN_HABIT`, `CURRENT_ACTIVES`, `COSMETIC_REACTION`, `ROUTINE_COMPLEXITY_PREF` | `CORE`                                          |
 | **L2 Conditional** | Concern/env modules + **age-gated** `AGE_U18_*`, `AGE_1825_*`, `AGE_2635_*`, `AGE_3645_*`, `AGE_4660_*`, `AGE_60_*`                                                                                                                                            | `CONDITIONAL` via enriched `askWhen`            |
 | **L3 Optional**    | `PERSONALITY_TYPES` (all 12 types) + preference probes (`RISK_TOLERANCE`, `LOW_MAINTENANCE_PREF`, `EVIDENCE_PREF`, texture/budget/…)                                                                                                                           | `OPTIONAL` (shown once a survey session exists) |
 
@@ -865,7 +875,7 @@ Keep session APIs (`POST /surveys`, answers, complete) stable. Extend question d
 
 | Capability                            | Proposed                                                                                           | Status   |
 | ------------------------------------- | -------------------------------------------------------------------------------------------------- | -------- |
-| Questions + options for current user  | `GET /surveys/questions?surveyId=`                                                                 | ✅ Ready |
+| Questions + options for current user  | `GET /surveys/questions` (+ `?surveyId=` progressive)                                              | ✅ Ready |
 | Lightweight branching after answers   | CORE + CONDITIONAL (`askWhen`) + OPTIONAL in-session                                               | ✅ Ready |
 | Age / label askWhen operators         | `anyLabelCodes`, `allLabelCodes`, `noneLabelCodes`, `anyAgeGroupCodes`, `minAge`/`maxAge`, `match` | ✅ Ready |
 | Question ↔ option label mapping table | `question_options`                                                                                 | ✅ Ready |
@@ -943,11 +953,11 @@ Empty cart
 
 ### 10.1 Gaps that block ideal client UX
 
-| #   | Gap                                | Impact                                       | Suggested fix                                               |
-| --- | ---------------------------------- | -------------------------------------------- | ----------------------------------------------------------- |
-| 1   | No full next-question engine       | Client must re-fetch after an answer batch   | Add `GET /surveys/:id/next-questions` with richer operators |
-| 2   | No environment profile on customer | Limited hot-humid / location-aware branching | Add environment profile or dedicated L1 inputs              |
-| 3   | L2 bank covers only key modules    | Personalization is not yet comprehensive     | Add safety, sunscreen, routine and environment modules      |
+| #   | Gap                                | Impact                                         | Suggested fix                                          |
+| --- | ---------------------------------- | ---------------------------------------------- | ------------------------------------------------------ |
+| 1   | Progressive questions ✅           | Cumulative `?surveyId=` + skip-friendly unlock | Batch size 10; CONDITIONAL from current labels         |
+| 2   | No environment profile on customer | Limited hot-humid / location-aware branching   | Add environment profile or dedicated L1 inputs         |
+| 3   | L2 bank covers only key modules    | Personalization is not yet comprehensive       | Add safety, sunscreen, routine and environment modules |
 
 ### 10.2 Suggested build order
 
@@ -956,7 +966,7 @@ Empty cart
 | **A — Wire client on current APIs**    | Profile → survey → answers → complete → recommendations → SURVEY cart → order/pay → **routine** | End-to-end flow ends on a personalized routine                       |
 | **B — Questions with options** ✅      | Extend `GET /surveys/questions` (+ DB mapping)                                                  | No hardcoded label codes on FE                                       |
 | **C — L1 + key L2 seed** ✅            | Concern, sensitivity, acne, pigmentation, active tolerance                                      | Better protocol matching with lightweight branching                  |
-| **D — Conditional next-questions**     | Branching service using `askWhen` metadata                                                      | Personalized short flows                                             |
+| **D — Conditional next-questions** ✅  | Progressive `GET /surveys/questions?surveyId=` (skip-friendly)                                  | Personalized short flows                                             |
 | **E — Personality + preference layer** | Budget, steps, risk tolerance labels                                                            | Better routine/product fit                                           |
 | **F — Follow-up / progress surveys**   | Post-purchase adherence                                                                         | Daily tracking: [routine-tracking-flow.md](routine-tracking-flow.md) |
 
@@ -966,8 +976,8 @@ Empty cart
 PATCH /customers/me                    ← ensure DOB + gender (+ allergies)
 GET   /surveys/questions               ← CORE questions + options
 POST  /surveys
-POST  /surveys/:id/answers             ← one or more batches
-GET   /surveys/questions?surveyId=:id  ← unlock matching L2 questions
+POST  /surveys/:id/answers             ← answer current batch (may skip some)
+GET   /surveys/questions?surveyId=:id  ← cumulative list + next batch at end (repeat until no new unanswered)
 POST  /surveys/:id/face-scan           ← optional facial image → AI labels
 POST  /surveys/:id/complete            ← derives Baumann skin type
 GET   /customers/me                    ← optional: read derived skinType
@@ -1013,7 +1023,7 @@ Canonical source: `src/database/seeds/survey-demo-cases.ts` (also asserted by `s
 | Auth                                      | ✅     | Reuse auth docs                                |
 | Base profile (DOB/gender/allergies)       | ✅     | Gate survey start; Baumann derived on complete |
 | Survey session CRUD                       | ✅     | Use as-is                                      |
-| Question bank + options + light branching | ✅     | Re-fetch with `surveyId` after core answers    |
+| Question bank + options + light branching | ✅     | Progressive `GET /surveys/questions?surveyId=` |
 | Rule engine + recommendation snapshot     | ✅     | Ranked variants; stock/allergy; conflicts      |
 | SURVEY cart + combo order                 | ✅     | Subtotal-threshold combo                       |
 | Shipping + VNPay                          | ✅     | [ecommerce-flow.md](ecommerce-flow.md)         |
