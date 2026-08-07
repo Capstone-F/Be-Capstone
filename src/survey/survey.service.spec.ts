@@ -924,7 +924,7 @@ describe('SurveyService face scan', () => {
         answers: [],
         faceLabels: [
           {
-            explanation: 'Visible inflammatory spots on the T-zone.',
+            explanation: 'Có nhiều nốt viêm đỏ dọc vùng chữ T.',
             label: {
               code: 'ACNE',
               name: 'Acne',
@@ -941,7 +941,7 @@ describe('SurveyService face scan', () => {
       findings: [
         {
           labelCode: 'ACNE',
-          explanation: 'Visible inflammatory spots on the T-zone.',
+          explanation: 'Có nhiều nốt viêm đỏ dọc vùng chữ T.',
         },
         {
           labelCode: 'UNKNOWN_FROM_AI',
@@ -976,7 +976,7 @@ describe('SurveyService face scan', () => {
       {
         surveyId: 'survey-id',
         labelId: 'label-acne',
-        explanation: 'Visible inflammatory spots on the T-zone.',
+        explanation: 'Có nhiều nốt viêm đỏ dọc vùng chữ T.',
       },
     ]);
     expect(result.faceImageUrl).toBe('https://cdn.example.com/face.jpg');
@@ -985,7 +985,7 @@ describe('SurveyService face scan', () => {
         code: 'ACNE',
         name: 'Acne',
         vietnameseNormalized: 'Mun',
-        explanation: 'Visible inflammatory spots on the T-zone.',
+        explanation: 'Có nhiều nốt viêm đỏ dọc vùng chữ T.',
       },
     ]);
   });

@@ -37,7 +37,7 @@ describe('MockLlmRoutineProvider', () => {
     expect(result.title).toContain('OSPW');
     expect(result.title).toContain('Quy trình chăm sóc da');
     expect(result.description).toContain('tiếng Việt');
-    expect(result.description).toContain('acne treatment');
+    expect(result.description).toContain('giảm mụn');
     for (const step of result.steps) {
       expect(step.amountMl).toBe(2);
       expect(step.dosageText).toBe('2-3 giọt');

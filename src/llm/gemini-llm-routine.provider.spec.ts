@@ -61,19 +61,20 @@ describe('GeminiLlmRoutineProvider', () => {
 
   it('returns parsed routine on successful Gemini response', async () => {
     const content = JSON.stringify({
-      title: 'Personalized routine for OSPW skin',
-      description: 'Based on your survey purchase',
+      title: 'Quy trình cá nhân hóa cho da OSPW',
+      description: 'Dựa trên sản phẩm bạn đã mua từ khảo sát',
       steps: [
         {
           name: 'Niacinamide Serum',
           period: 'MORNING',
           stepOrder: 1,
-          instructions: 'Apply gently',
+          instructions:
+            'Sử dụng 2-3 giọt Niacinamide Serum lên da sạch và vỗ nhẹ đến khi thấm.',
           productVariantId: 'v1',
           protocolId: 'p1',
           amountMl: null,
           waitMinutes: 5,
-          dosageText: '2 drops',
+          dosageText: '2-3 giọt',
         },
       ],
     });
@@ -103,14 +104,14 @@ describe('GeminiLlmRoutineProvider', () => {
       systemInstruction: { parts: Array<{ text: string }> };
     };
     expect(body.generationConfig.responseMimeType).toBe('application/json');
-    expect(body.systemInstruction.parts[0].text.length).toBeGreaterThan(0);
+    expect(body.systemInstruction.parts[0].text).toContain('tiếng Việt');
 
     expect(result.title).toContain('OSPW');
     expect(result.steps).toHaveLength(1);
     expect(result.steps[0].period).toBe(RoutinePeriod.MORNING);
     expect(result.steps[0].productVariantId).toBe('v1');
     expect(result.steps[0].waitMinutes).toBe(5);
-    expect(result.steps[0].dosageText).toBe('2 drops');
+    expect(result.steps[0].dosageText).toBe('2-3 giọt');
   });
 
   it('throws ServiceUnavailableException when API key is missing', async () => {

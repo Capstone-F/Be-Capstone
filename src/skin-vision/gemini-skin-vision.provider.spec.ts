@@ -41,7 +41,7 @@ describe('GeminiSkinVisionProvider', () => {
       labels: [
         {
           code: 'ACNE',
-          explanation: 'Visible inflammatory spots on the T-zone.',
+          explanation: 'Có nhiều nốt viêm đỏ dọc vùng chữ T.',
         },
       ],
     });
@@ -57,7 +57,7 @@ describe('GeminiSkinVisionProvider', () => {
     expect(result.findings).toEqual([
       {
         labelCode: 'ACNE',
-        explanation: 'Visible inflammatory spots on the T-zone.',
+        explanation: 'Có nhiều nốt viêm đỏ dọc vùng chữ T.',
       },
     ]);
     expect(fetchMock).toHaveBeenCalledWith(
@@ -73,12 +73,16 @@ describe('GeminiSkinVisionProvider', () => {
           inlineData?: { mimeType: string; data: string };
         }>;
       }>;
+      systemInstruction?: { parts: Array<{ text: string }> };
       generationConfig: { responseMimeType: string };
     };
     expect(body.generationConfig.responseMimeType).toBe('application/json');
+    expect(body.systemInstruction?.parts[0].text).toContain('tiếng Việt');
     expect(body.contents[0].parts).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ text: expect.any(String) }),
+        expect.objectContaining({
+          text: expect.stringContaining('tiếng Việt'),
+        }),
         {
           inlineData: {
             mimeType: 'image/jpeg',
