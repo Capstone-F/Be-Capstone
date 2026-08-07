@@ -41,7 +41,11 @@ export class MobileAuthController {
   @ApiOkResponse({ schema: TOKEN_RESPONSE_SCHEMA })
   @ApiUnauthorizedResponse({ description: 'Invalid username or password' })
   async login(@Body() body: MobileLoginDto) {
-    return this.mobileAuthService.login(body.username, body.password);
+    return this.mobileAuthService.login(
+      body.username,
+      body.password,
+      body.guestToken,
+    );
   }
 
   @Post('register')
@@ -60,6 +64,7 @@ export class MobileAuthController {
       body.email,
       body.password,
       body.name,
+      body.guestToken,
     );
   }
 
