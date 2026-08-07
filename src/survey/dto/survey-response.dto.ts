@@ -78,8 +78,8 @@ export class SurveyFaceLabelDto {
   @ApiPropertyOptional({
     nullable: true,
     description:
-      'Short AI explanation of why this label was inferred from the face photo',
-    example: 'Visible inflammatory spots along the T-zone.',
+      'Short Vietnamese AI explanation of why this label was inferred from the face photo',
+    example: 'Có nhiều nốt viêm đỏ dọc vùng chữ T.',
   })
   explanation!: string | null;
 }

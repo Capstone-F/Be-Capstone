@@ -39,7 +39,7 @@ describe('OllamaSkinVisionProvider', () => {
       labels: [
         {
           code: 'ACNE',
-          explanation: 'Visible inflammatory spots on the T-zone.',
+          explanation: 'Có nhiều nốt viêm đỏ dọc vùng chữ T.',
         },
       ],
     });
@@ -53,7 +53,7 @@ describe('OllamaSkinVisionProvider', () => {
     expect(result.findings).toEqual([
       {
         labelCode: 'ACNE',
-        explanation: 'Visible inflammatory spots on the T-zone.',
+        explanation: 'Có nhiều nốt viêm đỏ dọc vùng chữ T.',
       },
     ]);
     expect(fetchMock).toHaveBeenCalledWith(
@@ -64,6 +64,8 @@ describe('OllamaSkinVisionProvider', () => {
       }),
     );
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.messages[0].content).toContain('tiếng Việt');
+    expect(body.messages[1].content).toContain('tiếng Việt');
     expect(body.messages[1].images).toEqual(['dGVzdA==']);
   });
 

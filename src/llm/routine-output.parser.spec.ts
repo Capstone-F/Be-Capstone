@@ -4,14 +4,14 @@ import { parseRoutineGenerationOutput } from './routine-output.parser';
 
 describe('parseRoutineGenerationOutput', () => {
   const validJson = {
-    title: 'Morning glow',
-    description: 'A simple AM/PM routine',
+    title: 'Quy trình buổi sáng',
+    description: 'Quy trình chăm sóc da sáng/tối đơn giản',
     steps: [
       {
         name: 'Serum',
         period: 'MORNING',
         stepOrder: 1,
-        instructions: 'Apply 2 drops',
+        instructions: 'Sử dụng 2-3 giọt lên da sạch và vỗ nhẹ đến khi thấm.',
         productVariantId: 'v1',
         protocolId: 'p1',
         amountMl: 2,
@@ -21,13 +21,13 @@ describe('parseRoutineGenerationOutput', () => {
 
   it('parses a valid JSON object', () => {
     const result = parseRoutineGenerationOutput(JSON.stringify(validJson));
-    expect(result.title).toBe('Morning glow');
+    expect(result.title).toBe('Quy trình buổi sáng');
     expect(result.steps).toHaveLength(1);
     expect(result.steps[0]).toEqual({
       name: 'Serum',
       period: RoutinePeriod.MORNING,
       stepOrder: 1,
-      instructions: 'Apply 2 drops',
+      instructions: 'Sử dụng 2-3 giọt lên da sạch và vỗ nhẹ đến khi thấm.',
       productVariantId: 'v1',
       protocolId: 'p1',
       amountMl: 2,
@@ -44,19 +44,19 @@ describe('parseRoutineGenerationOutput', () => {
           {
             ...validJson.steps[0],
             waitMinutes: 5,
-            dosageText: '2 drops',
+            dosageText: '2-3 giọt',
           },
         ],
       }),
     );
     expect(result.steps[0].waitMinutes).toBe(5);
-    expect(result.steps[0].dosageText).toBe('2 drops');
+    expect(result.steps[0].dosageText).toBe('2-3 giọt');
   });
 
   it('extracts JSON from markdown fences', () => {
     const fenced = `\`\`\`json\n${JSON.stringify(validJson)}\n\`\`\``;
     const result = parseRoutineGenerationOutput(fenced);
-    expect(result.title).toBe('Morning glow');
+    expect(result.title).toBe('Quy trình buổi sáng');
   });
 
   it('coerces missing protocolId and amountMl to null', () => {
@@ -69,7 +69,7 @@ describe('parseRoutineGenerationOutput', () => {
             name: 'Cleanser',
             period: 'EVENING',
             stepOrder: 1,
-            instructions: 'Wash face',
+            instructions: 'Rửa mặt nhẹ nhàng',
             productVariantId: 'v2',
           },
         ],
@@ -91,7 +91,7 @@ describe('parseRoutineGenerationOutput', () => {
             name: 'Serum',
             period: 'MORNING',
             stepOrder: 1,
-            instructions: 'Apply',
+            instructions: 'Thoa đều',
             productVariantId: 'v1',
             waitMinutes: -1,
             dosageText: '   ',

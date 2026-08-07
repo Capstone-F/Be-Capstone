@@ -8,7 +8,7 @@ export type SkinVisionAnalyzeInput = {
 
 export type SkinVisionFinding = {
   labelCode: string;
-  /** Short EN sentence explaining why this label was inferred from the photo. */
+  /** Short Vietnamese sentence explaining why this label was inferred from the photo. */
   explanation: string;
 };
 

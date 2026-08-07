@@ -217,20 +217,22 @@ export class MockLlmRoutineProvider implements LlmRoutineProvider {
   }
 
   private concernHint(labelCodes: string[]): string | null {
-    const preferred = [
-      'ACNE_TREATMENT',
-      'BARRIER_REPAIR',
-      'HYDRATION',
-      'ANTI_AGING',
-      'REDUCE_PIGMENTATION',
-      'OIL_CONTROL',
-    ];
-    for (const code of preferred) {
+    const preferredVi: Record<string, string> = {
+      ACNE_TREATMENT: 'giảm mụn',
+      BARRIER_REPAIR: 'phục hồi hàng rào da',
+      HYDRATION: 'cấp ẩm',
+      ANTI_AGING: 'chống lão hóa',
+      REDUCE_PIGMENTATION: 'làm mờ thâm nám',
+      OIL_CONTROL: 'kiểm soát dầu',
+    };
+    for (const code of Object.keys(preferredVi)) {
       if (labelCodes.includes(code)) {
-        return code.toLowerCase().replace(/_/g, ' ');
+        return preferredVi[code];
       }
     }
-    return labelCodes[0]?.toLowerCase().replace(/_/g, ' ') ?? null;
+    const first = labelCodes[0];
+    if (!first) return null;
+    return preferredVi[first] ?? first.toLowerCase().replace(/_/g, ' ');
   }
 
   private resolvePeriods(timeOfUse: TimeOfUse | null): RoutinePeriod[] {

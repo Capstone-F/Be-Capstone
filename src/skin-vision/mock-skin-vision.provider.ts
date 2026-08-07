@@ -8,20 +8,20 @@ import {
   SkinVisionProvider,
 } from './skin-vision.types';
 
-/** Deterministic short explanations keyed by allow-listed label code. */
+/** Deterministic short Vietnamese explanations keyed by allow-listed label code. */
 export const MOCK_SKIN_VISION_EXPLANATIONS: Record<string, string> = {
-  ACNE: 'Visible inflammatory spots consistent with acne along the T-zone.',
-  OILY_TENDENCY: 'Shine and sebum sheen suggest an oily skin tendency.',
+  ACNE: 'Có nhiều nốt viêm đỏ dọc vùng chữ T, phù hợp với tình trạng mụn.',
+  OILY_TENDENCY: 'Da bóng dầu rõ ở mũi và trán, gợi ý xu hướng da dầu.',
   HYPERPIGMENTATION:
-    'Uneven darker patches suggest hyperpigmentation on facial areas.',
-  REDNESS: 'Diffuse facial redness is visible across cheeks or nose.',
-  DEHYDRATED_SKIN: 'Tight, dull surface texture suggests dehydrated skin.',
-  ENLARGED_PORES: 'Noticeably enlarged pores appear on the nose and cheeks.',
-  FINE_LINES: 'Fine superficial lines are visible around expressive areas.',
-  BLACKHEADS: 'Open comedones consistent with blackheads are visible.',
-  ROUGH_TEXTURE: 'Uneven, rough surface texture is visible on the face.',
+    'Có các vùng da sẫm màu không đều, gợi ý tăng sắc tố trên mặt.',
+  REDNESS: 'Quầng đỏ lan trên má hoặc mũi dễ nhìn thấy.',
+  DEHYDRATED_SKIN: 'Bề mặt da căng, xỉn màu gợi ý da thiếu nước.',
+  ENLARGED_PORES: 'Lỗ chân lông to rõ trên mũi và má.',
+  FINE_LINES: 'Có nếp nhăn nông quanh vùng biểu cảm trên mặt.',
+  BLACKHEADS: 'Có nhân mụn đầu đen hở trên vùng quan sát.',
+  ROUGH_TEXTURE: 'Bề mặt da sần sùi, không đều dễ nhận thấy.',
   BARRIER_DAMAGE:
-    'Flaky or irritated patches suggest possible barrier compromise.',
+    'Có vùng da khô bong hoặc kích ứng, gợi ý hàng rào da suy yếu.',
 };
 
 /**
@@ -46,7 +46,7 @@ export class MockSkinVisionProvider implements SkinVisionProvider {
         labelCode,
         explanation: (
           MOCK_SKIN_VISION_EXPLANATIONS[labelCode] ??
-          `Visual cues consistent with ${labelCode}.`
+          `Có dấu hiệu quan sát được phù hợp với ${labelCode}.`
         ).slice(0, MAX_SKIN_VISION_EXPLANATION_LENGTH),
       })),
     });

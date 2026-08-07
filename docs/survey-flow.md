@@ -323,7 +323,7 @@ file=<facial-image.jpeg>
 - Image is **always persisted** on the survey (`faceImageUrl`, `faceScannedAt`) even if AI returns no labels.
 - Re-scanning replaces the stored image and face labels.
 - Unknown AI label codes are dropped (logged); only active taxonomy codes are saved.
-- Each face label includes a short AI **`explanation`** of visual evidence (EN, ≤200 chars).
+- Each face label includes a short AI **`explanation`** of visual evidence (Vietnamese, ≤200 chars).
 - Face labels do **not** affect Baumann derivation on complete (answers only).
 
 **Providers:**
@@ -347,7 +347,7 @@ Example response fields:
       "code": "ACNE",
       "name": "Acne",
       "vietnameseNormalized": "Mụn",
-      "explanation": "Visible inflammatory spots consistent with acne along the T-zone."
+      "explanation": "Có nhiều nốt viêm đỏ dọc vùng chữ T, phù hợp với tình trạng mụn."
     }
   ],
   "answers": [],

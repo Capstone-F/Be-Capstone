@@ -20,6 +20,10 @@ describe('MockSkinVisionProvider', () => {
     for (const finding of a.findings) {
       expect(MOCK_SKIN_VISION_LABEL_POOL).toContain(finding.labelCode);
       expect(finding.explanation.trim().length).toBeGreaterThan(0);
+      // UI-facing copy must be Vietnamese (not English mock leftovers).
+      expect(finding.explanation).not.toMatch(
+        /\b(Visible|Shine|Uneven|Diffuse|Tight|Noticeably|Fine|Open|Flaky)\b/,
+      );
     }
   });
 

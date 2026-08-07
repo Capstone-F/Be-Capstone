@@ -7,19 +7,22 @@ describe('parseSkinVisionOutput', () => {
         labels: [
           {
             code: 'ACNE',
-            explanation: '  Visible spots on the T-zone.  ',
+            explanation: '  Có nhiều nốt viêm đỏ dọc vùng chữ T.  ',
           },
           {
             code: 'REDNESS',
-            explanation: 'Cheek redness.',
+            explanation: 'Quầng đỏ trên má.',
           },
         ],
       }),
     );
 
     expect(result.findings).toEqual([
-      { labelCode: 'ACNE', explanation: 'Visible spots on the T-zone.' },
-      { labelCode: 'REDNESS', explanation: 'Cheek redness.' },
+      {
+        labelCode: 'ACNE',
+        explanation: 'Có nhiều nốt viêm đỏ dọc vùng chữ T.',
+      },
+      { labelCode: 'REDNESS', explanation: 'Quầng đỏ trên má.' },
     ]);
   });
 
@@ -29,13 +32,16 @@ describe('parseSkinVisionOutput', () => {
         labels: [
           { code: 'NOT_A_REAL_CODE', explanation: 'Nope' },
           { code: 'ACNE', explanation: '' },
-          { code: 'OILY_TENDENCY', explanation: 'Oily shine visible.' },
+          { code: 'OILY_TENDENCY', explanation: 'Da bóng dầu rõ trên mặt.' },
         ],
       }),
     );
 
     expect(result.findings).toEqual([
-      { labelCode: 'OILY_TENDENCY', explanation: 'Oily shine visible.' },
+      {
+        labelCode: 'OILY_TENDENCY',
+        explanation: 'Da bóng dầu rõ trên mặt.',
+      },
     ]);
   });
 
