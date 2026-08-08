@@ -35,7 +35,7 @@ describe('GeminiLlmRoutineProvider', () => {
     provider: 'gemini',
     ollamaBaseUrl: 'http://host.docker.internal:11434',
     ollamaModel: 'gpt-oss:120b-cloud',
-    ollamaVisionModel: 'llava',
+    ollamaVisionModel: 'mistral-large-3:675b-cloud',
     ollamaTimeoutMs: 120000,
     geminiApiKey: 'test-gemini-key',
     geminiModel: 'gemini-2.5-flash-lite',

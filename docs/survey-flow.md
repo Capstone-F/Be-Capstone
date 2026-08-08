@@ -328,12 +328,12 @@ file=<facial-image.jpeg>
 
 **Providers:**
 
-| `LLM_PROVIDER`   | Behavior                                                                         |
-| ---------------- | -------------------------------------------------------------------------------- |
-| `mock` (default) | Deterministic labels + explanations from image URL hash                          |
-| `ollama`         | Multimodal model (`OLLAMA_VISION_MODEL`, default `llava`) via Ollama `/api/chat` |
-| `gemini`         | Gemini multimodal (`GEMINI_MODEL`, default `gemini-2.5-flash-lite`)              |
-| `openai`         | Not implemented (503)                                                            |
+| `LLM_PROVIDER`   | Behavior                                                                                              |
+| ---------------- | ----------------------------------------------------------------------------------------------------- |
+| `mock` (default) | Deterministic labels + explanations from image URL hash                                               |
+| `ollama`         | Multimodal model (`OLLAMA_VISION_MODEL`, default `mistral-large-3:675b-cloud`) via Ollama `/api/chat` |
+| `gemini`         | Gemini multimodal (`GEMINI_MODEL`, default `gemini-2.5-flash-lite`)                                   |
+| `openai`         | Not implemented (503)                                                                                 |
 
 Example response fields:
 

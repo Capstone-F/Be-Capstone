@@ -59,7 +59,7 @@ const TEST_CONFIG: Record<string, unknown> = {
     provider: 'mock',
     ollamaBaseUrl: 'http://localhost:11434',
     ollamaModel: 'gpt-oss:120b-cloud',
-    ollamaVisionModel: 'llava',
+    ollamaVisionModel: 'mistral-large-3:675b-cloud',
     ollamaTimeoutMs: 120000,
   },
   paymentProvider: 'mock',
