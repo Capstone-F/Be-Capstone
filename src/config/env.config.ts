@@ -218,7 +218,7 @@ export const ENV_DEFINITIONS = {
   },
   OLLAMA_VISION_MODEL: {
     required: false,
-    defaultValue: 'llava',
+    defaultValue: 'mistral-large-3:675b-cloud',
     description:
       'Ollama multimodal model tag used for survey facial skin analysis.',
   },

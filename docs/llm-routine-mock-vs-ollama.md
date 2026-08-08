@@ -4,7 +4,7 @@ How GlowScan builds a skincare routine after a paid SURVEY order, and what you g
 
 Both providers implement the same contract (`LlmRoutineProvider` → `RoutineGenerationOutput`). Persistence and APIs are identical; only step text / ordering / personalization differ.
 
-**Also uses `LLM_PROVIDER`:** survey face-scan (`POST /surveys/:id/face-scan`) shares the same switch. With `ollama`, face-scan uses **`OLLAMA_VISION_MODEL`** (default `llava`) — not `OLLAMA_MODEL`. With `gemini`, both routine and face-scan use **`GEMINI_MODEL`** (default `gemini-2.5-flash-lite`). See [Survey flow](survey-flow.md) §4.3b.
+**Also uses `LLM_PROVIDER`:** survey face-scan (`POST /surveys/:id/face-scan`) shares the same switch. With `ollama`, face-scan uses **`OLLAMA_VISION_MODEL`** (default `mistral-large-3:675b-cloud`) — not `OLLAMA_MODEL`. With `gemini`, both routine and face-scan use **`GEMINI_MODEL`** (default `gemini-2.5-flash-lite`). See [Survey flow](survey-flow.md) §4.3b.
 
 ---
 

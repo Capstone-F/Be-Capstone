@@ -5,7 +5,7 @@ export type LlmConfig = {
   ollamaBaseUrl: string;
   /** Ollama model tag for routine generation, e.g. gpt-oss:120b-cloud. */
   ollamaModel: string;
-  /** Ollama multimodal model tag for survey face-scan, e.g. llava. */
+  /** Ollama multimodal model tag for survey face-scan, e.g. mistral-large-3:675b-cloud. */
   ollamaVisionModel: string;
   /** Request timeout for Ollama / Gemini chat calls (milliseconds). */
   ollamaTimeoutMs: number;

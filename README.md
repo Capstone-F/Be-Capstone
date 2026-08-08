@@ -311,7 +311,7 @@ All env vars are centrally managed in `src/config/env.config.ts`. The app valida
 | `LLM_PROVIDER`                   | No       | `mock`                                | Routine + face-scan LLM: `mock` \| `ollama` \| `gemini` (openai reserved) |
 | `OLLAMA_BASE_URL`                | No       | `http://host.docker.internal:11434`   | Ollama API base (Docker API → host Ollama)                                |
 | `OLLAMA_MODEL`                   | No       | `gpt-oss:120b-cloud`                  | Ollama model tag for routine generation                                   |
-| `OLLAMA_VISION_MODEL`            | No       | `llava`                               | Ollama multimodal model for face-scan                                     |
+| `OLLAMA_VISION_MODEL`            | No       | `mistral-large-3:675b-cloud`          | Ollama multimodal model for face-scan                                     |
 | `OLLAMA_TIMEOUT_MS`              | No       | `120000`                              | Ollama / Gemini chat request timeout (ms)                                 |
 | `GEMINI_API_KEY`                 | No       | —                                     | Google AI Studio key (required when `LLM_PROVIDER=gemini`)                |
 | `GEMINI_MODEL`                   | No       | `gemini-2.5-flash-lite`               | Gemini model for routine generation and face-scan                         |

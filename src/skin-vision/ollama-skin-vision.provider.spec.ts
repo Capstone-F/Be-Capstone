@@ -8,7 +8,7 @@ describe('OllamaSkinVisionProvider', () => {
     provider: 'ollama',
     ollamaBaseUrl: 'http://host.docker.internal:11434',
     ollamaModel: 'gpt-oss:120b-cloud',
-    ollamaVisionModel: 'llava',
+    ollamaVisionModel: 'mistral-large-3:675b-cloud',
     ollamaTimeoutMs: 120000,
   };
 
@@ -60,7 +60,7 @@ describe('OllamaSkinVisionProvider', () => {
       'http://host.docker.internal:11434/api/chat',
       expect.objectContaining({
         method: 'POST',
-        body: expect.stringContaining('"model":"llava"'),
+        body: expect.stringContaining('"model":"mistral-large-3:675b-cloud"'),
       }),
     );
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
