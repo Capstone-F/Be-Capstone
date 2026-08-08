@@ -1519,7 +1519,7 @@ const PRODUCTS: ProductSeed[] = [
     volume: '236ml',
     packaging: 'Chai bơm',
     imageUrl: `${PRODUCT_IMAGE_BASE}/cerave.webp`,
-    priceVnd: 320000,
+    priceVnd: 3200,
     ingredients: [
       { ingredientName: 'Ceramide', isKeyIngredient: true },
       { ingredientName: 'Niacinamide', concentrationPct: 2 },
@@ -1534,7 +1534,7 @@ const PRODUCTS: ProductSeed[] = [
     volume: '150ml',
     packaging: 'Chai',
     imageUrl: `${PRODUCT_IMAGE_BASE}/SOME_BY_MI.webp`,
-    priceVnd: 280000,
+    priceVnd: 2800,
     ingredients: [
       {
         ingredientName: 'Glycolic Acid',
@@ -1553,7 +1553,7 @@ const PRODUCTS: ProductSeed[] = [
     volume: '30ml',
     packaging: 'Chai nhỏ giọt',
     imageUrl: `${PRODUCT_IMAGE_BASE}/ORDINARY.webp`,
-    priceVnd: 180000,
+    priceVnd: 1800,
     ingredients: [
       {
         ingredientName: 'Niacinamide',
@@ -1571,7 +1571,7 @@ const PRODUCTS: ProductSeed[] = [
     volume: '454g',
     packaging: 'Hũ',
     imageUrl: `${PRODUCT_IMAGE_BASE}/cerave_moisturising_cream.webp`,
-    priceVnd: 450000,
+    priceVnd: 4500,
     ingredients: [
       { ingredientName: 'Ceramide', isKeyIngredient: true },
       { ingredientName: 'Hyaluronic Acid' },
@@ -1586,7 +1586,7 @@ const PRODUCTS: ProductSeed[] = [
     volume: '50ml',
     packaging: 'Tuýp',
     imageUrl: `${PRODUCT_IMAGE_BASE}/la_roche_posay.webp`,
-    priceVnd: 520000,
+    priceVnd: 5200,
     ingredients: [{ ingredientName: 'Hyaluronic Acid' }],
   },
   {
@@ -1599,7 +1599,7 @@ const PRODUCTS: ProductSeed[] = [
     volume: '40ml',
     packaging: 'Tuýp',
     imageUrl: `${PRODUCT_IMAGE_BASE}/La_Roche_Posay_Effaclar_Duo_M_Multi_Target_Acne_Treatment.webp`,
-    priceVnd: 380000,
+    priceVnd: 3800,
     ingredients: [
       {
         ingredientName: 'Benzoyl Peroxide',
@@ -1618,7 +1618,7 @@ const PRODUCTS: ProductSeed[] = [
     volume: '30ml',
     packaging: 'Chai nhỏ giọt',
     imageUrl: `${PRODUCT_IMAGE_BASE}/the-ordinary-retinol-ulta.webp`,
-    priceVnd: 220000,
+    priceVnd: 2200,
     ingredients: [
       {
         ingredientName: 'Retinol',
@@ -1637,7 +1637,7 @@ const PRODUCTS: ProductSeed[] = [
     volume: '40ml',
     packaging: 'Tuýp',
     imageUrl: `${PRODUCT_IMAGE_BASE}/Toleriane-sensitive-fluide.webp`,
-    priceVnd: 390000,
+    priceVnd: 3900,
     ingredients: [
       { ingredientName: 'Ceramide', isKeyIngredient: true },
       { ingredientName: 'Niacinamide', concentrationPct: 2 },
