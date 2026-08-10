@@ -45,12 +45,24 @@ export class StockService {
   ) {}
 
   async createBatch(input: CreateBatchInput): Promise<StockBatch> {
+    return this.batchRepository.manager.transaction(async (manager) =>
+      this.createBatchInTransaction(manager, input),
+    );
+  }
+
+  /**
+   * Create a stock batch inside an existing transaction (e.g. import-form confirm).
+   */
+  async createBatchInTransaction(
+    manager: EntityManager,
+    input: CreateBatchInput,
+  ): Promise<StockBatch> {
     if (input.quantity <= 0) {
       throw new BadRequestException('quantity must be positive');
     }
 
-    const variant = await this.variantRepository.findOneBy({
-      id: input.productVariantId,
+    const variant = await manager.findOne(ProductVariant, {
+      where: { id: input.productVariantId },
     });
     if (!variant) {
       throw new NotFoundException(
@@ -65,39 +77,37 @@ export class StockService {
       variant.shelfLifeUnit,
     );
 
-    return this.batchRepository.manager.transaction(async (manager) => {
-      const batch = manager.create(StockBatch, {
-        productVariantId: variant.id,
-        batchCode: input.batchCode ?? null,
-        initialQuantity: input.quantity,
-        remainingQuantity: input.quantity,
-        manufacturingDate,
-        expirationDate,
-      });
-      const savedBatch = await manager.save(StockBatch, batch);
-
-      const movement = manager.create(StockMovement, {
-        batchId: savedBatch.id,
-        type: StockMovementType.IMPORT,
-        quantity: input.quantity,
-        note: 'Initial batch stock input',
-      });
-      await manager.save(StockMovement, movement);
-
-      const instances = Array.from({ length: input.quantity }, () =>
-        manager.create(ProductInstance, {
-          stockBatchId: savedBatch.id,
-          status: ProductInstanceStatus.ON_RACK,
-        }),
-      );
-      await manager.save(ProductInstance, instances);
-
-      this.logger.log(
-        `Created stock batch ${savedBatch.id} for variant ${variant.id} (qty ${input.quantity})`,
-      );
-
-      return savedBatch;
+    const batch = manager.create(StockBatch, {
+      productVariantId: variant.id,
+      batchCode: input.batchCode ?? null,
+      initialQuantity: input.quantity,
+      remainingQuantity: input.quantity,
+      manufacturingDate,
+      expirationDate,
     });
+    const savedBatch = await manager.save(StockBatch, batch);
+
+    const movement = manager.create(StockMovement, {
+      batchId: savedBatch.id,
+      type: StockMovementType.IMPORT,
+      quantity: input.quantity,
+      note: 'Initial batch stock input',
+    });
+    await manager.save(StockMovement, movement);
+
+    const instances = Array.from({ length: input.quantity }, () =>
+      manager.create(ProductInstance, {
+        stockBatchId: savedBatch.id,
+        status: ProductInstanceStatus.ON_RACK,
+      }),
+    );
+    await manager.save(ProductInstance, instances);
+
+    this.logger.log(
+      `Created stock batch ${savedBatch.id} for variant ${variant.id} (qty ${input.quantity})`,
+    );
+
+    return savedBatch;
   }
 
   async recordMovement(

@@ -138,7 +138,7 @@ describe('StockService', () => {
     });
 
     it('should throw NotFoundException when variant not found', async () => {
-      (variantRepo.findOneBy as jest.Mock).mockResolvedValue(null);
+      manager.findOne.mockResolvedValue(null);
 
       await expect(
         service.createBatch({
@@ -150,7 +150,7 @@ describe('StockService', () => {
     });
 
     it('should create batch, instances, and IMPORT movement in a transaction', async () => {
-      (variantRepo.findOneBy as jest.Mock).mockResolvedValue(baseVariant);
+      manager.findOne.mockResolvedValue(baseVariant);
       const addShelfLifeSpy = jest.spyOn(service, 'addShelfLife');
 
       const result = await service.createBatch({
@@ -161,6 +161,10 @@ describe('StockService', () => {
       });
 
       expect(batchRepo.manager.transaction).toHaveBeenCalledTimes(1);
+      expect(manager.findOne).toHaveBeenCalledWith(
+        ProductVariant,
+        expect.objectContaining({ where: { id: 'variant-1' } }),
+      );
       expect(manager.create).toHaveBeenCalledTimes(102);
       expect(manager.save).toHaveBeenCalledTimes(3);
       expect(manager.create).toHaveBeenNthCalledWith(
