@@ -6,7 +6,10 @@ import {
   ClinicResponseDto,
   PaginatedClinicsDto,
 } from './dto/clinic-response.dto';
+import { CreateClinicDto } from './dto/create-clinic.dto';
+import { ListAdminClinicsQueryDto } from './dto/list-admin-clinics-query.dto';
 import { ListClinicsQueryDto } from './dto/list-clinics-query.dto';
+import { UpdateClinicDto } from './dto/update-clinic.dto';
 
 @Injectable()
 export class ClinicsService {
@@ -47,9 +50,103 @@ export class ClinicsService {
     };
   }
 
+  async adminFindMany(
+    query: ListAdminClinicsQueryDto,
+  ): Promise<PaginatedClinicsDto> {
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 20));
+    const skip = (page - 1) * limit;
+
+    const qb = this.clinicRepository
+      .createQueryBuilder('clinic')
+      .orderBy('clinic.name', 'ASC')
+      .skip(skip)
+      .take(limit);
+
+    if (query.activeOnly === true) {
+      qb.andWhere('clinic.isActive = :isActive', { isActive: true });
+    }
+
+    const q = query.q?.trim();
+    if (q) {
+      qb.andWhere('LOWER(clinic.name) LIKE LOWER(:q)', { q: `%${q}%` });
+    }
+
+    const [clinics, total] = await qb.getManyAndCount();
+
+    return {
+      items: clinics.map((clinic) => this.toResponse(clinic)),
+      total,
+      page,
+      limit,
+    };
+  }
+
   async findOne(id: string): Promise<ClinicResponseDto> {
     const clinic = await this.requireById(id);
     return this.toResponse(clinic);
+  }
+
+  async create(dto: CreateClinicDto): Promise<ClinicResponseDto> {
+    const clinic = await this.clinicRepository.save(
+      this.clinicRepository.create({
+        name: dto.name.trim(),
+        address: this.normalizeNullableString(dto.address),
+        latitude: this.normalizeNullableNumber(dto.latitude),
+        longitude: this.normalizeNullableNumber(dto.longitude),
+        isActive: dto.isActive ?? true,
+      }),
+    );
+    return this.toResponse(clinic);
+  }
+
+  async update(id: string, dto: UpdateClinicDto): Promise<ClinicResponseDto> {
+    const clinic = await this.requireById(id);
+
+    if (dto.name !== undefined) {
+      clinic.name = dto.name.trim();
+    }
+    if (dto.address !== undefined) {
+      clinic.address = this.normalizeNullableString(dto.address);
+    }
+    if (dto.latitude !== undefined) {
+      clinic.latitude = this.normalizeNullableNumber(dto.latitude);
+    }
+    if (dto.longitude !== undefined) {
+      clinic.longitude = this.normalizeNullableNumber(dto.longitude);
+    }
+    if (dto.isActive !== undefined) {
+      clinic.isActive = dto.isActive;
+    }
+
+    const saved = await this.clinicRepository.save(clinic);
+    return this.toResponse(saved);
+  }
+
+  async deactivate(id: string): Promise<ClinicResponseDto> {
+    const clinic = await this.requireById(id);
+    clinic.isActive = false;
+    const saved = await this.clinicRepository.save(clinic);
+    return this.toResponse(saved);
+  }
+
+  private normalizeNullableString(
+    value: string | null | undefined,
+  ): string | null {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    const trimmed = value.trim();
+    return trimmed.length ? trimmed : null;
+  }
+
+  private normalizeNullableNumber(
+    value: number | null | undefined,
+  ): number | null {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    return value;
   }
 
   private toResponse(clinic: Clinic): ClinicResponseDto {

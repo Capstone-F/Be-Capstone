@@ -9,6 +9,7 @@ End-to-end guide for integrating **App Admin** (`app_admin`) features with this 
 
 See also:
 
+- [Staff Flow Guide](staff-flow.md) — approval-based stock import forms (`staff` / `app_admin`)
 - [User Management & RBAC](users.md) — roles, clinic scoping, user model
 - [E-Commerce Integration Guide](ecommerce-flow.md) — customer purchase path; admin owns catalog + combo settings
 - [Survey Flow Guide](survey-flow.md) — customer survey path; admin owns question bank + QA cheats
@@ -41,8 +42,9 @@ See also:
 10. [Flow G — Wallet inspect & top-up](#10-flow-g--wallet-inspect--top-up)
 11. [Flow H — Customer QA cheats (profile / survey)](#11-flow-h--customer-qa-cheats-profile--survey)
 12. [Flow I — Maintain experts (update / fee / availability)](#12-flow-i--maintain-experts-update--fee--availability)
-13. [Endpoint checklist](#13-endpoint-checklist)
-14. [Remaining gaps](#14-remaining-gaps)
+13. [Flow J — Manage clinics](#13-flow-j--manage-clinics)
+14. [Endpoint checklist](#14-endpoint-checklist)
+15. [Remaining gaps](#15-remaining-gaps)
 
 ---
 
@@ -85,6 +87,7 @@ See also:
 | Area        | Capability                                                                     |
 | ----------- | ------------------------------------------------------------------------------ |
 | Users       | List/search, create staff/expert/clinic_manager, replace roles, enable/disable |
+| Clinics     | Create / update / soft-deactivate partner clinics                              |
 | Experts     | Create/update clinic-bound profiles, set fee, manage weekly availability       |
 | Catalog     | Onboard products (+ ingredients), set variant images                           |
 | Stock       | Import batches, adjust remaining quantity (auth only; RBAC planned)            |
@@ -93,7 +96,7 @@ See also:
 | Wallet      | Read any user’s balance; direct ledger credit (no payment gateway)             |
 | Customer QA | Force-update profile/allergies; replace survey answers + re-derive skin type   |
 
-Clinics are **read-only** via API today (`GET /clinics`). Partner clinics are seeded / inserted in DB — there is no `POST /clinics`.
+Clinics are managed via **`/admin/clinics`** (create / update / soft-deactivate). Public discovery still uses `GET /clinics` (active only).
 
 ---
 
@@ -280,7 +283,7 @@ GET /admin/users?q=...
 
 End-to-end setup so an expert appears in discovery and accepts bookings.
 
-**Prerequisites:** at least one active clinic (`GET /clinics`).
+**Prerequisites:** at least one active clinic (`GET /clinics` or create via `POST /admin/clinics`).
 
 **Full sequence:**
 
@@ -482,6 +485,8 @@ Content-Type: application/json
 | POST   | `/stock/batches` | Authenticated | ✅ Ready |
 
 > **Note:** Stock endpoints currently require authentication only; dedicated `app_admin` / `staff` RBAC is planned (🔶 Extend).
+>
+> For an approval-based import (draft → submit → confirm), see [staff-flow.md](staff-flow.md).
 
 ```http
 POST /stock/batches
@@ -827,7 +832,71 @@ GET /experts?clinicId=...
 
 ---
 
-## 13. Endpoint checklist
+## 13. Flow J — Manage clinics
+
+Partner clinics for expert binding and discovery. Public `GET /clinics` still returns **active only**; admin list includes inactive by default.
+
+| Method | Path                 | Roles     | Status   |
+| ------ | -------------------- | --------- | -------- |
+| GET    | `/admin/clinics`     | app_admin | ✅ Ready |
+| GET    | `/admin/clinics/:id` | app_admin | ✅ Ready |
+| POST   | `/admin/clinics`     | app_admin | ✅ Ready |
+| PATCH  | `/admin/clinics/:id` | app_admin | ✅ Ready |
+| DELETE | `/admin/clinics/:id` | app_admin | ✅ Ready |
+
+`DELETE` **soft-deactivates** (`isActive: false`). Hard delete is not supported while experts reference the clinic (`ON DELETE RESTRICT`). Reactivate with `PATCH` `{ "isActive": true }`.
+
+**Query params** (`GET /admin/clinics`):
+
+| Param        | Description                     |
+| ------------ | ------------------------------- |
+| `q`          | Case-insensitive name contains  |
+| `activeOnly` | `true` to hide inactive clinics |
+| `page`       | Page number (default 1)         |
+| `limit`      | Page size (default 20, max 100) |
+
+**Sequence:**
+
+```
+GET /admin/clinics?q=...
+  → POST /admin/clinics
+  → PATCH /admin/clinics/:id
+  → DELETE /admin/clinics/:id          (soft deactivate)
+  → PATCH /admin/clinics/:id { isActive: true }   (optional reactivate)
+  → verify public: GET /clinics (active only)
+```
+
+```http
+POST /admin/clinics
+Content-Type: application/json
+
+{
+  "name": "GlowScan District 7 Clinic",
+  "address": "12 Nguyen Hue, District 1, Ho Chi Minh City",
+  "latitude": 10.7769,
+  "longitude": 106.7009,
+  "isActive": true
+}
+```
+
+```http
+PATCH /admin/clinics/<clinicId>
+Content-Type: application/json
+
+{
+  "name": "GlowScan D7 Clinic",
+  "address": null,
+  "isActive": true
+}
+```
+
+```http
+DELETE /admin/clinics/<clinicId>
+```
+
+---
+
+## 14. Endpoint checklist
 
 ### Auth & profile
 
@@ -853,6 +922,11 @@ GET /experts?clinicId=...
 | ------ | ------------------------------------- | --------------------------------- | -------- |
 | GET    | `/clinics`                            | Authenticated                     | ✅ Ready |
 | GET    | `/clinics/:id`                        | Authenticated                     | ✅ Ready |
+| GET    | `/admin/clinics`                      | app_admin                         | ✅ Ready |
+| GET    | `/admin/clinics/:id`                  | app_admin                         | ✅ Ready |
+| POST   | `/admin/clinics`                      | app_admin                         | ✅ Ready |
+| PATCH  | `/admin/clinics/:id`                  | app_admin                         | ✅ Ready |
+| DELETE | `/admin/clinics/:id`                  | app_admin                         | ✅ Ready |
 | POST   | `/experts`                            | app_admin, clinic_manager         | ✅ Ready |
 | PATCH  | `/experts/:id`                        | app_admin, clinic_manager         | ✅ Ready |
 | PUT    | `/experts/:id/consultation-fee`       | expert, clinic_manager, app_admin | ✅ Ready |
@@ -897,25 +971,35 @@ GET /experts?clinicId=...
 
 ---
 
-## 14. Remaining gaps
+## 15. Remaining gaps
 
-| Gap                                 | Status     | Notes                                                                 |
-| ----------------------------------- | ---------- | --------------------------------------------------------------------- |
-| Clinic create / update / deactivate | ❌ Missing | Use seed / DB; only `GET /clinics` today                              |
-| Stock RBAC (`app_admin` / `staff`)  | 🔶 Extend  | Endpoints are authenticated; admin role check still TODO              |
-| Admin order / delivery console      | ❌ Missing | No admin list/retry GHN endpoint yet (see [shipping.md](shipping.md)) |
-| Admin book-for-customer             | ❌ Missing | `POST /bookings` as admin books the admin’s own customer profile      |
-| Staff vs admin product update       | 🔶 Extend  | Onboard + variant image only; no full product PATCH catalog editor    |
+| Gap                                | Status     | Notes                                                                 |
+| ---------------------------------- | ---------- | --------------------------------------------------------------------- |
+| Stock RBAC (`app_admin` / `staff`) | 🔶 Extend  | Endpoints are authenticated; admin role check still TODO              |
+| Admin order / delivery console     | ❌ Missing | No admin list/retry GHN endpoint yet (see [shipping.md](shipping.md)) |
+| Admin book-for-customer            | ❌ Missing | `POST /bookings` as admin books the admin’s own customer profile      |
+| Staff vs admin product update      | 🔶 Extend  | Onboard + variant image only; no full product PATCH catalog editor    |
 
 ---
 
 ## Quick reference — happy-path sequences
 
+**New clinic + expert ready to take bookings:**
+
+```
+Login (app_admin)
+→ POST /admin/clinics
+→ POST /users { role: expert, clinicId }
+→ POST /experts { userId, clinicId, specialization, consultationFee, … }
+→ POST /experts/:expertId/availability (× N weekly blocks)
+→ optional avatar upload + PATCH /experts/:id
+```
+
 **New expert ready to take bookings:**
 
 ```
 Login (app_admin)
-→ GET /clinics
+→ GET /clinics   (or GET /admin/clinics)
 → POST /users { role: expert, clinicId }
 → POST /experts { userId, clinicId, specialization, consultationFee, … }
 → POST /experts/:expertId/availability (× N weekly blocks)

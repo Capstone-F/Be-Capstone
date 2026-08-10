@@ -2121,6 +2121,100 @@ describe('BE Capstone API (e2e)', () => {
       });
     });
 
+    describe('Admin clinics CRUD', () => {
+      let adminSid: string;
+
+      beforeEach(async () => {
+        adminSid = await performMockLogin({
+          userId: 'admin-clinics-e2e',
+          keycloakSub: 'kc-admin-clinics-e2e',
+          roles: [Role.AppAdmin],
+        });
+        jest
+          .spyOn(authService, 'refreshTokenIfNeeded')
+          .mockResolvedValue(undefined);
+      });
+
+      it('should reject non-admin', async () => {
+        await request(app.getHttpServer())
+          .get('/admin/clinics')
+          .set('Cookie', customerSid)
+          .expect(403);
+      });
+
+      it('should create, list, update, and soft-deactivate a clinic', async () => {
+        const suffix = Math.random().toString(36).slice(2, 8);
+        const createRes = await request(app.getHttpServer())
+          .post('/admin/clinics')
+          .set('Cookie', adminSid)
+          .send({
+            name: `Admin Clinic ${suffix}`,
+            address: '99 Admin Street',
+            latitude: 10.8,
+            longitude: 106.7,
+          })
+          .expect(201);
+
+        expect(createRes.body.name).toBe(`Admin Clinic ${suffix}`);
+        expect(createRes.body.isActive).toBe(true);
+        expect(createRes.body.latitude).toBe(10.8);
+
+        const clinicId = createRes.body.id as string;
+
+        const listRes = await request(app.getHttpServer())
+          .get(`/admin/clinics?q=Admin Clinic ${suffix}`)
+          .set('Cookie', adminSid)
+          .expect(200);
+
+        expect(
+          listRes.body.items.some(
+            (item: { id: string }) => item.id === clinicId,
+          ),
+        ).toBe(true);
+
+        const patchRes = await request(app.getHttpServer())
+          .patch(`/admin/clinics/${clinicId}`)
+          .set('Cookie', adminSid)
+          .send({
+            name: `Renamed Clinic ${suffix}`,
+            address: null,
+          })
+          .expect(200);
+
+        expect(patchRes.body.name).toBe(`Renamed Clinic ${suffix}`);
+        expect(patchRes.body.address).toBeNull();
+
+        const deleteRes = await request(app.getHttpServer())
+          .delete(`/admin/clinics/${clinicId}`)
+          .set('Cookie', adminSid)
+          .expect(200);
+
+        expect(deleteRes.body.isActive).toBe(false);
+
+        const publicList = await request(app.getHttpServer())
+          .get('/clinics?page=1&limit=100')
+          .set('Cookie', customerSid)
+          .expect(200);
+
+        expect(
+          publicList.body.items.some(
+            (item: { id: string }) => item.id === clinicId,
+          ),
+        ).toBe(false);
+
+        const adminListInactive = await request(app.getHttpServer())
+          .get(`/admin/clinics?q=Renamed Clinic ${suffix}`)
+          .set('Cookie', adminSid)
+          .expect(200);
+
+        const inactive = adminListInactive.body.items.find(
+          (item: { id: string }) => item.id === clinicId,
+        );
+        expect(inactive).toBeDefined();
+        expect(inactive.isActive).toBe(false);
+      });
+    });
+
     describe('POST /experts and PATCH /experts/:id', () => {
       let adminSid: string;
 
