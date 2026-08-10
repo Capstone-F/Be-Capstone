@@ -18,3 +18,11 @@ export enum ProductInstanceStatus {
   RETURNED = 'RETURNED',
   DAMAGED = 'DAMAGED',
 }
+
+export enum StockImportFormStatus {
+  DRAFT = 'DRAFT',
+  SUBMITTED = 'SUBMITTED',
+  CONFIRMED = 'CONFIRMED',
+  CANCELLED = 'CANCELLED',
+  REJECTED = 'REJECTED',
+}
