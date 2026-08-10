@@ -11,6 +11,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { CustomersModule } from './customers/customers.module';
 import { StockModule } from './stock/stock.module';
+import { SupportModule } from './support/support.module';
 import { KeycloakAdminModule } from './keycloak/keycloak-admin.module';
 import { ClinicsModule } from './clinics/clinics.module';
 import { ProductsModule } from './products/products.module';
@@ -59,6 +60,7 @@ import { UploadsModule } from './uploads/uploads.module';
     ExpertsModule,
     BookingsModule,
     StockModule,
+    SupportModule,
     RoutinesModule,
     TreatmentsModule,
     ConsultationsModule,
