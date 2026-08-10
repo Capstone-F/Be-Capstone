@@ -751,4 +751,5 @@ Tests are co-located with source files (`*.spec.ts`). E2e tests are in `test/`.
 - **[docs/auth-web.vi.md](docs/auth-web.vi.md)** — Vietnamese web auth guide
 - **[docs/auth-mobile.md](docs/auth-mobile.md)** — Expo / mobile deep-link auth (one-time code, Bearer tokens)
 - **[docs/auth-mobile.vi.md](docs/auth-mobile.vi.md)** — Vietnamese mobile auth guide
+- **[docs/admin-flow.md](docs/admin-flow.md)** — App Admin integration (users, experts, catalog, survey bank, wallet, settings)
 - **Swagger UI** — Available at `/docs` when the API is running
