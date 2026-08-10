@@ -10,6 +10,7 @@ End-to-end guide for integrating **App Admin** (`app_admin`) features with this 
 See also:
 
 - [Staff Flow Guide](staff-flow.md) — approval-based stock import forms (`staff` / `app_admin`)
+- [Clinic Manager Flow Guide](clinic-manager-flow.md) — clinic-scoped expert onboarding, fees, availability
 - [User Management & RBAC](users.md) — roles, clinic scoping, user model
 - [E-Commerce Integration Guide](ecommerce-flow.md) — customer purchase path; admin owns catalog + combo settings
 - [Survey Flow Guide](survey-flow.md) — customer survey path; admin owns question bank + QA cheats

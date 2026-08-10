@@ -13,6 +13,7 @@ End-to-end guide for **Staff** (`staff`) and **App Admin** (`app_admin`):
 See also:
 
 - [Admin Integration Guide](admin-flow.md) — catalog onboarding and direct `POST /stock/batches`
+- [Clinic Manager Flow Guide](clinic-manager-flow.md) — clinic-scoped expert onboarding, fees, availability
 - [User Management & RBAC](users.md) — roles and permissions
 
 ---
