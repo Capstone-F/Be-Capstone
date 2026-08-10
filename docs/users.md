@@ -2,7 +2,7 @@
 
 This document describes the five application roles, session-based RBAC, and user-management API endpoints for GlowScan.
 
-See also: [Web Authentication Guide](auth-web.md) · [Mobile Authentication Guide](auth-mobile.md) · [Admin Integration Guide](admin-flow.md) (all `app_admin` flows + API sequences) · [Consultation Flow](consultation-flow.md) (discover → book → wallet pay → session → feedback)
+See also: [Web Authentication Guide](auth-web.md) · [Mobile Authentication Guide](auth-mobile.md) · [Admin Integration Guide](admin-flow.md) (all `app_admin` flows + API sequences) · [Clinic Manager Flow Guide](clinic-manager-flow.md) (all `clinic_manager` flows + clinic scoping rules) · [Consultation Flow](consultation-flow.md) (discover → book → wallet pay → session → feedback)
 
 ---
 
