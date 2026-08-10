@@ -40,6 +40,42 @@ describe('ClinicsService', () => {
     expect(result.items[0].latitude).toBe(10.7769);
   });
 
+  it('should list clinics for admin including inactive and name search', async () => {
+    const clinics = [
+      makeClinic(),
+      makeClinic({ id: 'clinic-2', name: 'Other', isActive: false }),
+    ];
+    const qb = {
+      orderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getManyAndCount: jest.fn().mockResolvedValue([clinics, 2]),
+    };
+    const clinicRepo = {
+      createQueryBuilder: jest.fn().mockReturnValue(qb),
+    } as unknown as Repository<Clinic>;
+    const service = new ClinicsService(clinicRepo);
+
+    const result = await service.adminFindMany({
+      q: 'glow',
+      activeOnly: true,
+      page: 1,
+      limit: 20,
+    });
+
+    expect(clinicRepo.createQueryBuilder).toHaveBeenCalledWith('clinic');
+    expect(qb.andWhere).toHaveBeenCalledWith('clinic.isActive = :isActive', {
+      isActive: true,
+    });
+    expect(qb.andWhere).toHaveBeenCalledWith(
+      'LOWER(clinic.name) LIKE LOWER(:q)',
+      { q: '%glow%' },
+    );
+    expect(result.total).toBe(2);
+    expect(result.items).toHaveLength(2);
+  });
+
   it('should return clinic detail', async () => {
     const clinicRepo = {
       findOneBy: jest.fn().mockResolvedValue(makeClinic()),
@@ -60,5 +96,68 @@ describe('ClinicsService', () => {
     const service = new ClinicsService(clinicRepo);
 
     await expect(service.findOne('missing')).rejects.toThrow(NotFoundException);
+  });
+
+  it('should create a clinic', async () => {
+    const created = makeClinic({ id: 'new-clinic', name: 'New Clinic' });
+    const clinicRepo = {
+      create: jest.fn().mockImplementation((input) => input),
+      save: jest.fn().mockResolvedValue(created),
+      findOneBy: jest.fn(),
+    } as unknown as Repository<Clinic>;
+    const service = new ClinicsService(clinicRepo);
+
+    const result = await service.create({
+      name: '  New Clinic  ',
+      address: '  1 Main St  ',
+      latitude: 10.1,
+      longitude: 106.2,
+    });
+
+    expect(clinicRepo.create).toHaveBeenCalledWith({
+      name: 'New Clinic',
+      address: '1 Main St',
+      latitude: 10.1,
+      longitude: 106.2,
+      isActive: true,
+    });
+    expect(result.id).toBe('new-clinic');
+    expect(result.name).toBe('New Clinic');
+  });
+
+  it('should update a clinic', async () => {
+    const clinic = makeClinic();
+    const clinicRepo = {
+      findOneBy: jest.fn().mockResolvedValue(clinic),
+      save: jest.fn().mockImplementation(async (entity) => entity),
+    } as unknown as Repository<Clinic>;
+    const service = new ClinicsService(clinicRepo);
+
+    const result = await service.update('clinic-1', {
+      name: ' Renamed ',
+      address: null,
+      isActive: false,
+    });
+
+    expect(result.name).toBe('Renamed');
+    expect(result.address).toBeNull();
+    expect(result.isActive).toBe(false);
+    expect(clinicRepo.save).toHaveBeenCalled();
+  });
+
+  it('should soft-deactivate a clinic', async () => {
+    const clinic = makeClinic();
+    const clinicRepo = {
+      findOneBy: jest.fn().mockResolvedValue(clinic),
+      save: jest.fn().mockImplementation(async (entity) => entity),
+    } as unknown as Repository<Clinic>;
+    const service = new ClinicsService(clinicRepo);
+
+    const result = await service.deactivate('clinic-1');
+
+    expect(result.isActive).toBe(false);
+    expect(clinicRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ isActive: false }),
+    );
   });
 });
