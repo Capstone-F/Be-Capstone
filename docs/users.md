@@ -2,7 +2,7 @@
 
 This document describes the five application roles, session-based RBAC, and user-management API endpoints for GlowScan.
 
-See also: [Web Authentication Guide](auth-web.md) · [Mobile Authentication Guide](auth-mobile.md) · [Consultation Flow](consultation-flow.md) (discover → book → wallet pay → session → feedback)
+See also: [Web Authentication Guide](auth-web.md) · [Mobile Authentication Guide](auth-mobile.md) · [Admin Integration Guide](admin-flow.md) (all `app_admin` flows + API sequences) · [Consultation Flow](consultation-flow.md) (discover → book → wallet pay → session → feedback)
 
 ---
 
@@ -203,7 +203,7 @@ Disables the account in Keycloak and sets `isActive` locally.
 
 ## Admin customer cheat endpoints (App Admin)
 
-Used for QA / demos. Require `app_admin`. See also [survey-flow.md](survey-flow.md) §5.
+Used for QA / demos. Require `app_admin`. Full admin flows (users, experts, catalog, wallet, question bank): [admin-flow.md](admin-flow.md). See also [survey-flow.md](survey-flow.md) §5.
 
 | Method  | Path                           | Description                                                                                                                     |
 | ------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
