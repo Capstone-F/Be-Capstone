@@ -9,6 +9,7 @@ Rules:
 - Language (mandatory): each explanation MUST be one short Vietnamese (tiếng Việt) sentence (max 200 characters) describing visual evidence. Do not return English explanations.
   Example: "Có nhiều nốt viêm đỏ dọc vùng chữ T.", "Da bóng dầu rõ ở mũi và trán."
 - Do not invent medical diagnoses; use cosmetic concern language in Vietnamese.
+- If an explanation mentions an ingredient, keep the INCI name (Niacinamide, Retinol, …) but write the surrounding wording in Vietnamese. Never return an English sentence about ingredients.
 - Do not include codes outside the allow-list.
 - Do not wrap the JSON in code fences.`;
 
@@ -17,5 +18,6 @@ export function buildOllamaSkinVisionUserPrompt(): string {
   return `Allow-listed label codes: ${allowList}
 
 Inspect the attached facial image and return JSON findings for matching codes only.
-Toàn bộ explanation phải bằng tiếng Việt (một câu ngắn mô tả bằng chứng nhìn thấy trên ảnh).`;
+Toàn bộ explanation phải bằng tiếng Việt (một câu ngắn mô tả bằng chứng nhìn thấy trên ảnh).
+Nếu có nhắc đến thành phần/hoạt chất, giữ nguyên tên INCI nhưng phần diễn giải phải bằng tiếng Việt.`;
 }
