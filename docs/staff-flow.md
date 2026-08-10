@@ -1,6 +1,9 @@
 # Staff Integration Guide
 
-End-to-end guide for **Staff** (`staff`) and **App Admin** (`app_admin`) stock import forms: create draft → update → submit → confirm (applies inventory), or cancel / reject.
+End-to-end guide for **Staff** (`staff`) and **App Admin** (`app_admin`):
+
+1. **Stock import forms** — create draft → update → submit → confirm (applies inventory), or cancel / reject
+2. **Customer support chat** — shared queue → claim (one staff at a time) → poll/send messages → close
 
 **Auth (login):** do not duplicate here — use:
 
@@ -24,7 +27,9 @@ See also:
 
 ## Table of Contents
 
-1. [Roles & auth](#1-roles--auth)
+### A. Stock import forms
+
+1. [Roles & auth (stock)](#1-roles--auth-stock)
 2. [Lifecycle](#2-lifecycle)
 3. [Create draft](#3-create-draft)
 4. [List / filter](#4-list--filter)
@@ -34,11 +39,27 @@ See also:
 8. [Confirm (apply stock)](#8-confirm-apply-stock)
 9. [Cancel](#9-cancel)
 10. [Reject](#10-reject)
-11. [Endpoint checklist](#11-endpoint-checklist)
+11. [Stock endpoint checklist](#11-stock-endpoint-checklist)
+
+### B. Customer support chat
+
+12. [Support overview](#12-support-overview)
+13. [Support lifecycle](#13-support-lifecycle)
+14. [Staff queue (list sessions)](#14-staff-queue-list-sessions)
+15. [Get session](#15-get-session)
+16. [Claim session](#16-claim-session)
+17. [Send message](#17-send-message)
+18. [Poll messages](#18-poll-messages)
+19. [Mark read](#19-mark-read)
+20. [Close session](#20-close-session)
+21. [Customer endpoints (for FE pairing)](#21-customer-endpoints-for-fe-pairing)
+22. [Support endpoint checklist](#22-support-endpoint-checklist)
 
 ---
 
-## 1. Roles & auth
+# A. Stock import forms
+
+## 1. Roles & auth (stock)
 
 All `/stock/import-forms` endpoints require:
 
@@ -243,7 +264,7 @@ Content-Type: application/json
 
 ---
 
-## 11. Endpoint checklist
+## 11. Stock endpoint checklist
 
 | Method | Path                              | Roles            | Status   |
 | ------ | --------------------------------- | ---------------- | -------- |
@@ -264,4 +285,299 @@ POST /stock/import-forms
   → POST /stock/import-forms/:id/submit
   → PATCH /stock/import-forms/:id/confirm
   → verify stockBatchId / product availability
+```
+
+---
+
+# B. Customer support chat
+
+1-1 text support between a **customer** and **one staff** at a time. Messages are stored in Postgres; clients **poll** with `afterSeq` (no WebSocket / Zego for this feature).
+
+Staff are system-wide employees (not clinic-scoped). All staff see every session in the shared queue; only the staff who **claims** a session may send staff messages until it is closed.
+
+---
+
+## 12. Support overview ✅ Ready
+
+```
+Customer                         Staff / App Admin
+────────                         ─────────────────
+POST /support/sessions  ──▶  OPEN (queued)
+GET  /support/sessions/me
+
+                             GET  /support/sessions          (shared queue)
+                             POST /support/sessions/:id/claim
+                                      │
+                                      ▼
+                             ACTIVE (locked to that staff)
+POST /…/:id/messages  ◀──▶  POST /…/:id/messages
+GET  /…/:id/messages  ◀──▶  GET  /…/:id/messages?afterSeq=
+POST /…/:id/read      ◀──▶  POST /…/:id/read
+POST /…/:id/close     ◀──▶  POST /…/:id/close  → CLOSED
+```
+
+**Rules FE must respect:**
+
+| Rule                          | Behavior                                                                          |
+| ----------------------------- | --------------------------------------------------------------------------------- |
+| One live session per customer | `POST /support/sessions` is idempotent; returns existing `OPEN` / `ACTIVE` if any |
+| One staff per session         | Claim is atomic; `409` if another staff already claimed                           |
+| No handoff                    | Assigned staff stays until **close** (no release / reassign)                      |
+| Polling                       | Use `GET …/messages?afterSeq=<lastSeq>`; keep `lastSeq` from each response        |
+| Closed is terminal            | Sending on `CLOSED` returns `409`                                                 |
+
+---
+
+## 13. Support lifecycle
+
+```
+OPEN ──claim──▶ ACTIVE ──close──▶ CLOSED
+  │                ▲
+  └────close───────┘
+```
+
+| Action          | From              | To       | Notes                                               |
+| --------------- | ----------------- | -------- | --------------------------------------------------- |
+| Customer create | —                 | `OPEN`   | Or return existing live session                     |
+| Staff claim     | `OPEN`            | `ACTIVE` | Sets `assignedStaffUserId`                          |
+| Close           | `OPEN` / `ACTIVE` | `CLOSED` | Customer, assigned staff, or `app_admin`            |
+| Send message    | `OPEN` / `ACTIVE` | same     | Customer anytime while live; staff only after claim |
+
+---
+
+## 14. Staff queue (list sessions) ✅ Ready
+
+| Method | Path                | Roles            | Status   |
+| ------ | ------------------- | ---------------- | -------- |
+| GET    | `/support/sessions` | staff, app_admin | ✅ Ready |
+
+Query params:
+
+| Param      | Type | Notes                                         |
+| ---------- | ---- | --------------------------------------------- |
+| `status`   | enum | `OPEN` \| `ACTIVE` \| `CLOSED`                |
+| `assigned` | enum | `me` \| `unassigned` \| `any` (default `any`) |
+| `page`     | int  | default `1`                                   |
+| `limit`    | int  | default `20`, max `100`                       |
+
+```http
+GET /support/sessions?status=OPEN&assigned=unassigned&page=1&limit=20
+```
+
+Response shape:
+
+```json
+{
+  "items": [
+    /* SupportSessionResponseDto — includes customerName, lastMessagePreview, lastMessageAt */
+  ],
+  "total": 1,
+  "page": 1,
+  "limit": 20
+}
+```
+
+Ordered by `lastMessageAt` descending (`NULLS LAST`), then `createdAt` descending.
+
+Useful filters:
+
+- Unclaimed queue: `?status=OPEN&assigned=unassigned`
+- My active chats: `?status=ACTIVE&assigned=me`
+
+---
+
+## 15. Get session ✅ Ready
+
+| Method | Path                    | Roles                      | Status   |
+| ------ | ----------------------- | -------------------------- | -------- |
+| GET    | `/support/sessions/:id` | customer, staff, app_admin | ✅ Ready |
+
+Staff may view any session (needed for claim / detail). Customers may only view their own.
+
+```http
+GET /support/sessions/<session-uuid>
+```
+
+---
+
+## 16. Claim session ✅ Ready
+
+| Method | Path                          | Roles            | Status   |
+| ------ | ----------------------------- | ---------------- | -------- |
+| POST   | `/support/sessions/:id/claim` | staff, app_admin | ✅ Ready |
+
+`OPEN → ACTIVE`. No body. Atomic conditional update — only one staff wins.
+
+```http
+POST /support/sessions/<session-uuid>/claim
+```
+
+| Outcome       | HTTP  | Meaning                                        |
+| ------------- | ----- | ---------------------------------------------- |
+| Success       | `200` | You are `assignedStaffUserId`; status `ACTIVE` |
+| Already yours | `200` | Idempotent if you already claimed it           |
+| Taken         | `409` | Another staff owns the session                 |
+| Missing       | `404` | Session id not found                           |
+
+After claim, only **you** (as assigned staff) may send staff messages.
+
+---
+
+## 17. Send message ✅ Ready
+
+| Method | Path                             | Roles                      | Status   |
+| ------ | -------------------------------- | -------------------------- | -------- |
+| POST   | `/support/sessions/:id/messages` | customer, staff, app_admin | ✅ Ready |
+
+```http
+POST /support/sessions/<session-uuid>/messages
+Content-Type: application/json
+
+{
+  "content": "We can help with that order — could you share the order id?"
+}
+```
+
+- `content`: required string, 1–4000 chars (trimmed; empty after trim → `400`)
+- Staff / app_admin: only the **assigned** staff may send (`403` otherwise)
+- Customer: may send while `OPEN` or `ACTIVE`
+- `CLOSED` → `409`
+
+Response includes monotonic `seq` (starts at `1` per session) used as the poll cursor.
+
+---
+
+## 18. Poll messages ✅ Ready
+
+| Method | Path                             | Roles                      | Status   |
+| ------ | -------------------------------- | -------------------------- | -------- |
+| GET    | `/support/sessions/:id/messages` | customer, staff, app_admin | ✅ Ready |
+
+Query params:
+
+| Param      | Type | Notes                       |
+| ---------- | ---- | --------------------------- |
+| `afterSeq` | int  | default `0`; return `seq >` |
+| `limit`    | int  | default `50`, max `100`     |
+
+```http
+GET /support/sessions/<session-uuid>/messages?afterSeq=0&limit=50
+```
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "sessionId": "uuid",
+      "seq": 1,
+      "senderUserId": "uuid",
+      "senderRole": "CUSTOMER",
+      "content": "Hello, I need help with my order.",
+      "createdAt": "2026-08-10T12:00:00.000Z"
+    }
+  ],
+  "lastSeq": 1,
+  "hasMore": false
+}
+```
+
+**Client loop:** store `lastSeq`; next poll uses `afterSeq=<lastSeq>`. If `hasMore` is true, fetch again before waiting.
+
+Suggested poll interval (client-side): 2–5s while the chat UI is open; stop when session is `CLOSED` or the view is left.
+
+---
+
+## 19. Mark read ✅ Ready
+
+| Method | Path                         | Roles                      | Status   |
+| ------ | ---------------------------- | -------------------------- | -------- |
+| POST   | `/support/sessions/:id/read` | customer, staff, app_admin | ✅ Ready |
+
+Only the **customer** or **assigned staff** (participants). Advances `customerLastReadSeq` / `staffLastReadSeq` forward only (never backwards).
+
+```http
+POST /support/sessions/<session-uuid>/read
+Content-Type: application/json
+
+{
+  "lastReadSeq": 12
+}
+```
+
+`lastReadSeq` must be `≤ messageCount` or the API returns `400`.
+
+---
+
+## 20. Close session ✅ Ready
+
+| Method | Path                          | Roles                      | Status   |
+| ------ | ----------------------------- | -------------------------- | -------- |
+| POST   | `/support/sessions/:id/close` | customer, staff, app_admin | ✅ Ready |
+
+`OPEN` / `ACTIVE` → `CLOSED`. Allowed for: session customer, assigned staff, or `app_admin`.
+
+```http
+POST /support/sessions/<session-uuid>/close
+Content-Type: application/json
+
+{
+  "reason": "Issue resolved"
+}
+```
+
+`reason` is optional (max 500). Closing frees the customer to open a **new** session later.
+
+---
+
+## 21. Customer endpoints (for FE pairing)
+
+Staff UIs usually pair with these customer calls (same auth guides):
+
+| Method | Path                             | Roles    | Notes                                            |
+| ------ | -------------------------------- | -------- | ------------------------------------------------ |
+| POST   | `/support/sessions`              | customer | Start or return live session; optional `subject` |
+| GET    | `/support/sessions/me`           | customer | Live `OPEN`/`ACTIVE` session; `404` if none      |
+| POST   | `/support/sessions/:id/messages` | customer | Send while live                                  |
+| GET    | `/support/sessions/:id/messages` | customer | Poll                                             |
+| POST   | `/support/sessions/:id/read`     | customer | Mark read                                        |
+| POST   | `/support/sessions/:id/close`    | customer | Close                                            |
+
+```http
+POST /support/sessions
+Content-Type: application/json
+
+{
+  "subject": "Order delivery issue"
+}
+```
+
+---
+
+## 22. Support endpoint checklist
+
+| Method | Path                             | Roles                      | Status   |
+| ------ | -------------------------------- | -------------------------- | -------- |
+| POST   | `/support/sessions`              | customer                   | ✅ Ready |
+| GET    | `/support/sessions/me`           | customer                   | ✅ Ready |
+| GET    | `/support/sessions`              | staff, app_admin           | ✅ Ready |
+| GET    | `/support/sessions/:id`          | customer, staff, app_admin | ✅ Ready |
+| POST   | `/support/sessions/:id/claim`    | staff, app_admin           | ✅ Ready |
+| POST   | `/support/sessions/:id/messages` | customer, staff, app_admin | ✅ Ready |
+| GET    | `/support/sessions/:id/messages` | customer, staff, app_admin | ✅ Ready |
+| POST   | `/support/sessions/:id/read`     | customer, staff, app_admin | ✅ Ready |
+| POST   | `/support/sessions/:id/close`    | customer, staff, app_admin | ✅ Ready |
+
+**Typical Staff sequence:**
+
+```
+GET  /support/sessions?status=OPEN&assigned=unassigned
+  → POST /support/sessions/:id/claim
+  → GET  /support/sessions/:id/messages?afterSeq=0
+  → POST /support/sessions/:id/messages   (reply)
+  → (poll) GET …/messages?afterSeq=<lastSeq>
+  → POST /support/sessions/:id/read
+  → POST /support/sessions/:id/close
 ```
