@@ -26,6 +26,7 @@ import {
 } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { getAuthContext } from '../auth/auth-context';
+import { Public } from '../auth/decorators/public.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
@@ -48,10 +49,11 @@ export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
 
   @Get('allergies')
+  @Public()
   @ApiOperation({
     summary: 'Get available allergy options',
     description:
-      'Returns active ALLERGY labels that can be submitted as allergyLabelCodes to PATCH /customers/me.',
+      'Public. Returns active ALLERGY labels that can be submitted as allergyLabelCodes to PATCH /customers/me.',
   })
   @ApiOkResponse({ type: [AllergyLabelDto] })
   async getAllergies(): Promise<AllergyLabelDto[]> {
