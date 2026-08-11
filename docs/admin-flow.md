@@ -9,7 +9,7 @@ End-to-end guide for integrating **App Admin** (`app_admin`) features with this 
 
 See also:
 
-- [Staff Flow Guide](staff-flow.md) — approval-based stock import forms (`staff` / `app_admin`)
+- [Staff Flow Guide](staff-flow.md) — customer support chat queue (`staff` / `app_admin`); stock import forms detail (shared with `app_admin`, see [§7.5](#75-stock-import-forms-approval-workflow) here too)
 - [Clinic Manager Flow Guide](clinic-manager-flow.md) — clinic-scoped expert onboarding, fees, availability
 - [User Management & RBAC](users.md) — roles, clinic scoping, user model
 - [E-Commerce Integration Guide](ecommerce-flow.md) — customer purchase path; admin owns catalog + combo settings
@@ -38,6 +38,7 @@ See also:
 5. [Flow B — Manage users & roles](#5-flow-b--manage-users--roles)
 6. [Flow C — Onboard an expert (account → profile → fee → availability)](#6-flow-c--onboard-an-expert-account--profile--fee--availability)
 7. [Flow D — Product catalog & stock](#7-flow-d--product-catalog--stock)
+   - 7.5 [Stock import forms (approval workflow)](#75-stock-import-forms-approval-workflow)
 8. [Flow E — Survey question bank](#8-flow-e--survey-question-bank)
 9. [Flow F — Commerce settings (survey combo discount)](#9-flow-f--commerce-settings-survey-combo-discount)
 10. [Flow G — Wallet inspect & top-up](#10-flow-g--wallet-inspect--top-up)
@@ -85,17 +86,17 @@ See also:
 
 **What Admin can do (summary):**
 
-| Area        | Capability                                                                     |
-| ----------- | ------------------------------------------------------------------------------ |
-| Users       | List/search, create staff/expert/clinic_manager, replace roles, enable/disable |
-| Clinics     | Create / update / soft-deactivate partner clinics                              |
-| Experts     | Create/update clinic-bound profiles, set fee, manage weekly availability       |
-| Catalog     | Onboard products (+ ingredients), set variant images                           |
-| Stock       | Import batches, adjust remaining quantity (auth only; RBAC planned)            |
-| Survey      | Full question-bank CRUD; soft-deactivate                                       |
-| Commerce    | Read/update survey combo discount % and min subtotal                           |
-| Wallet      | Read any user’s balance; direct ledger credit (no payment gateway)             |
-| Customer QA | Force-update profile/allergies; replace survey answers + re-derive skin type   |
+| Area        | Capability                                                                           |
+| ----------- | ------------------------------------------------------------------------------------ |
+| Users       | List/search, create staff/expert/clinic_manager, replace roles, enable/disable       |
+| Clinics     | Create / update / soft-deactivate partner clinics                                    |
+| Experts     | Create/update clinic-bound profiles, set fee, manage weekly availability             |
+| Catalog     | Onboard products (+ ingredients), set variant images                                 |
+| Stock       | Direct batch import/adjust; full Create/Submit/Confirm/Cancel/Reject on import forms |
+| Survey      | Full question-bank CRUD; soft-deactivate                                             |
+| Commerce    | Read/update survey combo discount % and min subtotal                                 |
+| Wallet      | Read any user’s balance; direct ledger credit (no payment gateway)                   |
+| Customer QA | Force-update profile/allergies; replace survey answers + re-derive skin type         |
 
 Clinics are managed via **`/admin/clinics`** (create / update / soft-deactivate). Public discovery still uses `GET /clinics` (active only).
 
@@ -479,15 +480,13 @@ Content-Type: application/json
 
 ---
 
-### 7.3 Import stock batch ✅ Ready
+### 7.3 Import stock batch (direct) ✅ Ready
 
-| Method | Path             | Auth          | Status   |
-| ------ | ---------------- | ------------- | -------- |
-| POST   | `/stock/batches` | Authenticated | ✅ Ready |
+| Method | Path             | Roles            | Status   |
+| ------ | ---------------- | ---------------- | -------- |
+| POST   | `/stock/batches` | app_admin, staff | ✅ Ready |
 
-> **Note:** Stock endpoints currently require authentication only; dedicated `app_admin` / `staff` RBAC is planned (🔶 Extend).
->
-> For an approval-based import (draft → submit → confirm), see [staff-flow.md](staff-flow.md).
+Immediate stock-in with no approval step. For an approval-based import (draft → submit → confirm), see [§7.5](#75-stock-import-forms-approval-workflow) below.
 
 ```http
 POST /stock/batches
@@ -507,9 +506,9 @@ Expiration is computed from the variant shelf life.
 
 ### 7.4 Adjust batch quantity ✅ Ready
 
-| Method | Path                        | Auth          | Status   |
-| ------ | --------------------------- | ------------- | -------- |
-| POST   | `/stock/batches/:id/adjust` | Authenticated | ✅ Ready |
+| Method | Path                        | Roles            | Status   |
+| ------ | --------------------------- | ---------------- | -------- |
+| POST   | `/stock/batches/:id/adjust` | app_admin, staff | ✅ Ready |
 
 Sets the **absolute** remaining quantity and records an `ADJUSTMENT` movement.
 
@@ -532,6 +531,44 @@ POST /products
   → (optional) POST /stock/batches/:id/adjust
   → verify with GET /products/:id
 ```
+
+---
+
+### 7.5 Stock import forms (approval workflow) ✅ Ready
+
+Draft → submit → confirm workflow for stock-in, as an alternative to the direct `POST /stock/batches` above. `app_admin` has the **same full rights as `staff`** — create, edit, submit, confirm, cancel, and reject — no separation-of-duties rule between the creator, submitter, and confirmer.
+
+Full request/response examples, the lifecycle diagram, and the endpoint-by-endpoint breakdown live in [staff-flow.md §A](staff-flow.md#a-stock-import-forms) (shared doc, same roles). Reference table:
+
+| Method | Path                              | Roles            | Status   |
+| ------ | --------------------------------- | ---------------- | -------- |
+| POST   | `/stock/import-forms`             | app_admin, staff | ✅ Ready |
+| GET    | `/stock/import-forms`             | app_admin, staff | ✅ Ready |
+| GET    | `/stock/import-forms/:id`         | app_admin, staff | ✅ Ready |
+| PATCH  | `/stock/import-forms/:id`         | app_admin, staff | ✅ Ready |
+| POST   | `/stock/import-forms/:id/submit`  | app_admin, staff | ✅ Ready |
+| PATCH  | `/stock/import-forms/:id/confirm` | app_admin, staff | ✅ Ready |
+| POST   | `/stock/import-forms/:id/cancel`  | app_admin, staff | ✅ Ready |
+| POST   | `/stock/import-forms/:id/reject`  | app_admin, staff | ✅ Ready |
+
+```
+DRAFT ──submit──▶ SUBMITTED ──confirm──▶ CONFIRMED (+ stock batch, IMPORT movement, ON_RACK instances)
+  │                   │
+  │                   ├──reject──▶ REJECTED
+  └──cancel───────────┴──cancel──▶ CANCELLED
+```
+
+**Admin sequence (identical to staff):**
+
+```
+POST /stock/import-forms          { productVariantId, quantity, manufacturingDate, batchCode }
+  → (optional) PATCH /stock/import-forms/:id
+  → POST /stock/import-forms/:id/submit
+  → PATCH /stock/import-forms/:id/confirm     (applies stock)
+  → verify stockBatchId via GET /stock/import-forms/:id
+```
+
+`CONFIRMED`, `CANCELLED`, `REJECTED` are terminal. Query filters (`status`, `productVariantId`, `createdByUserId`, `page`, `limit`) and validation rules match [staff-flow.md §2–§10](staff-flow.md#2-lifecycle).
 
 ---
 
@@ -938,15 +975,23 @@ DELETE /admin/clinics/<clinicId>
 
 ### Catalog & stock
 
-| Method | Path                            | Roles / Auth     | Status   |
-| ------ | ------------------------------- | ---------------- | -------- |
-| POST   | `/products`                     | app_admin, staff | ✅ Ready |
-| PATCH  | `/products/variants/:variantId` | app_admin, staff | ✅ Ready |
-| GET    | `/products/categories`          | Public           | ✅ Ready |
-| GET    | `/ingredients`                  | Public           | ✅ Ready |
-| POST   | `/uploads/images`               | Authenticated    | ✅ Ready |
-| POST   | `/stock/batches`                | Authenticated 🔶 | ✅ Ready |
-| POST   | `/stock/batches/:id/adjust`     | Authenticated 🔶 | ✅ Ready |
+| Method | Path                              | Roles / Auth     | Status   |
+| ------ | --------------------------------- | ---------------- | -------- |
+| POST   | `/products`                       | app_admin, staff | ✅ Ready |
+| PATCH  | `/products/variants/:variantId`   | app_admin, staff | ✅ Ready |
+| GET    | `/products/categories`            | Public           | ✅ Ready |
+| GET    | `/ingredients`                    | Public           | ✅ Ready |
+| POST   | `/uploads/images`                 | Authenticated    | ✅ Ready |
+| POST   | `/stock/batches`                  | app_admin, staff | ✅ Ready |
+| POST   | `/stock/batches/:id/adjust`       | app_admin, staff | ✅ Ready |
+| POST   | `/stock/import-forms`             | app_admin, staff | ✅ Ready |
+| GET    | `/stock/import-forms`             | app_admin, staff | ✅ Ready |
+| GET    | `/stock/import-forms/:id`         | app_admin, staff | ✅ Ready |
+| PATCH  | `/stock/import-forms/:id`         | app_admin, staff | ✅ Ready |
+| POST   | `/stock/import-forms/:id/submit`  | app_admin, staff | ✅ Ready |
+| PATCH  | `/stock/import-forms/:id/confirm` | app_admin, staff | ✅ Ready |
+| POST   | `/stock/import-forms/:id/cancel`  | app_admin, staff | ✅ Ready |
+| POST   | `/stock/import-forms/:id/reject`  | app_admin, staff | ✅ Ready |
 
 ### Survey admin
 
@@ -974,12 +1019,11 @@ DELETE /admin/clinics/<clinicId>
 
 ## 15. Remaining gaps
 
-| Gap                                | Status     | Notes                                                                 |
-| ---------------------------------- | ---------- | --------------------------------------------------------------------- |
-| Stock RBAC (`app_admin` / `staff`) | 🔶 Extend  | Endpoints are authenticated; admin role check still TODO              |
-| Admin order / delivery console     | ❌ Missing | No admin list/retry GHN endpoint yet (see [shipping.md](shipping.md)) |
-| Admin book-for-customer            | ❌ Missing | `POST /bookings` as admin books the admin’s own customer profile      |
-| Staff vs admin product update      | 🔶 Extend  | Onboard + variant image only; no full product PATCH catalog editor    |
+| Gap                            | Status     | Notes                                                                 |
+| ------------------------------ | ---------- | --------------------------------------------------------------------- |
+| Admin order / delivery console | ❌ Missing | No admin list/retry GHN endpoint yet (see [shipping.md](shipping.md)) |
+| Admin book-for-customer        | ❌ Missing | `POST /bookings` as admin books the admin’s own customer profile      |
+| Staff vs admin product update  | 🔶 Extend  | Onboard + variant image only; no full product PATCH catalog editor    |
 
 ---
 
