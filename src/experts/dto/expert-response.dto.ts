@@ -10,6 +10,12 @@ export class ExpertClinicSummaryDto {
 
   @ApiProperty({ example: '12 Nguyen Hue, District 1, Ho Chi Minh City' })
   address!: string;
+
+  @ApiPropertyOptional({ example: 10.7769, nullable: true })
+  latitude!: number | null;
+
+  @ApiPropertyOptional({ example: 106.7009, nullable: true })
+  longitude!: number | null;
 }
 
 export class ExpertResponseDto {

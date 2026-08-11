@@ -85,10 +85,14 @@ List/detail responses include:
   "clinic": {
     "id": "uuid",
     "name": "GlowScan District 1 Clinic",
-    "address": "12 Nguyen Hue, District 1, Ho Chi Minh City"
+    "address": "12 Nguyen Hue, District 1, Ho Chi Minh City",
+    "latitude": 10.7769,
+    "longitude": 106.7009
   }
 }
 ```
+
+`latitude` and `longitude` are nullable when a clinic has not been geocoded.
 
 `clinic_manager` callers are scoped to their own `clinicId`.
 

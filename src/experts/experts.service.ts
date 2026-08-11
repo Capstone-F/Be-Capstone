@@ -513,6 +513,14 @@ export class ExpertsService {
     const clinicId = expert.clinicId;
     const clinicName = clinic?.name ?? '';
     const address = clinic?.address ?? '';
+    const latitude =
+      clinic?.latitude === null || clinic?.latitude === undefined
+        ? null
+        : Number(clinic.latitude);
+    const longitude =
+      clinic?.longitude === null || clinic?.longitude === undefined
+        ? null
+        : Number(clinic.longitude);
 
     return {
       id: expert.id,
@@ -524,6 +532,8 @@ export class ExpertsService {
         id: clinic?.id ?? clinicId,
         name: clinicName,
         address,
+        latitude,
+        longitude,
       },
       specialization: expert.specialization,
       licenseNumber: expert.licenseNumber,

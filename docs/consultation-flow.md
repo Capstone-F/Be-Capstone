@@ -210,6 +210,8 @@ Only **active** experts with a **non-null, active clinic** appear as bookable in
 
 Store from expert detail: `id`, `consultationFee`, `rating`, nested `clinic`. Session length is **not** on `ExpertResponseDto` — read `sessionLengthHours` from the slots response (next step).
 
+The nested `clinic` contains `id`, `name`, `address`, and nullable `latitude` / `longitude`. Use the coordinates for map markers; use `distanceKm` from the expert response as the authoritative straight-line distance when client `lat` / `lng` are supplied.
+
 ---
 
 ### 5.2 Choose a slot ✅ Ready

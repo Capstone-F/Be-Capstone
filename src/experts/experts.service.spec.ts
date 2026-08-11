@@ -300,7 +300,21 @@ describe('ExpertsService', () => {
       id: 'clinic-1',
       name: 'GlowScan Clinic',
       address: '12 Nguyen Hue, District 1',
+      latitude: 10.7769,
+      longitude: 106.7009,
     });
+  });
+
+  it('should return null clinic coordinates when they are unavailable', async () => {
+    const expert = makeExpert({
+      clinic: makeClinic({ latitude: null, longitude: null }),
+    });
+    const { service } = makeService({ findOne: expert });
+
+    const result = await service.findOne('expert-1');
+
+    expect(result.clinic.latitude).toBeNull();
+    expect(result.clinic.longitude).toBeNull();
   });
 
   it('should throw NotFoundException when expert does not exist', async () => {
