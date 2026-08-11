@@ -3735,7 +3735,7 @@ describe('BE Capstone API (e2e)', () => {
     let sid: string;
 
     beforeEach(async () => {
-      sid = await performMockLogin();
+      sid = await performMockLogin({ roles: [Role.AppAdmin] });
       jest
         .spyOn(authService, 'refreshTokenIfNeeded')
         .mockResolvedValue(undefined);
@@ -3750,6 +3750,43 @@ describe('BE Capstone API (e2e)', () => {
           manufacturingDate: '2026-01-15',
         })
         .expect(401);
+    });
+
+    it('should return 403 for customer role', async () => {
+      const customerSid = await performMockLogin({
+        userId: 'e2e-customer-stock-batches',
+        keycloakSub: 'kc-sub-e2e-customer-stock-batches',
+        roles: [Role.Customer],
+      });
+
+      await request(app.getHttpServer())
+        .post('/stock/batches')
+        .set('Cookie', customerSid)
+        .send({
+          productVariantId: '00000000-0000-0000-0000-000000000001',
+          quantity: 10,
+          manufacturingDate: '2026-01-15',
+        })
+        .expect(403);
+    });
+
+    it('should allow staff role', async () => {
+      const staffSid = await performMockLogin({
+        userId: 'e2e-staff-stock-batches',
+        keycloakSub: 'kc-sub-e2e-staff-stock-batches',
+        roles: [Role.Staff],
+      });
+      const { variant } = await seedProduct();
+
+      await request(app.getHttpServer())
+        .post('/stock/batches')
+        .set('Cookie', staffSid)
+        .send({
+          productVariantId: variant.id,
+          quantity: 10,
+          manufacturingDate: '2026-01-15',
+        })
+        .expect(201);
     });
 
     it('should return 400 when quantity is zero', async () => {
@@ -3840,7 +3877,7 @@ describe('BE Capstone API (e2e)', () => {
     let sid: string;
 
     beforeEach(async () => {
-      sid = await performMockLogin();
+      sid = await performMockLogin({ roles: [Role.AppAdmin] });
       jest
         .spyOn(authService, 'refreshTokenIfNeeded')
         .mockResolvedValue(undefined);
@@ -3851,6 +3888,20 @@ describe('BE Capstone API (e2e)', () => {
         .post('/stock/batches/00000000-0000-0000-0000-000000000001/adjust')
         .send({ quantity: 50 })
         .expect(401);
+    });
+
+    it('should return 403 for customer role', async () => {
+      const customerSid = await performMockLogin({
+        userId: 'e2e-customer-stock-adjust',
+        keycloakSub: 'kc-sub-e2e-customer-stock-adjust',
+        roles: [Role.Customer],
+      });
+
+      await request(app.getHttpServer())
+        .post('/stock/batches/00000000-0000-0000-0000-000000000001/adjust')
+        .set('Cookie', customerSid)
+        .send({ quantity: 50 })
+        .expect(403);
     });
 
     it('should return 400 when quantity is zero', async () => {

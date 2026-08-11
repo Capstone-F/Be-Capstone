@@ -4,6 +4,7 @@ End-to-end guide for **Staff** (`staff`) and **App Admin** (`app_admin`):
 
 1. **Stock import forms** — create draft → update → submit → confirm (applies inventory), or cancel / reject
 2. **Customer support chat** — shared queue → claim (one staff at a time) → poll/send messages → close
+3. **Catalog onboarding** — create products (+ ingredients), set variant images (shared with `app_admin`)
 
 **Auth (login):** do not duplicate here — use:
 
@@ -12,7 +13,7 @@ End-to-end guide for **Staff** (`staff`) and **App Admin** (`app_admin`):
 
 See also:
 
-- [Admin Integration Guide](admin-flow.md) — catalog onboarding and direct `POST /stock/batches`
+- [Admin Integration Guide](admin-flow.md) — admin-only surface (users/RBAC, clinics, survey bank, commerce settings, wallet)
 - [Clinic Manager Flow Guide](clinic-manager-flow.md) — clinic-scoped expert onboarding, fees, availability
 - [User Management & RBAC](users.md) — roles and permissions
 
@@ -56,6 +57,13 @@ See also:
 21. [Customer endpoints (for FE pairing)](#21-customer-endpoints-for-fe-pairing)
 22. [Support endpoint checklist](#22-support-endpoint-checklist)
 
+### C. Catalog onboarding (shared with admin)
+
+23. [Onboard a product](#23-onboard-a-product)
+24. [Update variant image](#24-update-variant-image)
+25. [Direct stock batch import](#25-direct-stock-batch-import)
+26. [Catalog endpoint checklist](#26-catalog-endpoint-checklist)
+
 ---
 
 # A. Stock import forms
@@ -69,7 +77,7 @@ All `/stock/import-forms` endpoints require:
 
 Same actor may create, submit, and confirm (no separation-of-duties rule).
 
-Direct batch import (`POST /stock/batches`) remains available for immediate stock-in without a form — see [admin-flow.md](admin-flow.md) Flow D.
+Direct batch import (`POST /stock/batches` / `POST /stock/batches/:id/adjust`) remains available for immediate stock-in without a form — same roles (`staff`, `app_admin`). See [§25](#25-direct-stock-batch-import) below or [admin-flow.md §7](admin-flow.md#7-flow-d--product-catalog--stock).
 
 ---
 
@@ -581,4 +589,122 @@ GET  /support/sessions?status=OPEN&assigned=unassigned
   → (poll) GET …/messages?afterSeq=<lastSeq>
   → POST /support/sessions/:id/read
   → POST /support/sessions/:id/close
+```
+
+---
+
+# C. Catalog onboarding (shared with admin)
+
+Staff may onboard new SKUs directly — not gated behind admin. Full field reference and combo/ecommerce context: [admin-flow.md §7](admin-flow.md#7-flow-d--product-catalog--stock).
+
+## 23. Onboard a product ✅ Ready
+
+| Method | Path        | Roles            | Status   |
+| ------ | ----------- | ---------------- | -------- |
+| POST   | `/products` | app_admin, staff | ✅ Ready |
+
+```http
+POST /products
+Content-Type: application/json
+
+{
+  "name": "La Roche-Posay Effaclar Serum",
+  "brand": "La Roche-Posay",
+  "categoryCode": "SERUM",
+  "categoryName": "Serum",
+  "description": "Anti-acne serum for oily skin",
+  "sku": "LRP-EFFAC-SERUM-30ML",
+  "volume": "30ml",
+  "packaging": "Bottle",
+  "priceVnd": 650000,
+  "imageUrl": "https://placehold.co/400",
+  "shelfLifeValue": 365,
+  "shelfLifeUnit": "DAY",
+  "ingredients": [
+    { "name": "Salicylic Acid", "concentrationPct": 1.5, "isKeyIngredient": true }
+  ]
+}
+```
+
+Missing ingredients are **auto-created** inside the onboarding transaction. Response includes `variants[]` — store `variants[0].id` as `productVariantId` for [stock import forms](#3-create-draft) or direct batch import ([§25](#25-direct-stock-batch-import)).
+
+**Helper (public):** `GET /ingredients` lists active ingredients; `GET /products/categories` lists categories for filters / onboarding UX.
+
+---
+
+## 24. Update variant image ✅ Ready
+
+| Method | Path                            | Roles            | Status   |
+| ------ | ------------------------------- | ---------------- | -------- |
+| PATCH  | `/products/variants/:variantId` | app_admin, staff | ✅ Ready |
+
+```
+POST /uploads/images  →  { url }
+PATCH /products/variants/<variantId>  { "imageUrl": "<url>" }
+```
+
+```http
+PATCH /products/variants/<variantId>
+Content-Type: application/json
+
+{
+  "imageUrl": "https://pub-xxx.r2.dev/images/2026/08/uuid.jpg"
+}
+```
+
+---
+
+## 25. Direct stock batch import ✅ Ready
+
+Immediate stock-in with no draft/approval step — an alternative to the [import forms workflow](#3-create-draft) above when no review is needed.
+
+| Method | Path                        | Roles            | Status   |
+| ------ | --------------------------- | ---------------- | -------- |
+| POST   | `/stock/batches`            | app_admin, staff | ✅ Ready |
+| POST   | `/stock/batches/:id/adjust` | app_admin, staff | ✅ Ready |
+
+```http
+POST /stock/batches
+Content-Type: application/json
+
+{
+  "productVariantId": "<variant-uuid>",
+  "quantity": 100,
+  "manufacturingDate": "2026-01-15",
+  "batchCode": "LOT-2026-001"
+}
+```
+
+```http
+POST /stock/batches/<batchId>/adjust
+Content-Type: application/json
+
+{
+  "quantity": 50,
+  "note": "Physical inventory count correction"
+}
+```
+
+Expiration is computed from the variant shelf life; `adjust` sets the **absolute** remaining quantity and records an `ADJUSTMENT` movement.
+
+---
+
+## 26. Catalog endpoint checklist
+
+| Method | Path                            | Roles            | Status   |
+| ------ | ------------------------------- | ---------------- | -------- |
+| POST   | `/products`                     | app_admin, staff | ✅ Ready |
+| PATCH  | `/products/variants/:variantId` | app_admin, staff | ✅ Ready |
+| GET    | `/products/categories`          | Public           | ✅ Ready |
+| GET    | `/ingredients`                  | Public           | ✅ Ready |
+| POST   | `/uploads/images`               | Authenticated    | ✅ Ready |
+| POST   | `/stock/batches`                | app_admin, staff | ✅ Ready |
+| POST   | `/stock/batches/:id/adjust`     | app_admin, staff | ✅ Ready |
+
+**Typical Staff sequence (new SKU sellable):**
+
+```
+POST /products
+  → optional POST /uploads/images → PATCH /products/variants/:variantId
+  → POST /stock/batches   (or the import-forms workflow above)
 ```

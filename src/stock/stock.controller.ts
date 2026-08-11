@@ -11,12 +11,16 @@ import {
   ApiBearerAuth,
   ApiCookieAuth,
   ApiCreatedResponse,
+  ApiForbiddenResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
+import { Role } from '../auth/roles.enum';
 import { StockMovementType } from './enums';
 import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { ImportBatchDto } from './dto/import-batch.dto';
@@ -24,10 +28,12 @@ import { StockService } from './stock.service';
 
 @ApiTags('Stock')
 @Controller('stock')
-@UseGuards(SessionGuard)
+@UseGuards(SessionGuard, RolesGuard)
+@Roles(Role.AppAdmin, Role.Staff)
 @ApiCookieAuth()
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Not authenticated' })
+@ApiForbiddenResponse({ description: 'Insufficient permissions' })
 export class StockController {
   constructor(private readonly stockService: StockService) {}
 
@@ -55,11 +61,10 @@ export class StockController {
     summary: 'Adjust batch stock quantity',
     description:
       'Sets the absolute remaining quantity for a batch and records an ADJUSTMENT movement. ' +
-      'Requires an authenticated session (RBAC admin check planned for future).',
+      'Requires role app_admin or staff.',
   })
   @ApiOkResponse({ description: 'Batch adjusted' })
   adjust(@Param('id') id: string, @Body() dto: AdjustStockDto) {
-    // TODO: RBAC admin check
     return this.stockService.recordMovement(
       id,
       StockMovementType.ADJUSTMENT,
