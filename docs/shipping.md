@@ -64,8 +64,11 @@ GHN's 22 statuses (`src/delivery/ghn.status-map.ts`) collapse onto our enums:
 | `return`, `return_*`, `returning`, `returned`                                  | RETURNED       | _(unchanged)_ |
 
 Return/cancel/exception states deliberately **do not** move the order. It was paid; deciding
-`CANCELLED`/`REFUNDED` is a money decision requiring a refund path that does not exist yet.
-The delivery reflects reality and a human decides the rest.
+`CANCELLED`/`REFUNDED` is a money decision. Staff/admin own that path via
+`POST /admin/order-cancellations` (wallet refund + restock). See
+[staff-flow.md §D](staff-flow.md#d-order-cancellations--returns). GHN shipment cancel for an
+order already handed to the carrier stays a manual dashboard action; `AWAITING_RETURN` is the
+hold point for that.
 
 ## Webhook trust model
 

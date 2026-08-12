@@ -8,9 +8,16 @@ import { DeliveryProvider } from '../delivery/delivery-provider.entity';
 import { DeliveryModule } from '../delivery/delivery.module';
 import { ProductVariant } from '../products/product-variant.entity';
 import { RecommendationsModule } from '../recommendations/recommendations.module';
+import { StockModule } from '../stock/stock.module';
 import { Customer } from '../users/customer.entity';
+import { WalletModule } from '../wallet/wallet.module';
 import { CommerceSetting } from './commerce-setting.entity';
 import { CommerceSettingsController } from './commerce-settings.controller';
+import { OrderCancellationItem } from './order-cancellation-item.entity';
+import { OrderCancellationProcessor } from './order-cancellation.processor';
+import { OrderCancellation } from './order-cancellation.entity';
+import { OrderCancellationsController } from './order-cancellations.controller';
+import { OrderCancellationsService } from './order-cancellations.service';
 import { OrderItem } from './order-item.entity';
 import { Order } from './order.entity';
 import { OrdersController } from './orders.controller';
@@ -27,14 +34,28 @@ import { Transaction } from './transaction.entity';
       ProductVariant,
       Customer,
       DeliveryProvider,
+      OrderCancellation,
+      OrderCancellationItem,
     ]),
     CartModule,
     RecommendationsModule,
     AuthModule,
     DeliveryModule,
+    StockModule,
+    WalletModule,
   ],
-  controllers: [OrdersController, CommerceSettingsController],
-  providers: [OrdersService, SessionGuard, RolesGuard],
-  exports: [TypeOrmModule, OrdersService],
+  controllers: [
+    OrdersController,
+    CommerceSettingsController,
+    OrderCancellationsController,
+  ],
+  providers: [
+    OrdersService,
+    OrderCancellationsService,
+    OrderCancellationProcessor,
+    SessionGuard,
+    RolesGuard,
+  ],
+  exports: [TypeOrmModule, OrdersService, OrderCancellationsService],
 })
 export class CommerceModule {}

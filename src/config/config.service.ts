@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { AppEnv, getMissingRequiredEnv, resolveAppEnv } from './env.config';
 import { LlmConfig } from './llm.config';
 import { PaymentConfig, PayosConfig } from './payment.config';
+import { OrderCancellationConfig } from './order-cancellation.config';
 import { ShippingConfig } from './shipping.config';
 
 @Injectable()
@@ -210,6 +211,16 @@ export class AppConfigService {
   /** Public base URL for R2 objects (no trailing slash). Empty when not configured. */
   get r2PublicBaseUrl(): string {
     return this.env.R2_PUBLIC_BASE_URL;
+  }
+
+  /** Cron-driven order cancellation pipeline (refund + restock). */
+  get orderCancellationConfig(): OrderCancellationConfig {
+    return {
+      cronEnabled: this.env.ORDER_CANCELLATION_CRON_ENABLED,
+      tickCron: this.env.ORDER_CANCELLATION_TICK_CRON,
+      stepDelaySec: this.env.ORDER_CANCELLATION_STEP_DELAY_SEC,
+      batchSize: this.env.ORDER_CANCELLATION_BATCH_SIZE,
+    };
   }
 
   getMissingRequiredKeys(): string[] {

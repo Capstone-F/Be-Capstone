@@ -319,7 +319,18 @@ Returns a paginated list of the authenticated customer’s orders (newest first)
 GET /orders/<orderId>
 ```
 
-Returns the same order shape for the authenticated owner only.
+Returns the same order shape for the authenticated owner only. Once a cancellation exists, the payload includes `cancelledAt` and a `cancellation` summary (`status`, `refundAmountVnd`, `nextRunAt`).
+
+**Cancel (customer):** `POST /orders/:id/cancel` is allowed while the order is `PENDING` or `PAID`. Body `{ "reason": "..." }` is optional. Staff/admin can cancel any pre-`DELIVERED` order via `POST /admin/order-cancellations`. The processor refunds the **wallet** (full `totalVnd` if still `PAID`; shipping withheld once `PROCESSING`/`SHIPPED`) and parks sold units for staff restock. Full staff desk: [staff-flow.md §D](staff-flow.md#d-order-cancellations--returns).
+
+```http
+POST /orders/<orderId>/cancel
+Content-Type: application/json
+
+{
+  "reason": "Changed my mind"
+}
+```
 
 **Catalog vs survey:**
 
@@ -462,23 +473,28 @@ GHN status → `DeliveryStatus` / `OrderStatus` mapping: [shipping.md](shipping.
 | Create order + lock fee | POST   | `/orders`                                                         | ✅ Ready |
 | List my orders          | GET    | `/orders`                                                         | ✅ Ready |
 | Get order               | GET    | `/orders/:id`                                                     | ✅ Ready |
+| Cancel my order         | POST   | `/orders/:id/cancel`                                              | ✅ Ready |
 | Start VNPay checkout    | POST   | `/payments/checkout`                                              | ✅ Ready |
 | Payment status          | GET    | `/payments/:id`                                                   | ✅ Ready |
 | Get delivery / tracking | GET    | `/delivery/order/:orderId`                                        | ✅ Ready |
 
 ### Supporting (optional)
 
-| Method      | Path                                             | Status   | Notes                                              |
-| ----------- | ------------------------------------------------ | -------- | -------------------------------------------------- |
-| GET         | `/users/me`                                      | ✅ Ready | Account identity                                   |
-| GET / PATCH | `/customers/me`                                  | ✅ Ready | Profile / phone / allergies — **no saved address** |
-| POST        | `/products`                                      | ✅ Ready | Admin/Staff onboard (optional `imageUrl`)          |
-| PATCH       | `/products/variants/:variantId`                  | ✅ Ready | Admin/Staff set variant `imageUrl`                 |
-| POST        | `/uploads/images`                                | ✅ Ready | Multipart → R2 URL; see [uploads.md](uploads.md)   |
-| GET / PATCH | `/admin/commerce-settings/survey-combo-discount` | ✅ Ready | Admin only                                         |
-| GET         | `/payments/vnpay/return`                         | ✅ Ready | Gateway browser return; not called by app UI       |
-| GET         | `/payments/vnpay/ipn`                            | ✅ Ready | Gateway server callback                            |
-| POST        | `/delivery/ghn/webhook/:secret`                  | ✅ Ready | GHN callback (portal-registered URL)               |
+| Method      | Path                                             | Status   | Notes                                                                                            |
+| ----------- | ------------------------------------------------ | -------- | ------------------------------------------------------------------------------------------------ |
+| GET         | `/users/me`                                      | ✅ Ready | Account identity                                                                                 |
+| GET / PATCH | `/customers/me`                                  | ✅ Ready | Profile / phone / allergies — **no saved address**                                               |
+| POST        | `/products`                                      | ✅ Ready | Admin/Staff onboard (optional `imageUrl`)                                                        |
+| PATCH       | `/products/variants/:variantId`                  | ✅ Ready | Admin/Staff set variant `imageUrl`                                                               |
+| POST        | `/uploads/images`                                | ✅ Ready | Multipart → R2 URL; see [uploads.md](uploads.md)                                                 |
+| GET / PATCH | `/admin/commerce-settings/survey-combo-discount` | ✅ Ready | Admin only                                                                                       |
+| POST        | `/orders/:id/cancel`                             | ✅ Ready | Customer: own `PENDING` / `PAID` only                                                            |
+| POST / GET  | `/admin/order-cancellations`                     | ✅ Ready | Staff/admin cancel + queue; see [staff-flow.md §D](staff-flow.md#d-order-cancellations--returns) |
+| POST        | `/admin/order-cancellations/:id/confirm-return`  | ✅ Ready | Staff restock (good / damaged split)                                                             |
+| POST        | `/admin/order-cancellations/:id/advance`         | ✅ Ready | Demo: step the cron pipeline immediately                                                         |
+| GET         | `/payments/vnpay/return`                         | ✅ Ready | Gateway browser return; not called by app UI                                                     |
+| GET         | `/payments/vnpay/ipn`                            | ✅ Ready | Gateway server callback                                                                          |
+| POST        | `/delivery/ghn/webhook/:secret`                  | ✅ Ready | GHN callback (portal-registered URL)                                                             |
 
 ---
 
@@ -486,11 +502,11 @@ GHN status → `DeliveryStatus` / `OrderStatus` mapping: [shipping.md](shipping.
 
 Order + GHN fee + payment + carrier tracking are **done**. Still open:
 
-| #   | Item                         | Purpose                                                                 | Status     |
-| --- | ---------------------------- | ----------------------------------------------------------------------- | ---------- |
-| 1   | GHN create retry / reconcile | Re-hand off `PAID` orders with null `providerOrderCode` if GHN was down | ❌ Missing |
-| 2   | Saved customer addresses     | Reuse GHN address across orders                                         | ❌ Missing |
-| 3   | Money refund on return/fail  | Delivery can be `FAILED`/`RETURNED` without auto order refund           | ❌ Missing |
+| #   | Item                           | Purpose                                                                 | Status     |
+| --- | ------------------------------ | ----------------------------------------------------------------------- | ---------- |
+| 1   | GHN create retry / reconcile   | Re-hand off `PAID` orders with null `providerOrderCode` if GHN was down | ❌ Missing |
+| 2   | Saved customer addresses       | Reuse GHN address across orders                                         | ❌ Missing |
+| 3   | Auto-refund on GHN return/fail | Delivery `FAILED`/`RETURNED` does not auto-open a cancellation          | 🔶 Extend  |
 
 ### Happy-path sequence
 
@@ -566,9 +582,10 @@ Wait until `status` is not `PENDING` / `PROCESSING` before showing success / tra
 
 `PENDING` → `PROCESSING` → `SHIPPED` → `IN_TRANSIT` → `DELIVERED` (also `FAILED`, `RETURNED`)
 
-Return/fail delivery states do **not** auto-refund the order (money decision still open).
+Return/fail delivery states do **not** auto-open a cancellation. Staff can still cancel a `PROCESSING`/`SHIPPED` order via `POST /admin/order-cancellations` (wallet refund, shipping withheld). See [staff-flow.md §D](staff-flow.md#d-order-cancellations--returns).
 
 ```
 Ready today:     Discover → Auth → Cart → GHN address → Order+fee → Payment → GHN ship → Track
-Still open:      GHN create retry, saved addresses, refund on return/fail
+                 Cancel → wallet refund → staff restock
+Still open:      GHN create retry, saved addresses, auto-refund on GHN return/fail
 ```

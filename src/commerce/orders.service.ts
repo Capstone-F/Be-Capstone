@@ -213,7 +213,7 @@ export class OrdersService {
     const customer = await this.requireCustomer(userId);
     const order = await this.orderRepository.findOne({
       where: { id: orderId, customerId: customer.id },
-      relations: ['items', 'delivery'],
+      relations: ['items', 'delivery', 'cancellation'],
     });
     if (!order) {
       throw new NotFoundException(`Order ${orderId} not found`);
@@ -237,7 +237,7 @@ export class OrdersService {
 
     const [orders, total] = await this.orderRepository.findAndCount({
       where,
-      relations: ['items', 'delivery'],
+      relations: ['items', 'delivery', 'cancellation'],
       order: { createdAt: 'DESC' },
       skip,
       take: limit,
@@ -359,6 +359,17 @@ export class OrdersService {
       provinceId: order.delivery?.provinceId ?? null,
       districtId: order.delivery?.districtId ?? null,
       wardCode: order.delivery?.wardCode ?? null,
+      cancelledAt: order.cancelledAt ?? null,
+      cancellation: order.cancellation
+        ? {
+            id: order.cancellation.id,
+            status: order.cancellation.status,
+            refundAmountVnd: String(order.cancellation.refundAmountVnd),
+            refundTransactionId: order.cancellation.refundTransactionId,
+            requiresStockReturn: order.cancellation.requiresStockReturn,
+            nextRunAt: order.cancellation.nextRunAt,
+          }
+        : null,
       createdAt: order.createdAt,
     };
   }

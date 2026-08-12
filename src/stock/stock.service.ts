@@ -267,6 +267,112 @@ export class StockService {
     });
   }
 
+  /**
+   * Flip SOLD instances for an order item to RETURNED (in transit / quarantine).
+   * Does not change batch.remainingQuantity — units are not sellable yet.
+   */
+  async markInstancesInReturnTransit(
+    manager: EntityManager,
+    orderItemId: string,
+  ): Promise<number> {
+    const instances = await manager.find(ProductInstance, {
+      where: {
+        orderItemId,
+        status: ProductInstanceStatus.SOLD,
+      },
+      ...this.pessimisticWriteLock(manager),
+    });
+
+    for (const instance of instances) {
+      instance.status = ProductInstanceStatus.RETURNED;
+    }
+    if (instances.length > 0) {
+      await manager.save(ProductInstance, instances);
+    }
+    return instances.length;
+  }
+
+  /**
+   * Confirm warehouse receipt of RETURNED instances for an order item.
+   * Good units go ON_RACK (resellable, remainingQuantity += n, RETURN movement).
+   * Damaged units go DAMAGED and stay linked to the order item for audit.
+   */
+  async restockReturnedInstances(
+    manager: EntityManager,
+    options: {
+      orderItemId: string;
+      goodQuantity: number;
+      damagedQuantity: number;
+      note?: string;
+    },
+  ): Promise<void> {
+    const { orderItemId, goodQuantity, damagedQuantity, note } = options;
+    if (goodQuantity < 0 || damagedQuantity < 0) {
+      throw new BadRequestException(
+        'goodQuantity and damagedQuantity must be non-negative',
+      );
+    }
+    const needed = goodQuantity + damagedQuantity;
+    if (needed === 0) {
+      return;
+    }
+
+    const instances = await manager.find(ProductInstance, {
+      where: {
+        orderItemId,
+        status: ProductInstanceStatus.RETURNED,
+      },
+      order: { createdAt: 'ASC' },
+      take: needed,
+      ...this.pessimisticWriteLock(manager),
+    });
+
+    if (instances.length < needed) {
+      throw new BadRequestException(
+        `Not enough RETURNED instances for order item ${orderItemId}: ` +
+          `have ${instances.length}, need ${needed}`,
+      );
+    }
+
+    const good = instances.slice(0, goodQuantity);
+    const damaged = instances.slice(goodQuantity, needed);
+
+    const returnedByBatch = new Map<string, number>();
+    for (const instance of good) {
+      returnedByBatch.set(
+        instance.stockBatchId,
+        (returnedByBatch.get(instance.stockBatchId) ?? 0) + 1,
+      );
+      instance.status = ProductInstanceStatus.ON_RACK;
+      instance.orderItemId = null;
+    }
+    for (const instance of damaged) {
+      instance.status = ProductInstanceStatus.DAMAGED;
+    }
+    await manager.save(ProductInstance, instances);
+
+    const movementNote = note ?? `Return restock for order item ${orderItemId}`;
+    for (const [batchId, qty] of returnedByBatch) {
+      const batch = await manager.findOne(StockBatch, {
+        where: { id: batchId },
+        ...this.pessimisticWriteLock(manager),
+      });
+      if (!batch) {
+        throw new NotFoundException(`Stock batch ${batchId} not found`);
+      }
+      batch.remainingQuantity += qty;
+      await manager.save(StockBatch, batch);
+
+      const movement = manager.create(StockMovement, {
+        batchId: batch.id,
+        type: StockMovementType.RETURN,
+        quantity: qty,
+        note: movementNote,
+      });
+      await manager.save(StockMovement, movement);
+    }
+  }
+
   /** Expiration = manufacturing date + variant shelf life (UTC date-only). */
   addShelfLife(
     manufacturingDate: Date,
