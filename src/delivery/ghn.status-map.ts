@@ -5,8 +5,10 @@ export type GhnStatusMapping = {
   delivery: DeliveryStatus;
   /**
    * Omitted where the shipping state does not justify moving the order.
-   * Return/cancel/exception states leave the order alone: it was paid, and deciding
-   * CANCELLED/REFUNDED is a money decision staff own via POST /admin/order-cancellations.
+   * Return/cancel/exception states leave OrderStatus alone here. A RETURNED
+   * delivery is picked up by OrderCancellationProcessor.sweepReturnedDeliveries,
+   * which creates a SYSTEM cancellation (wallet refund + restock). FAILED
+   * states still need a staff decision via POST /admin/order-cancellations.
    */
   order?: OrderStatus;
 };

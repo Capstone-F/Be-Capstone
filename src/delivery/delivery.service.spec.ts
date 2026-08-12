@@ -1,5 +1,10 @@
-import { NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { Repository } from 'typeorm';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { In, IsNull, Not, Repository } from 'typeorm';
 import { AppConfigService } from '../config/config.service';
 import { CartService } from '../cart/cart.service';
 import { OrderStatus } from '../commerce/enums';
@@ -255,8 +260,12 @@ describe('DeliveryService', () => {
           providerStatus: 'delivered',
         }),
       );
+      // Guard: never resurrect CANCELLED/REFUNDED orders from a late shipping event.
       expect(orderRepo.update).toHaveBeenCalledWith(
-        { id: 'o1' },
+        {
+          id: 'o1',
+          status: Not(In([OrderStatus.CANCELLED, OrderStatus.REFUNDED])),
+        },
         { status: OrderStatus.DELIVERED },
       );
       expect(eventRepo.save).toHaveBeenCalledWith(
@@ -437,6 +446,130 @@ describe('DeliveryService', () => {
       await expect(service.quoteFeeForCart('user-1', ADDRESS)).rejects.toThrow(
         'Cart is empty',
       );
+    });
+  });
+
+  describe('confirmHandoverToProvider', () => {
+    const BASE_DELIVERY = {
+      id: 'd1',
+      orderId: 'o1',
+      providerOrderCode: 'FFFNL9HH',
+      status: DeliveryStatus.PROCESSING,
+      handedOverAt: null,
+      handedOverByUserId: null,
+      handoverNote: null,
+      lastStatusAt: null,
+      shippedAt: null,
+      deliveredAt: null,
+      type: 'STANDARD',
+      shippingFeeVnd: 32000,
+      expectedDeliveryTime: null,
+      providerStatus: 'picking',
+      recipientName: 'Nguyen Van A',
+      streetAddress: '123 Le Loi',
+      order: { status: OrderStatus.PROCESSING },
+      statusEvents: [],
+    };
+
+    it('stamps handover fields and applies picked', async () => {
+      deliveryRepo.findOne
+        .mockResolvedValueOnce({ ...BASE_DELIVERY })
+        .mockResolvedValueOnce({
+          ...BASE_DELIVERY,
+          handedOverAt: new Date('2026-07-16T10:00:00Z'),
+          handedOverByUserId: 'staff-1',
+          handoverNote: 'Left at dock',
+          status: DeliveryStatus.SHIPPED,
+          providerStatus: 'picked',
+          shippedAt: new Date('2026-07-16T10:00:00Z'),
+          lastStatusAt: new Date('2026-07-16T10:00:00Z'),
+        });
+      deliveryRepo.update.mockResolvedValue({ affected: 1 });
+
+      const result = await service.confirmHandoverToProvider(
+        'staff-1',
+        'o1',
+        'Left at dock',
+      );
+
+      expect(deliveryRepo.update).toHaveBeenCalledWith(
+        { id: 'd1', handedOverAt: IsNull() },
+        expect.objectContaining({
+          handedOverByUserId: 'staff-1',
+          handoverNote: 'Left at dock',
+        }),
+      );
+      expect(deliveryRepo.update).toHaveBeenCalledWith(
+        { id: 'd1' },
+        expect.objectContaining({
+          status: DeliveryStatus.SHIPPED,
+          providerStatus: 'picked',
+        }),
+      );
+      expect(orderRepo.update).toHaveBeenCalledWith(
+        {
+          id: 'o1',
+          status: Not(In([OrderStatus.CANCELLED, OrderStatus.REFUNDED])),
+        },
+        { status: OrderStatus.SHIPPED },
+      );
+      expect(eventRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          applied: true,
+          providerStatus: 'picked',
+          rawWebhook: expect.objectContaining({
+            source: 'STAFF_HANDOVER',
+            userId: 'staff-1',
+            note: 'Left at dock',
+          }),
+        }),
+      );
+      expect(result.handedOverByUserId).toBe('staff-1');
+      expect(result.handoverNote).toBe('Left at dock');
+    });
+
+    it('rejects when providerOrderCode is missing', async () => {
+      deliveryRepo.findOne.mockResolvedValue({
+        ...BASE_DELIVERY,
+        providerOrderCode: null,
+      });
+
+      await expect(
+        service.confirmHandoverToProvider('staff-1', 'o1'),
+      ).rejects.toThrow(BadRequestException);
+      expect(deliveryRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects a second handover with ConflictException', async () => {
+      deliveryRepo.findOne.mockResolvedValue({
+        ...BASE_DELIVERY,
+        handedOverAt: new Date('2026-07-16T09:00:00Z'),
+      });
+
+      await expect(
+        service.confirmHandoverToProvider('staff-1', 'o1'),
+      ).rejects.toThrow(ConflictException);
+      expect(deliveryRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the order is cancelled', async () => {
+      deliveryRepo.findOne.mockResolvedValue({
+        ...BASE_DELIVERY,
+        order: { status: OrderStatus.CANCELLED },
+      });
+
+      await expect(
+        service.confirmHandoverToProvider('staff-1', 'o1'),
+      ).rejects.toThrow(BadRequestException);
+      expect(deliveryRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFound when the order has no delivery', async () => {
+      deliveryRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.confirmHandoverToProvider('staff-1', 'o1'),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });

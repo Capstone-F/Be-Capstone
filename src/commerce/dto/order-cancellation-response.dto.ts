@@ -32,8 +32,12 @@ export class OrderCancellationResponseDto {
   @ApiProperty({ enum: OrderCancellationStatus })
   status!: OrderCancellationStatus;
 
-  @ApiProperty()
-  requestedByUserId!: string;
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Null when requestedByActor is SYSTEM (auto-cancel on return).',
+  })
+  requestedByUserId!: string | null;
 
   @ApiProperty({ enum: OrderCancellationActor })
   requestedByActor!: OrderCancellationActor;
@@ -123,6 +127,13 @@ export class TickOrderCancellationsResponseDto {
 
   @ApiProperty()
   skipped!: number;
+
+  @ApiProperty({
+    type: [String],
+    description:
+      'Order ids for which a SYSTEM cancellation was auto-created from a RETURNED delivery.',
+  })
+  autoCancelled!: string[];
 }
 
 export class OrderCancellationSummaryDto {

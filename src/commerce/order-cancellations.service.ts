@@ -102,6 +102,28 @@ export class OrderCancellationsService {
     );
   }
 
+  /**
+   * Auto-cancel when a delivery reaches RETURNED (GHN return / simulator force).
+   * requestedByUserId is null; actor is SYSTEM.
+   */
+  async requestBySystem(
+    orderId: string,
+    reason?: string,
+  ): Promise<OrderCancellationResponseDto> {
+    const order = await this.loadOrderForCancel(orderId);
+    if (STAFF_BLOCKED_STATUSES.has(order.status)) {
+      throw new BadRequestException(
+        `Order cannot be cancelled (status: ${order.status})`,
+      );
+    }
+    return this.createCancellation(
+      order,
+      null,
+      OrderCancellationActor.SYSTEM,
+      reason ?? 'Auto-cancelled after delivery returned',
+    );
+  }
+
   async confirmReturn(
     staffUserId: string,
     cancellationId: string,
@@ -228,7 +250,7 @@ export class OrderCancellationsService {
 
   private async createCancellation(
     order: Order,
-    userId: string,
+    userId: string | null,
     actor: OrderCancellationActor,
     reason?: string,
   ): Promise<OrderCancellationResponseDto> {

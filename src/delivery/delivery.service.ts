@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -8,7 +9,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Repository } from 'typeorm';
+import { In, IsNull, Not, Repository } from 'typeorm';
 import { CartService } from '../cart/cart.service';
 import { AppConfigService } from '../config/config.service';
 import { OrderStatus } from '../commerce/enums';
@@ -17,10 +18,12 @@ import { ProductVariant } from '../products/product-variant.entity';
 import { Customer } from '../users/customer.entity';
 import { Delivery } from './delivery.entity';
 import { DeliveryStatusEvent } from './delivery-status-event.entity';
+import { DeliveryAdminResponseDto } from './dto/delivery-admin-response.dto';
 import { ShippingAddressDto } from './dto/shipping-address.dto';
 import { DeliveryResponseDto } from './dto/delivery-response.dto';
 import { FeeQuoteResponseDto } from './dto/fee-quote.dto';
 import { GhnWebhookDto } from './dto/ghn-webhook.dto';
+import { ListDeliveriesQueryDto } from './dto/list-deliveries-query.dto';
 import { DeliveryStatus } from './enums';
 import { GhnClient } from './ghn.client';
 import { GHN_STATUS_MAP } from './ghn.status-map';
@@ -37,6 +40,17 @@ import { GhnDistrict, GhnProvince, GhnWard } from './ghn.types';
 
 /** What the fee calculation needs to know about one line of a cart/order. */
 export type ParcelLine = { weightGram: number; quantity: number };
+
+const TERMINAL_HANDOVER_DELIVERY_STATUSES = new Set([
+  DeliveryStatus.DELIVERED,
+  DeliveryStatus.FAILED,
+  DeliveryStatus.RETURNED,
+]);
+
+const BLOCKED_HANDOVER_ORDER_STATUSES = new Set([
+  OrderStatus.CANCELLED,
+  OrderStatus.REFUNDED,
+]);
 
 @Injectable()
 export class DeliveryService {
@@ -247,42 +261,69 @@ export class DeliveryService {
       return;
     }
 
-    const mapping = GHN_STATUS_MAP[body.Status];
-    const occurredAt = new Date(body.Time);
+    const result = await this.applyProviderStatus({
+      delivery,
+      providerStatus: body.Status,
+      occurredAt: new Date(body.Time),
+      rawPayload: rawBody,
+    });
+
+    if (!result.applied) {
+      return;
+    }
+
+    this.logger.log(
+      `GHN webhook applied for ${body.OrderCode}: ${body.Status} -> ${result.deliveryStatus}`,
+    );
+  }
+
+  /**
+   * Shared apply path for real GHN webhooks and the sandbox status simulator.
+   *
+   * Audits every event (applied or not). Stale timestamps are ignored. Order
+   * status is never resurrected once CANCELLED/REFUNDED.
+   */
+  async applyProviderStatus(args: {
+    delivery: Delivery;
+    providerStatus: string;
+    occurredAt: Date;
+    rawPayload: unknown;
+  }): Promise<{ applied: boolean; deliveryStatus: DeliveryStatus | null }> {
+    const { delivery, providerStatus, occurredAt, rawPayload } = args;
+    const mapping = GHN_STATUS_MAP[providerStatus];
     const isStale =
       delivery.lastStatusAt !== null && occurredAt <= delivery.lastStatusAt;
     const applied = Boolean(mapping) && !isStale;
 
-    // Audit every webhook, applied or not.
     await this.statusEventRepository.save(
       this.statusEventRepository.create({
         deliveryId: delivery.id,
-        providerStatus: body.Status,
+        providerStatus,
         mappedStatus: mapping?.delivery ?? null,
         occurredAt,
         applied,
-        rawWebhook: rawBody,
+        rawWebhook: rawPayload,
       }),
     );
 
     if (!mapping) {
       this.logger.warn(
-        `GHN webhook with unmapped Status=${body.Status} for ${body.OrderCode}`,
+        `Unmapped provider status=${providerStatus} for delivery ${delivery.id}`,
       );
-      return;
+      return { applied: false, deliveryStatus: null };
     }
     if (isStale) {
       this.logger.log(
-        `GHN webhook out of order for ${body.OrderCode} (${body.Status}) — ignored`,
+        `Stale provider status ${providerStatus} for delivery ${delivery.id} — ignored`,
       );
-      return;
+      return { applied: false, deliveryStatus: null };
     }
 
     await this.deliveryRepository.update(
       { id: delivery.id },
       {
         status: mapping.delivery,
-        providerStatus: body.Status,
+        providerStatus,
         lastStatusAt: occurredAt,
         ...(mapping.delivery === DeliveryStatus.SHIPPED && !delivery.shippedAt
           ? { shippedAt: occurredAt }
@@ -293,16 +334,28 @@ export class DeliveryService {
       },
     );
 
+    // Keep in-memory entity in sync for multi-step simulator advances.
+    delivery.status = mapping.delivery;
+    delivery.providerStatus = providerStatus;
+    delivery.lastStatusAt = occurredAt;
+    if (mapping.delivery === DeliveryStatus.SHIPPED && !delivery.shippedAt) {
+      delivery.shippedAt = occurredAt;
+    }
+    if (mapping.delivery === DeliveryStatus.DELIVERED) {
+      delivery.deliveredAt = occurredAt;
+    }
+
     if (mapping.order) {
       await this.orderRepository.update(
-        { id: delivery.orderId },
+        {
+          id: delivery.orderId,
+          status: Not(In([OrderStatus.CANCELLED, OrderStatus.REFUNDED])),
+        },
         { status: mapping.order },
       );
     }
 
-    this.logger.log(
-      `GHN webhook applied for ${body.OrderCode}: ${body.Status} -> ${mapping.delivery}`,
-    );
+    return { applied: true, deliveryStatus: mapping.delivery };
   }
 
   private assertWebhookSecret(provided: string): void {
@@ -321,6 +374,89 @@ export class DeliveryService {
     }
   }
 
+  /**
+   * Staff confirmation that the parcel was physically handed to the shipping provider.
+   *
+   * Claims handedOverAt with a conditional UPDATE (single writer), then applies GHN
+   * status `picked` through the same path webhooks use — delivery → SHIPPED, order → SHIPPED.
+   */
+  async confirmHandoverToProvider(
+    userId: string,
+    orderId: string,
+    note?: string,
+  ): Promise<DeliveryAdminResponseDto> {
+    const delivery = await this.deliveryRepository.findOne({
+      where: { orderId },
+      relations: ['order'],
+    });
+    if (!delivery) {
+      throw new NotFoundException(`Delivery for order ${orderId} not found`);
+    }
+
+    if (!delivery.providerOrderCode) {
+      throw new BadRequestException(
+        `Delivery ${delivery.id} has no providerOrderCode — create the GHN order first ` +
+          `(POST /admin/deliveries/${delivery.id}/create-ghn-order)`,
+      );
+    }
+
+    if (delivery.handedOverAt) {
+      throw new ConflictException(
+        `Order ${orderId} has already been handed over to the carrier`,
+      );
+    }
+
+    const orderStatus = delivery.order?.status;
+    if (orderStatus && BLOCKED_HANDOVER_ORDER_STATUSES.has(orderStatus)) {
+      throw new BadRequestException(
+        `Cannot hand over order ${orderId} in status ${orderStatus}`,
+      );
+    }
+
+    if (TERMINAL_HANDOVER_DELIVERY_STATUSES.has(delivery.status)) {
+      throw new BadRequestException(
+        `Cannot hand over delivery ${delivery.id} in status ${delivery.status}`,
+      );
+    }
+
+    const handedOverAt = new Date();
+    const claim = await this.deliveryRepository.update(
+      { id: delivery.id, handedOverAt: IsNull() },
+      {
+        handedOverAt,
+        handedOverByUserId: userId,
+        handoverNote: note ?? null,
+      },
+    );
+    if (!claim.affected) {
+      throw new ConflictException(
+        `Order ${orderId} has already been handed over to the carrier`,
+      );
+    }
+
+    delivery.handedOverAt = handedOverAt;
+    delivery.handedOverByUserId = userId;
+    delivery.handoverNote = note ?? null;
+
+    const occurredAt = new Date(
+      Math.max(Date.now(), (delivery.lastStatusAt?.getTime() ?? 0) + 1000),
+    );
+
+    await this.applyProviderStatus({
+      delivery,
+      providerStatus: 'picked',
+      occurredAt,
+      rawPayload: {
+        source: 'STAFF_HANDOVER',
+        userId,
+        note: note ?? null,
+        at: occurredAt.toISOString(),
+      },
+    });
+
+    return this.getForAdmin(delivery.id);
+  }
+
   /** Delivery + tracking history for one of the caller's own orders. */
   async getDeliveryForUser(
     userId: string,
@@ -337,6 +473,89 @@ export class DeliveryService {
       throw new NotFoundException(`Delivery for order ${orderId} not found`);
     }
 
+    return this.toCustomerDto(delivery);
+  }
+
+  async listForAdmin(query: ListDeliveriesQueryDto): Promise<{
+    items: DeliveryAdminResponseDto[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 20));
+    const skip = (page - 1) * limit;
+
+    const qb = this.deliveryRepository
+      .createQueryBuilder('d')
+      .leftJoinAndSelect('d.statusEvents', 'statusEvents')
+      .orderBy('d.createdAt', 'DESC')
+      .addOrderBy('statusEvents.occurredAt', 'ASC')
+      .skip(skip)
+      .take(limit);
+
+    if (query.status) {
+      qb.andWhere('d.status = :status', { status: query.status });
+    }
+    if (query.orderId) {
+      qb.andWhere('d.orderId = :orderId', { orderId: query.orderId });
+    }
+    if (query.missingProviderCode === true) {
+      qb.andWhere('d.providerOrderCode IS NULL');
+    }
+    if (query.awaitingHandover === true) {
+      qb.andWhere('d.providerOrderCode IS NOT NULL')
+        .andWhere('d.handedOverAt IS NULL')
+        .andWhere('d.status = :awaitingStatus', {
+          awaitingStatus: DeliveryStatus.PROCESSING,
+        });
+    }
+
+    const [rows, total] = await qb.getManyAndCount();
+    return {
+      items: rows.map((row) => this.toAdminDto(row)),
+      total,
+      page,
+      limit,
+    };
+  }
+
+  async getForAdmin(id: string): Promise<DeliveryAdminResponseDto> {
+    const delivery = await this.deliveryRepository.findOne({
+      where: { id },
+      relations: ['statusEvents'],
+      order: { statusEvents: { occurredAt: 'ASC' } },
+    });
+    if (!delivery) {
+      throw new NotFoundException(`Delivery ${id} not found`);
+    }
+    return this.toAdminDto(delivery);
+  }
+
+  async getEntityById(id: string): Promise<Delivery> {
+    const delivery = await this.deliveryRepository.findOne({
+      where: { id },
+    });
+    if (!delivery) {
+      throw new NotFoundException(`Delivery ${id} not found`);
+    }
+    return delivery;
+  }
+
+  /** Total parcel weight in grams, clamped to GHN's accepted range. */
+  static parcelWeightGram(lines: ParcelLine[]): number {
+    const raw = lines.reduce(
+      (sum, line) =>
+        sum + (line.weightGram || DEFAULT_ITEM_WEIGHT_GRAM) * line.quantity,
+      0,
+    );
+    return Math.min(
+      MAX_PARCEL_WEIGHT_GRAM,
+      Math.max(MIN_PARCEL_WEIGHT_GRAM, raw),
+    );
+  }
+
+  private toCustomerDto(delivery: Delivery): DeliveryResponseDto {
     return {
       id: delivery.id,
       orderId: delivery.orderId,
@@ -356,17 +575,15 @@ export class DeliveryService {
     };
   }
 
-  /** Total parcel weight in grams, clamped to GHN's accepted range. */
-  static parcelWeightGram(lines: ParcelLine[]): number {
-    const raw = lines.reduce(
-      (sum, line) =>
-        sum + (line.weightGram || DEFAULT_ITEM_WEIGHT_GRAM) * line.quantity,
-      0,
-    );
-    return Math.min(
-      MAX_PARCEL_WEIGHT_GRAM,
-      Math.max(MIN_PARCEL_WEIGHT_GRAM, raw),
-    );
+  private toAdminDto(delivery: Delivery): DeliveryAdminResponseDto {
+    return {
+      ...this.toCustomerDto(delivery),
+      providerStatus: delivery.providerStatus,
+      lastStatusAt: delivery.lastStatusAt,
+      handedOverAt: delivery.handedOverAt,
+      handedOverByUserId: delivery.handedOverByUserId,
+      handoverNote: delivery.handoverNote,
+    };
   }
 
   private async requireCustomer(userId: string): Promise<Customer> {

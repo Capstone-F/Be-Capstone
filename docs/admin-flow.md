@@ -1,6 +1,6 @@
 # Admin Integration Guide
 
-End-to-end guide for integrating **App Admin** (`app_admin`) features with this backend: auth, user/RBAC management, expert onboarding, catalog & stock, survey question bank, commerce settings, wallet credit, order cancellations, and QA customer cheats.
+End-to-end guide for integrating **App Admin** (`app_admin`) features with this backend: auth, user/RBAC management, expert onboarding, catalog & stock, survey question bank, commerce settings, wallet credit, order cancellations, delivery status simulation, and QA customer cheats.
 
 **Auth (login):** do not duplicate here — use:
 
@@ -9,7 +9,7 @@ End-to-end guide for integrating **App Admin** (`app_admin`) features with this 
 
 See also:
 
-- [Staff Flow Guide](staff-flow.md) — customer support chat queue (`staff` / `app_admin`); stock import forms detail (shared with `app_admin`, see [§7.5](#75-stock-import-forms-approval-workflow) here too); order cancellations & returns (see [§14](#14-flow-k--order-cancellations-refunds--restock) here and [staff-flow.md §D](staff-flow.md#d-order-cancellations--returns))
+- [Staff Flow Guide](staff-flow.md) — customer support chat queue (`staff` / `app_admin`); stock import forms detail (shared with `app_admin`, see [§7.5](#75-stock-import-forms-approval-workflow) here too); order cancellations & returns (see [§14](#14-flow-k--order-cancellations-refunds--restock) here and [staff-flow.md §D](staff-flow.md#d-order-cancellations--returns)); delivery simulation (see [§15](#15-flow-l--delivery-status-simulation))
 - [Clinic Manager Flow Guide](clinic-manager-flow.md) — clinic-scoped expert onboarding, fees, availability
 - [User Management & RBAC](users.md) — roles, clinic scoping, user model
 - [E-Commerce Integration Guide](ecommerce-flow.md) — customer purchase path; admin owns catalog + combo settings
@@ -46,8 +46,9 @@ See also:
 12. [Flow I — Maintain experts (update / fee / availability)](#12-flow-i--maintain-experts-update--fee--availability)
 13. [Flow J — Manage clinics](#13-flow-j--manage-clinics)
 14. [Flow K — Order cancellations, refunds & restock](#14-flow-k--order-cancellations-refunds--restock)
-15. [Endpoint checklist](#15-endpoint-checklist)
-16. [Remaining gaps](#16-remaining-gaps)
+15. [Flow L — Delivery status simulation](#15-flow-l--delivery-status-simulation)
+16. [Endpoint checklist](#16-endpoint-checklist)
+17. [Remaining gaps](#17-remaining-gaps)
 
 ---
 
@@ -87,18 +88,18 @@ See also:
 
 **What Admin can do (summary):**
 
-| Area        | Capability                                                                            |
-| ----------- | ------------------------------------------------------------------------------------- |
-| Users       | List/search, create staff/expert/clinic_manager, replace roles, enable/disable        |
-| Clinics     | Create / update / soft-deactivate partner clinics                                     |
-| Experts     | Create/update clinic-bound profiles, set fee, manage weekly availability              |
-| Catalog     | Onboard products (+ ingredients), set variant images                                  |
-| Stock       | Direct batch import/adjust; full Create/Submit/Confirm/Cancel/Reject on import forms  |
-| Survey      | Full question-bank CRUD; soft-deactivate                                              |
-| Commerce    | Read/update survey combo discount % and min subtotal                                  |
-| Wallet      | Read any user’s balance; direct ledger credit (no payment gateway)                    |
-| Orders      | Cancel any pre-`DELIVERED` order; step the refund pipeline; confirm warehouse restock |
-| Customer QA | Force-update profile/allergies; replace survey answers + re-derive skin type          |
+| Area        | Capability                                                                                                                                  |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Users       | List/search, create staff/expert/clinic_manager, replace roles, enable/disable                                                              |
+| Clinics     | Create / update / soft-deactivate partner clinics                                                                                           |
+| Experts     | Create/update clinic-bound profiles, set fee, manage weekly availability                                                                    |
+| Catalog     | Onboard products (+ ingredients), set variant images                                                                                        |
+| Stock       | Direct batch import/adjust; full Create/Submit/Confirm/Cancel/Reject on import forms                                                        |
+| Survey      | Full question-bank CRUD; soft-deactivate                                                                                                    |
+| Commerce    | Read/update survey combo discount % and min subtotal                                                                                        |
+| Wallet      | Read any user’s balance; direct ledger credit (no payment gateway)                                                                          |
+| Orders      | Cancel any pre-`DELIVERED` order; step the refund pipeline; confirm warehouse restock; simulate / force delivery statuses; retry GHN create |
+| Customer QA | Force-update profile/allergies; replace survey answers + re-derive skin type                                                                |
 
 Clinics are managed via **`/admin/clinics`** (create / update / soft-deactivate). Public discovery still uses `GET /clinics` (active only).
 
@@ -134,7 +135,7 @@ All admin flows require an authenticated **`app_admin`** session (or Bearer with
 | Running API + DB | `docker compose up -d` + `npm run start:dev`                    | ✅ Ready |
 | Migrations       | `npm run migration:run`                                         | ✅ Ready |
 | Seeded clinics   | `npm run seed` → resolve IDs via `GET /clinics`                 | ✅ Ready |
-| Bootstrap admin  | Username `glowscan-admin` / password `admin` (dev Keycloak)     | ✅ Ready |
+| Bootstrap admin  | Username `glowscan-admin` / password `P@ssw0rd` (dev Keycloak)  | ✅ Ready |
 | R2 (optional)    | Env vars in [uploads.md](uploads.md); else use placeholder URLs | ✅ Ready |
 
 ---
@@ -977,7 +978,45 @@ GHN shipment cancel for orders already handed to the carrier stays a **manual GH
 
 ---
 
-## 15. Endpoint checklist
+## 15. Flow L — Delivery status simulation
+
+GHN sandbox does **not** fire webhooks. Staff / `app_admin` drive delivery + order status locally for demos via `/admin/deliveries`. Full detail: [shipping.md — Sandbox status simulation](shipping.md#sandbox-status-simulation).
+
+| Method | Path                                     | Roles            | Status   |
+| ------ | ---------------------------------------- | ---------------- | -------- |
+| GET    | `/admin/deliveries`                      | app_admin, staff | ✅ Ready |
+| GET    | `/admin/deliveries/:id`                  | app_admin, staff | ✅ Ready |
+| POST   | `/admin/deliveries/tick`                 | app_admin, staff | ✅ Ready |
+| POST   | `/admin/deliveries/:id/advance`          | app_admin, staff | ✅ Ready |
+| POST   | `/admin/deliveries/:id/force-status`     | app_admin, staff | ✅ Ready |
+| POST   | `/admin/deliveries/:id/create-ghn-order` | app_admin, staff | ✅ Ready |
+
+Happy path (one step per tick / `advance`):
+
+```
+ready_to_pick → picking → picked → transporting → sorting → delivering → delivered
+```
+
+Only deliveries with a real `providerOrderCode` are eligible. List with `?missingProviderCode=true` and call `create-ghn-order` to recover `PAID` orders where GHN was down at IPN time.
+
+`force-status` accepts any key of `GHN_STATUS_MAP` (e.g. `returned`, `delivery_fail`). A `RETURNED` delivery is picked up by the next cancellation `tick`, which creates a `SYSTEM` cancellation → wallet refund → `AWAITING_RETURN`.
+
+**Admin demo — ship then return:**
+
+```
+POST /admin/deliveries/:id/advance          { "steps": 7 }   → delivered
+  (or stop earlier and force a failure path)
+POST /admin/deliveries/:id/force-status     { "providerStatus": "returned" }
+POST /admin/order-cancellations/tick                         → SYSTEM cancel + advance toward AWAITING_RETURN
+POST /admin/order-cancellations/:id/confirm-return
+POST /admin/order-cancellations/:id/advance                  → COMPLETED
+```
+
+Env: `DELIVERY_SIMULATION_ENABLED` (default false in code; set true in `.env` for local sandbox), `DELIVERY_SIMULATION_TICK_CRON`, `DELIVERY_SIMULATION_STEP_DELAY_SEC`, `DELIVERY_SIMULATION_BATCH_SIZE`.
+
+---
+
+## 16. Endpoint checklist
 
 ### Auth & profile
 
@@ -1063,16 +1102,22 @@ GHN shipment cancel for orders already handed to the carrier stays a **manual GH
 | POST   | `/admin/order-cancellations/:id/confirm-return`  | app_admin, staff | ✅ Ready |
 | POST   | `/admin/order-cancellations/:id/advance`         | app_admin, staff | ✅ Ready |
 | POST   | `/admin/order-cancellations/tick`                | app_admin, staff | ✅ Ready |
+| GET    | `/admin/deliveries`                              | app_admin, staff | ✅ Ready |
+| GET    | `/admin/deliveries/:id`                          | app_admin, staff | ✅ Ready |
+| POST   | `/admin/deliveries/tick`                         | app_admin, staff | ✅ Ready |
+| POST   | `/admin/deliveries/:id/advance`                  | app_admin, staff | ✅ Ready |
+| POST   | `/admin/deliveries/:id/force-status`             | app_admin, staff | ✅ Ready |
+| POST   | `/admin/deliveries/:id/create-ghn-order`         | app_admin, staff | ✅ Ready |
 
 ---
 
-## 16. Remaining gaps
+## 17. Remaining gaps
 
-| Gap                            | Status     | Notes                                                                                                                                                                                                        |
-| ------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Admin order / delivery console | 🔶 Extend  | Cancellations + restock are live ([§14](#14-flow-k--order-cancellations-refunds--restock)). Still missing: list/retry GHN for `PAID` orders with a null `providerOrderCode` (see [shipping.md](shipping.md)) |
-| Admin book-for-customer        | ❌ Missing | `POST /bookings` as admin books the admin’s own customer profile                                                                                                                                             |
-| Staff vs admin product update  | 🔶 Extend  | Onboard + variant image only; no full product PATCH catalog editor                                                                                                                                           |
+| Gap                            | Status     | Notes                                                                                                                                                     |
+| ------------------------------ | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Admin order / delivery console | ✅ Ready   | Cancellations ([§14](#14-flow-k--order-cancellations-refunds--restock)) + delivery simulation / GHN retry ([§15](#15-flow-l--delivery-status-simulation)) |
+| Admin book-for-customer        | ❌ Missing | `POST /bookings` as admin books the admin’s own customer profile                                                                                          |
+| Staff vs admin product update  | 🔶 Extend  | Onboard + variant image only; no full product PATCH catalog editor                                                                                        |
 
 ---
 
@@ -1134,5 +1179,16 @@ Login (app_admin | staff)
 → POST /admin/order-cancellations/:id/advance { steps: 3 }
 → GET  /admin/wallets/:userId                          (refund credited)
 → POST /admin/order-cancellations/:id/confirm-return   { items: [{ orderItemId, goodQuantity, damagedQuantity }] }
+→ POST /admin/order-cancellations/:id/advance          → COMPLETED
+```
+
+**Demo ship → return → refund → restock:**
+
+```
+Login (app_admin | staff)
+→ POST /admin/deliveries/:id/advance { steps: 7 }      → delivered (or fewer steps)
+→ POST /admin/deliveries/:id/force-status { providerStatus: "returned" }
+→ POST /admin/order-cancellations/tick                 → SYSTEM cancel + pipeline
+→ POST /admin/order-cancellations/:id/confirm-return
 → POST /admin/order-cancellations/:id/advance          → COMPLETED
 ```
