@@ -3181,23 +3181,41 @@ const DEFAULT_EXPERT_AVAILABILITY: Array<{
   { dayOfWeek: 5, startHour: 13, endHour: 18 },
 ];
 
+type ClinicManagerSeed = {
+  keycloakSub: string;
+  email: string;
+  name: string;
+};
+
 type ClinicSeed = {
   name: string;
   address: string;
   latitude: number;
   longitude: number;
+  manager: ClinicManagerSeed;
   experts: ExpertSeed[];
 };
 
+/**
+ * `keycloakSub` values shaped like UUIDs are pinned user ids in
+ * keycloak/realm-import/be-capstone-realm.json, so those seeded accounts are
+ * loginable with password P@ssw0rd and keep their clinic binding on first login.
+ * The remaining `seed-*` subs are display-only records with no Keycloak account.
+ */
 const CLINICS: ClinicSeed[] = [
   {
     name: 'GlowScan District 1 Clinic',
     address: '12 Nguyen Hue, District 1, Ho Chi Minh City',
     latitude: 10.7769,
     longitude: 106.7009,
+    manager: {
+      keycloakSub: 'b0000000-0000-4000-8000-000000000001',
+      email: 'manager.d1@glowscan.example.com',
+      name: 'District 1 Manager',
+    },
     experts: [
       {
-        keycloakSub: 'seed-expert-d1-derma',
+        keycloakSub: 'a0000000-0000-4000-8000-000000000001',
         email: 'derma.d1@glowscan.example.com',
         name: 'Dr. Nguyen Van An',
         specialization: ExpertSpecialty.DERMATOLOGY,
@@ -3236,9 +3254,14 @@ const CLINICS: ClinicSeed[] = [
     address: '88 Vo Van Tan, District 3, Ho Chi Minh City',
     latitude: 10.7797,
     longitude: 106.6899,
+    manager: {
+      keycloakSub: 'b0000000-0000-4000-8000-000000000002',
+      email: 'manager.d3@glowscan.example.com',
+      name: 'District 3 Manager',
+    },
     experts: [
       {
-        keycloakSub: 'seed-expert-d3-cosmetic',
+        keycloakSub: 'a0000000-0000-4000-8000-000000000002',
         email: 'cosmetic.d3@glowscan.example.com',
         name: 'Dr. Pham Thu Ha',
         specialization: ExpertSpecialty.COSMETIC_DERMATOLOGY,
@@ -3273,6 +3296,42 @@ const CLINICS: ClinicSeed[] = [
     ],
   },
 ];
+
+/**
+ * Existing rows are matched by `keycloakSub` first, then by email, so a seed
+ * whose sub changed (e.g. re-pointed at a realm-import account) is re-keyed in
+ * place instead of leaving an orphaned duplicate behind.
+ */
+async function upsertClinicUser(
+  repo: ReturnType<typeof AppDataSource.getRepository<User>>,
+  seed: { keycloakSub: string; email: string; name: string },
+  role: Role,
+  clinicId: string,
+): Promise<User> {
+  const existing =
+    (await repo.findOneBy({ keycloakSub: seed.keycloakSub })) ??
+    (await repo.findOneBy({ email: seed.email }));
+  if (!existing) {
+    return repo.save(
+      repo.create({
+        keycloakSub: seed.keycloakSub,
+        email: seed.email,
+        name: seed.name,
+        provider: 'keycloak',
+        roles: [role],
+        clinicId,
+        isActive: true,
+      }),
+    );
+  }
+  existing.keycloakSub = seed.keycloakSub;
+  existing.email = seed.email;
+  existing.name = seed.name;
+  existing.roles = [role];
+  existing.clinicId = clinicId;
+  existing.isActive = true;
+  return repo.save(existing);
+}
 
 async function upsertLabelCategory(
   repo: ReturnType<typeof AppDataSource.getRepository<LabelCategory>>,
@@ -3993,30 +4052,20 @@ async function seed(): Promise<void> {
       clinic = await clinicRepo.save(clinic);
     }
 
+    await upsertClinicUser(
+      userRepo,
+      clinicSeed.manager,
+      Role.ClinicManager,
+      clinic.id,
+    );
+
     for (const expertSeed of clinicSeed.experts) {
-      let user = await userRepo.findOneBy({
-        keycloakSub: expertSeed.keycloakSub,
-      });
-      if (!user) {
-        user = await userRepo.save(
-          userRepo.create({
-            keycloakSub: expertSeed.keycloakSub,
-            email: expertSeed.email,
-            name: expertSeed.name,
-            provider: 'keycloak',
-            roles: [Role.Expert],
-            clinicId: clinic.id,
-            isActive: true,
-          }),
-        );
-      } else {
-        user.email = expertSeed.email;
-        user.name = expertSeed.name;
-        user.roles = [Role.Expert];
-        user.clinicId = clinic.id;
-        user.isActive = true;
-        user = await userRepo.save(user);
-      }
+      const user = await upsertClinicUser(
+        userRepo,
+        expertSeed,
+        Role.Expert,
+        clinic.id,
+      );
 
       const expert = await expertRepo.findOneBy({ userId: user.id });
       let savedExpert: Expert;
