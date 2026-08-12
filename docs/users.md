@@ -22,15 +22,24 @@ Roles are defined as **realm roles** in Keycloak (`be-capstone` realm) and appea
 
 New self-registered users automatically receive the `customer` role via the realm default composite role.
 
-### Bootstrap admin (development)
+### Bootstrap accounts (development)
 
-Docker Compose imports a seed admin user:
+Docker Compose imports seed users, all with password `P@ssw0rd`:
 
-| Field    | Value            |
-| -------- | ---------------- |
-| Username | `glowscan-admin` |
-| Password | `admin`          |
-| Role     | `app_admin`      |
+| Username                     | Email                              | Role             | Clinic (after `npm run seed`) |
+| ---------------------------- | ---------------------------------- | ---------------- | ----------------------------- |
+| `glowscan-admin`             | `admin@glowscan.local`             | `app_admin`      | —                             |
+| `glowscan-staff`             | `staff@glowscan.local`             | `staff`          | —                             |
+| `glowscan-clinic-manager-d1` | `manager.d1@glowscan.example.com`  | `clinic_manager` | GlowScan District 1 Clinic    |
+| `glowscan-clinic-manager-d3` | `manager.d3@glowscan.example.com`  | `clinic_manager` | GlowScan District 3 Clinic    |
+| `glowscan-expert-d1`         | `derma.d1@glowscan.example.com`    | `expert`         | GlowScan District 1 Clinic    |
+| `glowscan-expert-d3`         | `cosmetic.d3@glowscan.example.com` | `expert`         | GlowScan District 3 Clinic    |
+
+The clinic-bound accounts have **pinned Keycloak user ids** in `keycloak/realm-import/be-capstone-realm.json` that match the `keycloakSub` values in `src/database/seeds/seed.ts`. That is what lets `npm run seed` pre-attach the `clinicId` (and, for experts, an `experts` profile with Mon–Fri availability) before the account has ever logged in — `upsertFromKeycloak` matches on `sub` and never overwrites `clinicId`.
+
+`glowscan-admin` and `glowscan-staff` are global roles with no clinic binding, so they work straight after import. Run `npm run seed` **before** logging in with the four clinic-bound accounts: a first login without seeded rows creates a user with `clinicId: null`, which fails clinic-scoped writes with `403`; re-running the seed repairs it, but the manager must log out and back in because `clinicId` is snapshotted into the session at login.
+
+Changing the pinned ids means Keycloak must re-import the realm (`docker compose down -v` on the Keycloak volume), since realm import only runs against an empty Keycloak database.
 
 In production, assign roles through the Keycloak Admin Console or the user-management API.
 

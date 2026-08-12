@@ -61,6 +61,90 @@
           "temporary": false
         }
       ]
+    },
+    {
+      "username": "glowscan-staff",
+      "email": "staff@glowscan.local",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "GlowScan",
+      "lastName": "Staff",
+      "realmRoles": ["staff"],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "P@ssw0rd",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000001",
+      "username": "glowscan-expert-d1",
+      "email": "derma.d1@glowscan.example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Dr. Nguyen Van",
+      "lastName": "An",
+      "realmRoles": ["expert"],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "P@ssw0rd",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000002",
+      "username": "glowscan-expert-d3",
+      "email": "cosmetic.d3@glowscan.example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Dr. Pham Thu",
+      "lastName": "Ha",
+      "realmRoles": ["expert"],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "P@ssw0rd",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "b0000000-0000-4000-8000-000000000001",
+      "username": "glowscan-clinic-manager-d1",
+      "email": "manager.d1@glowscan.example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "District 1",
+      "lastName": "Manager",
+      "realmRoles": ["clinic_manager"],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "P@ssw0rd",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "b0000000-0000-4000-8000-000000000002",
+      "username": "glowscan-clinic-manager-d3",
+      "email": "manager.d3@glowscan.example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "District 3",
+      "lastName": "Manager",
+      "realmRoles": ["clinic_manager"],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "P@ssw0rd",
+          "temporary": false
+        }
+      ]
     }
   ],
   "requiredActions": [

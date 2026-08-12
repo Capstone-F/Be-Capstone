@@ -150,7 +150,8 @@ A manager whose `clinicId` is `null` is effectively broken: writes fail with `Cl
 | Running API + DB      | `docker compose up -d` + `npm run start:dev`                           | ✅ Ready |
 | Migrations            | `npm run migration:run`                                                | ✅ Ready |
 | An active clinic      | Seeded (`npm run seed`) or admin `POST /admin/clinics`                 | ✅ Ready |
-| A clinic_manager user | Admin: `POST /users { role: "clinic_manager", clinicId }`              | ✅ Ready |
+| A clinic_manager user | Seeded (`glowscan-clinic-manager-d1` / `-d3`, password `P@ssw0rd`)     | ✅ Ready |
+|                       | or admin: `POST /users { role: "clinic_manager", clinicId }`           | ✅ Ready |
 | R2 (optional)         | Env vars in [uploads.md](uploads.md); else use placeholder avatar URLs | ✅ Ready |
 
 Creating the manager account itself is an **admin** action — see [admin-flow.md §5.2](admin-flow.md#52-create-a-managed-account--ready).
