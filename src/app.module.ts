@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { LoggerModule } from 'nestjs-pino';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -36,6 +37,7 @@ import { UploadsModule } from './uploads/uploads.module';
 @Module({
   imports: [
     ConfigModule,
+    ScheduleModule.forRoot(),
     KeycloakAdminModule,
     LoggerModule.forRootAsync({
       inject: [AppConfigService],

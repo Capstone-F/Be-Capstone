@@ -5,6 +5,7 @@ End-to-end guide for **Staff** (`staff`) and **App Admin** (`app_admin`):
 1. **Stock import forms** — create draft → update → submit → confirm (applies inventory), or cancel / reject
 2. **Customer support chat** — shared queue → claim (one staff at a time) → poll/send messages → close
 3. **Catalog onboarding** — create products (+ ingredients), set variant images (shared with `app_admin`)
+4. **Order cancellations & returns** — cancel an order → cron refunds to wallet → confirm the physical restock
 
 **Auth (login):** do not duplicate here — use:
 
@@ -63,6 +64,18 @@ See also:
 24. [Update variant image](#24-update-variant-image)
 25. [Direct stock batch import](#25-direct-stock-batch-import)
 26. [Catalog endpoint checklist](#26-catalog-endpoint-checklist)
+
+### D. Order cancellations & returns
+
+27. [Roles & auth (cancellations)](#27-roles--auth-cancellations)
+28. [Cancellation lifecycle](#28-cancellation-lifecycle)
+29. [Refund amount rules](#29-refund-amount-rules)
+30. [Staff-initiated cancel](#30-staff-initiated-cancel)
+31. [List / work queue](#31-list--work-queue)
+32. [Get one](#32-get-one)
+33. [Confirm return (restock)](#33-confirm-return-restock)
+34. [Manual advance / tick (demo)](#34-manual-advance--tick-demo)
+35. [Cancellation endpoint checklist](#35-cancellation-endpoint-checklist)
 
 ---
 
@@ -707,4 +720,222 @@ Expiration is computed from the variant shelf life; `adjust` sets the **absolute
 POST /products
   → optional POST /uploads/images → PATCH /products/variants/:variantId
   → POST /stock/batches   (or the import-forms workflow above)
+```
+
+---
+
+# D. Order cancellations & returns
+
+Customers can self-cancel `PENDING` / `PAID` orders (`POST /orders/:id/cancel`). Staff / App Admin can cancel any order that is not yet `DELIVERED` (or already `CANCELLED` / `REFUNDED`). A background processor then walks the cancellation one stage per tick: refund the customer **wallet**, mark sold units `RETURNED` (in transit), and wait for staff to confirm the physical restock.
+
+Customer-side cancel is documented in [ecommerce-flow.md](ecommerce-flow.md). This section is the staff desk.
+
+---
+
+## 27. Roles & auth (cancellations)
+
+All `/admin/order-cancellations` endpoints require:
+
+- Authenticated session (cookie or Bearer)
+- Role **`staff`** or **`app_admin`**
+
+Same actor may cancel, advance, and confirm-return (no separation-of-duties rule).
+
+---
+
+## 28. Cancellation lifecycle
+
+```
+REQUESTED ──tick──▶ REFUNDING ──tick──▶ REFUNDED ──tick──▶ AWAITING_RETURN
+  │                                                              │
+  │ unpaid, nothing to refund or restock                         │
+  └──tick──▶ COMPLETED                                           │
+                                                                 │
+                    staff confirm-return ──▶ RESTOCKED ──tick──▶ COMPLETED
+
+REFUNDING ──retries exhausted──▶ FAILED
+```
+
+| Stage             | Who moves it                      | Side effects                                                                                 |
+| ----------------- | --------------------------------- | -------------------------------------------------------------------------------------------- |
+| `REQUESTED`       | Customer or staff create          | Snapshot refund amount + sold-instance counts. `nextRunAt = now`                             |
+| `REFUNDING`       | Cron / `advance`                  | `order.status = CANCELLED`                                                                   |
+| `REFUNDED`        | Cron / `advance`                  | Wallet credit (`TransactionType.REFUND`); `order.status = REFUNDED`                          |
+| `AWAITING_RETURN` | Cron / `advance`                  | `ProductInstance` `SOLD → RETURNED`. **Does not** change `remainingQuantity`                 |
+| `RESTOCKED`       | Staff `confirm-return`            | Good units `ON_RACK` + `remainingQuantity += n` + `RETURN` movement; damaged units `DAMAGED` |
+| `COMPLETED`       | Cron / `advance`                  | Terminal                                                                                     |
+| `FAILED`          | Processor after 5 failed attempts | Inspect `lastError`; use `advance` after fixing the cause                                    |
+
+Each automatic stage waits `ORDER_CANCELLATION_STEP_DELAY_SEC` (default 60s) so the pipeline looks gradual. `AWAITING_RETURN` does **not** auto-advance — staff `confirm-return` is the only way past that gate.
+
+Invalid transitions return `400` (e.g. `Return can only be confirmed from AWAITING_RETURN (current: REQUESTED)`). Duplicate cancel on the same order returns `409`.
+
+---
+
+## 29. Refund amount rules
+
+Snapshotted onto the cancellation at request time (`refundAmountVnd`). Money always lands in the customer's **wallet**, not back through VNPay/PayOS.
+
+| Order status at request  | Refund amount                                     |
+| ------------------------ | ------------------------------------------------- |
+| `PENDING`                | `0` (never paid)                                  |
+| `PAID`                   | `order.totalVnd` (shipping included; not yet GHN) |
+| `PROCESSING` / `SHIPPED` | `subtotalVnd - discountVnd` (shipping withheld)   |
+| `DELIVERED`              | Not cancellable                                   |
+
+---
+
+## 30. Staff-initiated cancel ✅ Ready
+
+| Method | Path                         | Roles            | Status   |
+| ------ | ---------------------------- | ---------------- | -------- |
+| POST   | `/admin/order-cancellations` | staff, app_admin | ✅ Ready |
+
+```http
+POST /admin/order-cancellations
+Content-Type: application/json
+
+{
+  "orderId": "<order-uuid>",
+  "reason": "Customer called — wrong address"
+}
+```
+
+Response includes `status: "REQUESTED"`, `refundAmountVnd`, `requiresStockReturn`, and `items[]` with `expectedQuantity` (actual `SOLD` instance count per order item, not `orderItem.quantity`).
+
+Customers use `POST /orders/:id/cancel` instead (own `PENDING` / `PAID` orders only).
+
+---
+
+## 31. List / work queue ✅ Ready
+
+| Method | Path                         | Roles            | Status   |
+| ------ | ---------------------------- | ---------------- | -------- |
+| GET    | `/admin/order-cancellations` | staff, app_admin | ✅ Ready |
+
+Query params:
+
+| Param    | Type | Notes                   |
+| -------- | ---- | ----------------------- |
+| `status` | enum | `REQUESTED` … `FAILED`  |
+| `page`   | int  | default `1`             |
+| `limit`  | int  | default `20`, max `100` |
+
+```http
+GET /admin/order-cancellations?status=AWAITING_RETURN&page=1&limit=20
+```
+
+Restock desk: `?status=AWAITING_RETURN`.
+
+---
+
+## 32. Get one ✅ Ready
+
+| Method | Path                             | Roles            | Status   |
+| ------ | -------------------------------- | ---------------- | -------- |
+| GET    | `/admin/order-cancellations/:id` | staff, app_admin | ✅ Ready |
+
+```http
+GET /admin/order-cancellations/<cancellation-uuid>
+```
+
+Includes `nextRunAt`, `attempts`, and `lastError` so a parked row is easy to spot.
+
+---
+
+## 33. Confirm return (restock) ✅ Ready
+
+| Method | Path                                            | Roles            | Status   |
+| ------ | ----------------------------------------------- | ---------------- | -------- |
+| POST   | `/admin/order-cancellations/:id/confirm-return` | staff, app_admin | ✅ Ready |
+
+Allowed only while **`AWAITING_RETURN`**. Every cancellation item must appear exactly once. `goodQuantity + damagedQuantity` must equal that item's `expectedQuantity`.
+
+```http
+POST /admin/order-cancellations/<cancellation-uuid>/confirm-return
+Content-Type: application/json
+
+{
+  "items": [
+    { "orderItemId": "<order-item-uuid>", "goodQuantity": 2, "damagedQuantity": 1 }
+  ],
+  "note": "1 bottle cracked in transit"
+}
+```
+
+**Stock effects:**
+
+| Instance status after confirm | `remainingQuantity` | Meaning                                   |
+| ----------------------------- | ------------------- | ----------------------------------------- |
+| `RETURNED` (before confirm)   | unchanged           | Received / quarantine — **not** sellable  |
+| `ON_RACK` (good units)        | `+= goodQuantity`   | Resellable; `StockMovement` type `RETURN` |
+| `DAMAGED` (damaged units)     | unchanged           | Kept linked to the order item for audit   |
+
+| Outcome                      | HTTP  | Meaning                                                         |
+| ---------------------------- | ----- | --------------------------------------------------------------- |
+| Success                      | `200` | Status `RESTOCKED`; cron/`advance` will finalize to `COMPLETED` |
+| Wrong status                 | `400` | Cancellation is not `AWAITING_RETURN`                           |
+| Quantity mismatch            | `400` | `goodQuantity + damagedQuantity !== expectedQuantity`           |
+| Missing / extra order item   | `400` | Body must list every cancellation item exactly once             |
+| Duplicate cancel (on create) | `409` | Order already has a cancellation                                |
+| Missing                      | `404` | Cancellation id not found                                       |
+
+---
+
+## 34. Manual advance / tick (demo) ✅ Ready
+
+Same processor the cron uses. `ignoreDelay` skips `ORDER_CANCELLATION_STEP_DELAY_SEC` so a demo does not wait.
+
+| Method | Path                                     | Roles            | Status   |
+| ------ | ---------------------------------------- | ---------------- | -------- |
+| POST   | `/admin/order-cancellations/:id/advance` | staff, app_admin | ✅ Ready |
+| POST   | `/admin/order-cancellations/tick`        | staff, app_admin | ✅ Ready |
+
+```http
+POST /admin/order-cancellations/<cancellation-uuid>/advance
+Content-Type: application/json
+
+{
+  "steps": 1
+}
+```
+
+`steps` defaults to `1`. Stops early at `AWAITING_RETURN` or a terminal status, so `"steps": 10` is a safe "run to the restock gate" call.
+
+```http
+POST /admin/order-cancellations/tick
+Content-Type: application/json
+
+{
+  "ignoreDelay": true
+}
+```
+
+One processor pass over every due row. `ignoreDelay` defaults to `true`.
+
+Set `ORDER_CANCELLATION_CRON_ENABLED=false` to drive the pipeline **only** through these endpoints.
+
+---
+
+## 35. Cancellation endpoint checklist
+
+| Method | Path                                            | Roles            | Status   |
+| ------ | ----------------------------------------------- | ---------------- | -------- |
+| POST   | `/orders/:id/cancel`                            | customer         | ✅ Ready |
+| POST   | `/admin/order-cancellations`                    | staff, app_admin | ✅ Ready |
+| GET    | `/admin/order-cancellations`                    | staff, app_admin | ✅ Ready |
+| GET    | `/admin/order-cancellations/:id`                | staff, app_admin | ✅ Ready |
+| POST   | `/admin/order-cancellations/:id/confirm-return` | staff, app_admin | ✅ Ready |
+| POST   | `/admin/order-cancellations/:id/advance`        | staff, app_admin | ✅ Ready |
+| POST   | `/admin/order-cancellations/tick`               | staff, app_admin | ✅ Ready |
+
+**Typical Staff sequence (paid order, restock desk):**
+
+```
+POST /admin/order-cancellations          { orderId, reason }
+  → POST /admin/order-cancellations/:id/advance   (or wait for cron)  → REFUNDING
+  → POST /admin/order-cancellations/:id/advance                       → REFUNDED (wallet credited)
+  → POST /admin/order-cancellations/:id/advance                       → AWAITING_RETURN
+  → POST /admin/order-cancellations/:id/confirm-return  { items: [{ orderItemId, goodQuantity, damagedQuantity }] }
+  → POST /admin/order-cancellations/:id/advance                       → COMPLETED
 ```

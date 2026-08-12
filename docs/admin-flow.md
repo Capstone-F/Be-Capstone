@@ -1,6 +1,6 @@
 # Admin Integration Guide
 
-End-to-end guide for integrating **App Admin** (`app_admin`) features with this backend: auth, user/RBAC management, expert onboarding, catalog & stock, survey question bank, commerce settings, wallet credit, and QA customer cheats.
+End-to-end guide for integrating **App Admin** (`app_admin`) features with this backend: auth, user/RBAC management, expert onboarding, catalog & stock, survey question bank, commerce settings, wallet credit, order cancellations, and QA customer cheats.
 
 **Auth (login):** do not duplicate here — use:
 
@@ -9,7 +9,7 @@ End-to-end guide for integrating **App Admin** (`app_admin`) features with this 
 
 See also:
 
-- [Staff Flow Guide](staff-flow.md) — customer support chat queue (`staff` / `app_admin`); stock import forms detail (shared with `app_admin`, see [§7.5](#75-stock-import-forms-approval-workflow) here too)
+- [Staff Flow Guide](staff-flow.md) — customer support chat queue (`staff` / `app_admin`); stock import forms detail (shared with `app_admin`, see [§7.5](#75-stock-import-forms-approval-workflow) here too); order cancellations & returns (see [§14](#14-flow-k--order-cancellations-refunds--restock) here and [staff-flow.md §D](staff-flow.md#d-order-cancellations--returns))
 - [Clinic Manager Flow Guide](clinic-manager-flow.md) — clinic-scoped expert onboarding, fees, availability
 - [User Management & RBAC](users.md) — roles, clinic scoping, user model
 - [E-Commerce Integration Guide](ecommerce-flow.md) — customer purchase path; admin owns catalog + combo settings
@@ -45,8 +45,9 @@ See also:
 11. [Flow H — Customer QA cheats (profile / survey)](#11-flow-h--customer-qa-cheats-profile--survey)
 12. [Flow I — Maintain experts (update / fee / availability)](#12-flow-i--maintain-experts-update--fee--availability)
 13. [Flow J — Manage clinics](#13-flow-j--manage-clinics)
-14. [Endpoint checklist](#14-endpoint-checklist)
-15. [Remaining gaps](#15-remaining-gaps)
+14. [Flow K — Order cancellations, refunds & restock](#14-flow-k--order-cancellations-refunds--restock)
+15. [Endpoint checklist](#15-endpoint-checklist)
+16. [Remaining gaps](#16-remaining-gaps)
 
 ---
 
@@ -86,17 +87,18 @@ See also:
 
 **What Admin can do (summary):**
 
-| Area        | Capability                                                                           |
-| ----------- | ------------------------------------------------------------------------------------ |
-| Users       | List/search, create staff/expert/clinic_manager, replace roles, enable/disable       |
-| Clinics     | Create / update / soft-deactivate partner clinics                                    |
-| Experts     | Create/update clinic-bound profiles, set fee, manage weekly availability             |
-| Catalog     | Onboard products (+ ingredients), set variant images                                 |
-| Stock       | Direct batch import/adjust; full Create/Submit/Confirm/Cancel/Reject on import forms |
-| Survey      | Full question-bank CRUD; soft-deactivate                                             |
-| Commerce    | Read/update survey combo discount % and min subtotal                                 |
-| Wallet      | Read any user’s balance; direct ledger credit (no payment gateway)                   |
-| Customer QA | Force-update profile/allergies; replace survey answers + re-derive skin type         |
+| Area        | Capability                                                                            |
+| ----------- | ------------------------------------------------------------------------------------- |
+| Users       | List/search, create staff/expert/clinic_manager, replace roles, enable/disable        |
+| Clinics     | Create / update / soft-deactivate partner clinics                                     |
+| Experts     | Create/update clinic-bound profiles, set fee, manage weekly availability              |
+| Catalog     | Onboard products (+ ingredients), set variant images                                  |
+| Stock       | Direct batch import/adjust; full Create/Submit/Confirm/Cancel/Reject on import forms  |
+| Survey      | Full question-bank CRUD; soft-deactivate                                              |
+| Commerce    | Read/update survey combo discount % and min subtotal                                  |
+| Wallet      | Read any user’s balance; direct ledger credit (no payment gateway)                    |
+| Orders      | Cancel any pre-`DELIVERED` order; step the refund pipeline; confirm warehouse restock |
+| Customer QA | Force-update profile/allergies; replace survey answers + re-derive skin type          |
 
 Clinics are managed via **`/admin/clinics`** (create / update / soft-deactivate). Public discovery still uses `GET /clinics` (active only).
 
@@ -934,7 +936,48 @@ DELETE /admin/clinics/<clinicId>
 
 ---
 
-## 14. Endpoint checklist
+## 14. Flow K — Order cancellations, refunds & restock
+
+`app_admin` has the **same full rights as `staff`** on `/admin/order-cancellations`: create, list, get, confirm-return, and the manual `advance` / `tick` demo controls.
+
+Full request/response examples, the lifecycle diagram, refund-amount rules, and the confirm-return stock-effects table live in [staff-flow.md §D](staff-flow.md#d-order-cancellations--returns) (shared doc, same roles). Reference table:
+
+| Method | Path                                            | Roles            | Status   |
+| ------ | ----------------------------------------------- | ---------------- | -------- |
+| POST   | `/admin/order-cancellations`                    | app_admin, staff | ✅ Ready |
+| GET    | `/admin/order-cancellations`                    | app_admin, staff | ✅ Ready |
+| GET    | `/admin/order-cancellations/:id`                | app_admin, staff | ✅ Ready |
+| POST   | `/admin/order-cancellations/:id/confirm-return` | app_admin, staff | ✅ Ready |
+| POST   | `/admin/order-cancellations/:id/advance`        | app_admin, staff | ✅ Ready |
+| POST   | `/admin/order-cancellations/tick`               | app_admin, staff | ✅ Ready |
+
+```
+REQUESTED ──tick──▶ REFUNDING ──tick──▶ REFUNDED ──tick──▶ AWAITING_RETURN
+  │                                                              │
+  └── (unpaid) COMPLETED            confirm-return ──▶ RESTOCKED ┴──tick──▶ COMPLETED
+```
+
+**What is admin-specific:**
+
+- **Manual `advance` / `tick`** — drive or unstick the pipeline without waiting on `ORDER_CANCELLATION_STEP_DELAY_SEC`. Same processor the cron uses (`ignoreDelay: true`). Use this for demos and for a `FAILED` row after fixing `lastError`.
+- **Refund destination** — money is credited to the customer's **wallet** (`TransactionType.REFUND`), not reversed through VNPay/PayOS. Inspect the result with [§10 Flow G](#10-flow-g--wallet-inspect--top-up) (`GET /admin/wallets/:userId`).
+- Customers self-cancel only `PENDING` / `PAID` via `POST /orders/:id/cancel`. Staff/admin can cancel any pre-`DELIVERED` order.
+
+**Admin demo sequence:**
+
+```
+POST /admin/order-cancellations                    { orderId }
+  → POST /admin/order-cancellations/:id/advance    { "steps": 3 }   → AWAITING_RETURN
+  → GET  /admin/wallets/:userId                    (refund landed)
+  → POST /admin/order-cancellations/:id/confirm-return
+  → POST /admin/order-cancellations/:id/advance    → COMPLETED
+```
+
+GHN shipment cancel for orders already handed to the carrier stays a **manual GHN dashboard** action; `AWAITING_RETURN` is the hold point for that. See [shipping.md](shipping.md).
+
+---
+
+## 15. Endpoint checklist
 
 ### Auth & profile
 
@@ -1008,22 +1051,28 @@ DELETE /admin/clinics/<clinicId>
 
 ### Commerce & wallet
 
-| Method | Path                                             | Roles     | Status   |
-| ------ | ------------------------------------------------ | --------- | -------- |
-| GET    | `/admin/commerce-settings/survey-combo-discount` | app_admin | ✅ Ready |
-| PATCH  | `/admin/commerce-settings/survey-combo-discount` | app_admin | ✅ Ready |
-| GET    | `/admin/wallets/:userId`                         | app_admin | ✅ Ready |
-| POST   | `/admin/wallets/:userId/top-up`                  | app_admin | ✅ Ready |
+| Method | Path                                             | Roles            | Status   |
+| ------ | ------------------------------------------------ | ---------------- | -------- |
+| GET    | `/admin/commerce-settings/survey-combo-discount` | app_admin        | ✅ Ready |
+| PATCH  | `/admin/commerce-settings/survey-combo-discount` | app_admin        | ✅ Ready |
+| GET    | `/admin/wallets/:userId`                         | app_admin        | ✅ Ready |
+| POST   | `/admin/wallets/:userId/top-up`                  | app_admin        | ✅ Ready |
+| POST   | `/admin/order-cancellations`                     | app_admin, staff | ✅ Ready |
+| GET    | `/admin/order-cancellations`                     | app_admin, staff | ✅ Ready |
+| GET    | `/admin/order-cancellations/:id`                 | app_admin, staff | ✅ Ready |
+| POST   | `/admin/order-cancellations/:id/confirm-return`  | app_admin, staff | ✅ Ready |
+| POST   | `/admin/order-cancellations/:id/advance`         | app_admin, staff | ✅ Ready |
+| POST   | `/admin/order-cancellations/tick`                | app_admin, staff | ✅ Ready |
 
 ---
 
-## 15. Remaining gaps
+## 16. Remaining gaps
 
-| Gap                            | Status     | Notes                                                                 |
-| ------------------------------ | ---------- | --------------------------------------------------------------------- |
-| Admin order / delivery console | ❌ Missing | No admin list/retry GHN endpoint yet (see [shipping.md](shipping.md)) |
-| Admin book-for-customer        | ❌ Missing | `POST /bookings` as admin books the admin’s own customer profile      |
-| Staff vs admin product update  | 🔶 Extend  | Onboard + variant image only; no full product PATCH catalog editor    |
+| Gap                            | Status     | Notes                                                                                                                                                                                                        |
+| ------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Admin order / delivery console | 🔶 Extend  | Cancellations + restock are live ([§14](#14-flow-k--order-cancellations-refunds--restock)). Still missing: list/retry GHN for `PAID` orders with a null `providerOrderCode` (see [shipping.md](shipping.md)) |
+| Admin book-for-customer        | ❌ Missing | `POST /bookings` as admin books the admin’s own customer profile                                                                                                                                             |
+| Staff vs admin product update  | 🔶 Extend  | Onboard + variant image only; no full product PATCH catalog editor                                                                                                                                           |
 
 ---
 
@@ -1075,4 +1124,15 @@ Login (app_admin)
 → GET /admin/commerce-settings/survey-combo-discount
 → PATCH /admin/commerce-settings/survey-combo-discount
 → manage questions via /admin/survey-questions
+```
+
+**Demo an order cancellation end to end:**
+
+```
+Login (app_admin | staff)
+→ POST /admin/order-cancellations { orderId }          (or customer POST /orders/:id/cancel)
+→ POST /admin/order-cancellations/:id/advance { steps: 3 }
+→ GET  /admin/wallets/:userId                          (refund credited)
+→ POST /admin/order-cancellations/:id/confirm-return   { items: [{ orderItemId, goodQuantity, damagedQuantity }] }
+→ POST /admin/order-cancellations/:id/advance          → COMPLETED
 ```

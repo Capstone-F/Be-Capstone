@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { OrderDiscountType, OrderSource, OrderStatus } from '../enums';
+import { OrderCancellationSummaryDto } from './order-cancellation-response.dto';
 
 export class OrderItemResponseDto {
   @ApiProperty()
@@ -72,6 +73,19 @@ export class OrderResponseDto {
     description: 'GHN WardCode from the order delivery address.',
   })
   wardCode!: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Set when a cancellation is requested.',
+  })
+  cancelledAt!: Date | null;
+
+  @ApiPropertyOptional({
+    type: OrderCancellationSummaryDto,
+    nullable: true,
+    description: 'Present once a cancellation has been requested.',
+  })
+  cancellation!: OrderCancellationSummaryDto | null;
 
   @ApiProperty()
   createdAt!: Date;

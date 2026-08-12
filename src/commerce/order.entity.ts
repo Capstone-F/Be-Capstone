@@ -14,6 +14,7 @@ import { CustomerSurvey } from '../survey/customer-survey.entity';
 import { SurveyRecommendation } from '../recommendations/survey-recommendation.entity';
 import { OrderDiscountType, OrderSource, OrderStatus } from './enums';
 import { Delivery } from '../delivery/delivery.entity';
+import { OrderCancellation } from './order-cancellation.entity';
 import { OrderItem } from './order-item.entity';
 import { Transaction } from './transaction.entity';
 
@@ -80,6 +81,9 @@ export class Order {
   @Column({ type: 'int', default: 0 })
   totalVnd: number;
 
+  @Column({ nullable: true, type: 'timestamptz' })
+  cancelledAt: Date | null;
+
   @OneToMany(() => OrderItem, (item) => item.order)
   items: OrderItem[];
 
@@ -88,6 +92,9 @@ export class Order {
 
   @OneToOne(() => Delivery, (delivery) => delivery.order)
   delivery: Delivery;
+
+  @OneToOne(() => OrderCancellation, (cancellation) => cancellation.order)
+  cancellation: OrderCancellation | null;
 
   @CreateDateColumn()
   createdAt: Date;

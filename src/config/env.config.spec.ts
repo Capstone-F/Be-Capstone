@@ -28,6 +28,10 @@ describe('env.config', () => {
         'MOBILE_REDIRECT_URIS',
         'MOBILE_AUTH_CODE_TTL_SECONDS',
         'MOBILE_OAUTH_STATE_TTL_SECONDS',
+        'ORDER_CANCELLATION_CRON_ENABLED',
+        'ORDER_CANCELLATION_TICK_CRON',
+        'ORDER_CANCELLATION_STEP_DELAY_SEC',
+        'ORDER_CANCELLATION_BATCH_SIZE',
       ]),
     );
   });
@@ -76,6 +80,10 @@ describe('env.config', () => {
     expect(resolved.MOBILE_REDIRECT_URIS).toEqual(['glowscan://auth/callback']);
     expect(resolved.MOBILE_AUTH_CODE_TTL_SECONDS).toBe(120);
     expect(resolved.MOBILE_OAUTH_STATE_TTL_SECONDS).toBe(600);
+    expect(resolved.ORDER_CANCELLATION_CRON_ENABLED).toBe(true);
+    expect(resolved.ORDER_CANCELLATION_TICK_CRON).toBe('*/15 * * * * *');
+    expect(resolved.ORDER_CANCELLATION_STEP_DELAY_SEC).toBe(60);
+    expect(resolved.ORDER_CANCELLATION_BATCH_SIZE).toBe(20);
   });
 
   it('should parse MOBILE_REDIRECT_URIS as a comma-separated list', () => {

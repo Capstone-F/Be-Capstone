@@ -39,3 +39,18 @@ export enum TransactionType {
   ESCROW_RELEASE = 'ESCROW_RELEASE',
   COMMISSION = 'COMMISSION',
 }
+
+export enum OrderCancellationStatus {
+  REQUESTED = 'REQUESTED',
+  REFUNDING = 'REFUNDING',
+  REFUNDED = 'REFUNDED',
+  AWAITING_RETURN = 'AWAITING_RETURN',
+  RESTOCKED = 'RESTOCKED',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+}
+
+export enum OrderCancellationActor {
+  CUSTOMER = 'CUSTOMER',
+  STAFF = 'STAFF',
+}

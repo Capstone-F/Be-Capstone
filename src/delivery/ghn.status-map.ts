@@ -6,7 +6,7 @@ export type GhnStatusMapping = {
   /**
    * Omitted where the shipping state does not justify moving the order.
    * Return/cancel/exception states leave the order alone: it was paid, and deciding
-   * CANCELLED/REFUNDED is a money decision that needs a refund path a human owns.
+   * CANCELLED/REFUNDED is a money decision staff own via POST /admin/order-cancellations.
    */
   order?: OrderStatus;
 };

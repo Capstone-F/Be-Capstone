@@ -30,7 +30,10 @@ import { Role } from '../auth/roles.enum';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
 import { OrderResponseDto, PaginatedOrdersDto } from './dto/order-response.dto';
+import { CancelOrderDto } from './dto/cancel-order.dto';
+import { OrderCancellationResponseDto } from './dto/order-cancellation-response.dto';
 import { OrdersService } from './orders.service';
+import { OrderCancellationsService } from './order-cancellations.service';
 
 @ApiTags('Orders')
 @Controller('orders')
@@ -39,7 +42,10 @@ import { OrdersService } from './orders.service';
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Not authenticated' })
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly cancellationsService: OrderCancellationsService,
+  ) {}
 
   @Post()
   @Roles(Role.Customer)
@@ -85,6 +91,28 @@ export class OrdersController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<OrderResponseDto> {
     return this.ordersService.getOrderForUser(this.requireUserId(req), id);
+  }
+
+  @Post(':id/cancel')
+  @Roles(Role.Customer)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Cancel my PENDING or PAID order',
+    description:
+      'Creates a cancellation. The processor then refunds the wallet (if paid) and parks sold stock for staff restock. ' +
+      'Customers cannot cancel once the order is PROCESSING, SHIPPED, or DELIVERED.',
+  })
+  @ApiOkResponse({ type: OrderCancellationResponseDto })
+  cancel(
+    @Req() req: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CancelOrderDto,
+  ): Promise<OrderCancellationResponseDto> {
+    return this.cancellationsService.requestByCustomer(
+      this.requireUserId(req),
+      id,
+      dto.reason,
+    );
   }
 
   private requireUserId(req: Request): string {

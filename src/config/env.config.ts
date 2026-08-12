@@ -299,6 +299,29 @@ export const ENV_DEFINITIONS = {
     description:
       'Public base URL for objects (r2.dev subdomain or custom domain). No trailing slash.',
   },
+  ORDER_CANCELLATION_CRON_ENABLED: {
+    required: false,
+    defaultValue: 'true',
+    description:
+      'When true, the order-cancellation processor runs on a cron. Set false in e2e or to drive the pipeline only via admin advance/tick.',
+  },
+  ORDER_CANCELLATION_TICK_CRON: {
+    required: false,
+    defaultValue: '*/15 * * * * *',
+    description:
+      'Cron expression for the order-cancellation processor tick (default every 15 seconds).',
+  },
+  ORDER_CANCELLATION_STEP_DELAY_SEC: {
+    required: false,
+    defaultValue: '60',
+    description:
+      'Seconds to wait between cancellation pipeline stages (REQUESTED → REFUNDING → …).',
+  },
+  ORDER_CANCELLATION_BATCH_SIZE: {
+    required: false,
+    defaultValue: '20',
+    description: 'Max cancellations claimed per processor tick.',
+  },
 } as const satisfies Record<string, EnvDefinition>;
 
 export type EnvKey = keyof typeof ENV_DEFINITIONS;
@@ -361,6 +384,10 @@ export type AppEnv = {
   R2_SECRET_ACCESS_KEY: string;
   R2_BUCKET: string;
   R2_PUBLIC_BASE_URL: string;
+  ORDER_CANCELLATION_CRON_ENABLED: boolean;
+  ORDER_CANCELLATION_TICK_CRON: string;
+  ORDER_CANCELLATION_STEP_DELAY_SEC: number;
+  ORDER_CANCELLATION_BATCH_SIZE: number;
 };
 
 export function getMissingRequiredEnv(
@@ -380,6 +407,18 @@ function deriveHealthUrl(keycloakBaseUrl: string): string {
   } catch {
     return 'http://localhost:9000/health/ready';
   }
+}
+
+function parseBool(
+  value: string | undefined,
+  varName: string,
+  defaultValue: boolean,
+): boolean {
+  if (value === undefined || value.trim() === '') {
+    return defaultValue;
+  }
+  const parsed = parseOptionalBool(value, varName);
+  return parsed ?? defaultValue;
 }
 
 function parseOptionalBool(
@@ -602,6 +641,24 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
     R2_PUBLIC_BASE_URL: (raw.R2_PUBLIC_BASE_URL?.trim() || '').replace(
       /\/+$/,
       '',
+    ),
+    ORDER_CANCELLATION_CRON_ENABLED: parseBool(
+      raw.ORDER_CANCELLATION_CRON_ENABLED,
+      'ORDER_CANCELLATION_CRON_ENABLED',
+      ENV_DEFINITIONS.ORDER_CANCELLATION_CRON_ENABLED.defaultValue === 'true',
+    ),
+    ORDER_CANCELLATION_TICK_CRON:
+      raw.ORDER_CANCELLATION_TICK_CRON?.trim() ||
+      ENV_DEFINITIONS.ORDER_CANCELLATION_TICK_CRON.defaultValue,
+    ORDER_CANCELLATION_STEP_DELAY_SEC: parsePositiveInt(
+      raw.ORDER_CANCELLATION_STEP_DELAY_SEC,
+      'ORDER_CANCELLATION_STEP_DELAY_SEC',
+      ENV_DEFINITIONS.ORDER_CANCELLATION_STEP_DELAY_SEC.defaultValue,
+    ),
+    ORDER_CANCELLATION_BATCH_SIZE: parsePositiveInt(
+      raw.ORDER_CANCELLATION_BATCH_SIZE,
+      'ORDER_CANCELLATION_BATCH_SIZE',
+      ENV_DEFINITIONS.ORDER_CANCELLATION_BATCH_SIZE.defaultValue,
     ),
   };
 }
