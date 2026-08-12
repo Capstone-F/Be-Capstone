@@ -9,7 +9,7 @@ End-to-end guide for integrating **App Admin** (`app_admin`) features with this 
 
 See also:
 
-- [Staff Flow Guide](staff-flow.md) — customer support chat queue (`staff` / `app_admin`); stock import forms detail (shared with `app_admin`, see [§7.5](#75-stock-import-forms-approval-workflow) here too); order cancellations & returns (see [§14](#14-flow-k--order-cancellations-refunds--restock) here and [staff-flow.md §D](staff-flow.md#d-order-cancellations--returns)); delivery simulation (see [§15](#15-flow-l--delivery-status-simulation))
+- [Staff Flow Guide](staff-flow.md) — customer support chat queue (`staff` / `app_admin`); stock import forms detail (shared with `app_admin`, see [§7.5](#75-stock-import-forms-approval-workflow) here too); order cancellations & returns (see [§14](#14-flow-k--order-cancellations-refunds--restock) here and [staff-flow.md §E](staff-flow.md#e-order-cancellations--returns)); delivery simulation (see [§15](#15-flow-l--delivery-status-simulation))
 - [Clinic Manager Flow Guide](clinic-manager-flow.md) — clinic-scoped expert onboarding, fees, availability
 - [User Management & RBAC](users.md) — roles, clinic scoping, user model
 - [E-Commerce Integration Guide](ecommerce-flow.md) — customer purchase path; admin owns catalog + combo settings
@@ -941,7 +941,7 @@ DELETE /admin/clinics/<clinicId>
 
 `app_admin` has the **same full rights as `staff`** on `/admin/order-cancellations`: create, list, get, confirm-return, and the manual `advance` / `tick` demo controls.
 
-Full request/response examples, the lifecycle diagram, refund-amount rules, and the confirm-return stock-effects table live in [staff-flow.md §D](staff-flow.md#d-order-cancellations--returns) (shared doc, same roles). Reference table:
+Full request/response examples, the lifecycle diagram, refund-amount rules, and the confirm-return stock-effects table live in [staff-flow.md §E](staff-flow.md#e-order-cancellations--returns) (shared doc, same roles). Reference table:
 
 | Method | Path                                            | Roles            | Status   |
 | ------ | ----------------------------------------------- | ---------------- | -------- |
@@ -1186,7 +1186,9 @@ Login (app_admin | staff)
 
 ```
 Login (app_admin | staff)
-→ POST /admin/deliveries/:id/advance { steps: 7 }      → delivered (or fewer steps)
+→ POST /admin/deliveries/:id/advance { steps: 2 }      → picking (parks until handover)
+→ POST /admin/orders/:orderId/handover                 → picked / SHIPPED
+→ POST /admin/deliveries/:id/advance { steps: 4 }      → delivered
 → POST /admin/deliveries/:id/force-status { providerStatus: "returned" }
 → POST /admin/order-cancellations/tick                 → SYSTEM cancel + pipeline
 → POST /admin/order-cancellations/:id/confirm-return

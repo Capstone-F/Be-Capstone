@@ -321,7 +321,7 @@ GET /orders/<orderId>
 
 Returns the same order shape for the authenticated owner only. Once a cancellation exists, the payload includes `cancelledAt` and a `cancellation` summary (`status`, `refundAmountVnd`, `nextRunAt`).
 
-**Cancel (customer):** `POST /orders/:id/cancel` is allowed while the order is `PENDING` or `PAID`. Body `{ "reason": "..." }` is optional. Staff/admin can cancel any pre-`DELIVERED` order via `POST /admin/order-cancellations`. The processor refunds the **wallet** (full `totalVnd` if still `PAID`; shipping withheld once `PROCESSING`/`SHIPPED`) and parks sold units for staff restock. Full staff desk: [staff-flow.md §D](staff-flow.md#d-order-cancellations--returns).
+**Cancel (customer):** `POST /orders/:id/cancel` is allowed while the order is `PENDING` or `PAID`. Body `{ "reason": "..." }` is optional. Staff/admin can cancel any pre-`DELIVERED` order via `POST /admin/order-cancellations`. The processor refunds the **wallet** (full `totalVnd` if still `PAID`; shipping withheld once `PROCESSING`/`SHIPPED`) and parks sold units for staff restock. Full staff desk: [staff-flow.md §E](staff-flow.md#e-order-cancellations--returns).
 
 ```http
 POST /orders/<orderId>/cancel
@@ -489,7 +489,7 @@ GHN status → `DeliveryStatus` / `OrderStatus` mapping: [shipping.md](shipping.
 | POST        | `/uploads/images`                                | ✅ Ready | Multipart → R2 URL; see [uploads.md](uploads.md)                                                 |
 | GET / PATCH | `/admin/commerce-settings/survey-combo-discount` | ✅ Ready | Admin only                                                                                       |
 | POST        | `/orders/:id/cancel`                             | ✅ Ready | Customer: own `PENDING` / `PAID` only                                                            |
-| POST / GET  | `/admin/order-cancellations`                     | ✅ Ready | Staff/admin cancel + queue; see [staff-flow.md §D](staff-flow.md#d-order-cancellations--returns) |
+| POST / GET  | `/admin/order-cancellations`                     | ✅ Ready | Staff/admin cancel + queue; see [staff-flow.md §E](staff-flow.md#e-order-cancellations--returns) |
 | POST        | `/admin/order-cancellations/:id/confirm-return`  | ✅ Ready | Staff restock (good / damaged split)                                                             |
 | POST        | `/admin/order-cancellations/:id/advance`         | ✅ Ready | Demo: step the cron pipeline immediately                                                         |
 | GET         | `/payments/vnpay/return`                         | ✅ Ready | Gateway browser return; not called by app UI                                                     |
@@ -583,7 +583,7 @@ Wait until `status` is not `PENDING` / `PROCESSING` before showing success / tra
 
 `PENDING` → `PROCESSING` → `SHIPPED` → `IN_TRANSIT` → `DELIVERED` (also `FAILED`, `RETURNED`)
 
-Return delivery states (`RETURNED`) auto-open a `SYSTEM` cancellation on the next cancellation tick (wallet refund + restock queue). `FAILED` still needs staff via `POST /admin/order-cancellations`. See [staff-flow.md §D](staff-flow.md#d-order-cancellations--returns) and [shipping.md](shipping.md#sandbox-status-simulation).
+Return delivery states (`RETURNED`) auto-open a `SYSTEM` cancellation on the next cancellation tick (wallet refund + restock queue). `FAILED` still needs staff via `POST /admin/order-cancellations`. See [staff-flow.md §E](staff-flow.md#e-order-cancellations--returns) and [shipping.md](shipping.md#sandbox-status-simulation).
 
 ```
 Ready today:     Discover → Auth → Cart → GHN address → Order+fee → Payment → GHN ship → Track

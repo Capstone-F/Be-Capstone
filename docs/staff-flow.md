@@ -5,7 +5,8 @@ End-to-end guide for **Staff** (`staff`) and **App Admin** (`app_admin`):
 1. **Stock import forms** — create draft → update → submit → confirm (applies inventory), or cancel / reject
 2. **Customer support chat** — shared queue → claim (one staff at a time) → poll/send messages → close
 3. **Catalog onboarding** — create products (+ ingredients), set variant images (shared with `app_admin`)
-4. **Order cancellations & returns** — cancel an order → cron refunds to wallet → confirm the physical restock
+4. **Carrier handover** — confirm a packed order was physically given to GHN (`SHIPPED`)
+5. **Order cancellations & returns** — cancel an order → cron refunds to wallet → confirm the physical restock
 
 **Auth (login):** do not duplicate here — use:
 
@@ -65,17 +66,22 @@ See also:
 25. [Direct stock batch import](#25-direct-stock-batch-import)
 26. [Catalog endpoint checklist](#26-catalog-endpoint-checklist)
 
-### D. Order cancellations & returns
+### D. Carrier handover
 
-27. [Roles & auth (cancellations)](#27-roles--auth-cancellations)
-28. [Cancellation lifecycle](#28-cancellation-lifecycle)
-29. [Refund amount rules](#29-refund-amount-rules)
-30. [Staff-initiated cancel](#30-staff-initiated-cancel)
-31. [List / work queue](#31-list--work-queue)
-32. [Get one](#32-get-one)
-33. [Confirm return (restock)](#33-confirm-return-restock)
-34. [Manual advance / tick (demo)](#34-manual-advance--tick-demo)
-35. [Cancellation endpoint checklist](#35-cancellation-endpoint-checklist)
+27. [Confirm handover to provider](#27-confirm-handover-to-provider)
+28. [Handover endpoint checklist](#28-handover-endpoint-checklist)
+
+### E. Order cancellations & returns
+
+29. [Roles & auth (cancellations)](#29-roles--auth-cancellations)
+30. [Cancellation lifecycle](#30-cancellation-lifecycle)
+31. [Refund amount rules](#31-refund-amount-rules)
+32. [Staff-initiated cancel](#32-staff-initiated-cancel)
+33. [List / work queue](#33-list--work-queue)
+34. [Get one](#34-get-one)
+35. [Confirm return (restock)](#35-confirm-return-restock)
+36. [Manual advance / tick (demo)](#36-manual-advance--tick-demo)
+37. [Cancellation endpoint checklist](#37-cancellation-endpoint-checklist)
 
 ---
 
@@ -724,7 +730,73 @@ POST /products
 
 ---
 
-# D. Order cancellations & returns
+# D. Carrier handover
+
+After payment, the backend creates the GHN shipment (`providerOrderCode`) and leaves the order
+in `PROCESSING`. Warehouse staff pack the parcel and confirm it was physically given to the
+carrier. That confirmation stamps who handed it over and advances delivery/order to `SHIPPED`
+through the same GHN status path as webhooks (`picked`).
+
+Stock is already deducted at payment — handover is a fulfillment fact, not an inventory one.
+See [shipping.md](shipping.md) for the full GHN lifecycle.
+
+---
+
+## 27. Confirm handover to provider ✅ Ready
+
+| Method | Path                              | Roles            | Status   |
+| ------ | --------------------------------- | ---------------- | -------- |
+| POST   | `/admin/orders/:orderId/handover` | staff, app_admin | ✅ Ready |
+
+Requires:
+
+- Authenticated session (cookie or Bearer)
+- Role **`staff`** or **`app_admin`**
+- Delivery with a non-null `providerOrderCode` (retry via `POST /admin/deliveries/:id/create-ghn-order` if missing)
+- Order not `CANCELLED` / `REFUNDED`; delivery not `DELIVERED` / `FAILED` / `RETURNED`
+- Not already handed over (`409` on a second call)
+
+```http
+POST /admin/orders/<order-uuid>/handover
+Content-Type: application/json
+
+{
+  "note": "Left at GHN dock A"
+}
+```
+
+`note` is optional (max 500 chars). Response is the admin delivery DTO including
+`handedOverAt`, `handedOverByUserId`, `handoverNote`, `status: "SHIPPED"`, and
+`providerStatus: "picked"`.
+
+Work queue for the pack desk:
+
+```http
+GET /admin/deliveries?awaitingHandover=true&page=1&limit=20
+```
+
+Returns `PROCESSING` deliveries that have a `providerOrderCode` but no `handedOverAt` yet.
+
+---
+
+## 28. Handover endpoint checklist
+
+| Method | Path                                      | Roles            | Status   |
+| ------ | ----------------------------------------- | ---------------- | -------- |
+| POST   | `/admin/orders/:orderId/handover`         | staff, app_admin | ✅ Ready |
+| GET    | `/admin/deliveries?awaitingHandover=true` | staff, app_admin | ✅ Ready |
+
+**Typical Staff sequence (paid order ready to ship):**
+
+```
+GET  /admin/deliveries?awaitingHandover=true
+  → POST /admin/orders/:orderId/handover   { note? }
+  → (sandbox) POST /admin/deliveries/:id/advance   → continue to delivered
+```
+
+---
+
+# E. Order cancellations & returns
 
 Customers can self-cancel `PENDING` / `PAID` orders (`POST /orders/:id/cancel`). Staff / App Admin can cancel any order that is not yet `DELIVERED` (or already `CANCELLED` / `REFUNDED`). A background processor then walks the cancellation one stage per tick: refund the customer **wallet**, mark sold units `RETURNED` (in transit), and wait for staff to confirm the physical restock.
 
@@ -734,7 +806,7 @@ Customer-side cancel is documented in [ecommerce-flow.md](ecommerce-flow.md). Th
 
 ---
 
-## 27. Roles & auth (cancellations)
+## 29. Roles & auth (cancellations)
 
 All `/admin/order-cancellations` endpoints require:
 
@@ -745,7 +817,7 @@ Same actor may cancel, advance, and confirm-return (no separation-of-duties rule
 
 ---
 
-## 28. Cancellation lifecycle
+## 30. Cancellation lifecycle
 
 ```
 REQUESTED ──tick──▶ REFUNDING ──tick──▶ REFUNDED ──tick──▶ AWAITING_RETURN
@@ -774,7 +846,7 @@ Invalid transitions return `400` (e.g. `Return can only be confirmed from AWAITI
 
 ---
 
-## 29. Refund amount rules
+## 31. Refund amount rules
 
 Snapshotted onto the cancellation at request time (`refundAmountVnd`). Money always lands in the customer's **wallet**, not back through VNPay/PayOS.
 
@@ -787,7 +859,7 @@ Snapshotted onto the cancellation at request time (`refundAmountVnd`). Money alw
 
 ---
 
-## 30. Staff-initiated cancel ✅ Ready
+## 32. Staff-initiated cancel ✅ Ready
 
 | Method | Path                         | Roles            | Status   |
 | ------ | ---------------------------- | ---------------- | -------- |
@@ -809,7 +881,7 @@ Customers use `POST /orders/:id/cancel` instead (own `PENDING` / `PAID` orders o
 
 ---
 
-## 31. List / work queue ✅ Ready
+## 33. List / work queue ✅ Ready
 
 | Method | Path                         | Roles            | Status   |
 | ------ | ---------------------------- | ---------------- | -------- |
@@ -831,7 +903,7 @@ Restock desk: `?status=AWAITING_RETURN`.
 
 ---
 
-## 32. Get one ✅ Ready
+## 34. Get one ✅ Ready
 
 | Method | Path                             | Roles            | Status   |
 | ------ | -------------------------------- | ---------------- | -------- |
@@ -845,7 +917,7 @@ Includes `nextRunAt`, `attempts`, and `lastError` so a parked row is easy to spo
 
 ---
 
-## 33. Confirm return (restock) ✅ Ready
+## 35. Confirm return (restock) ✅ Ready
 
 | Method | Path                                            | Roles            | Status   |
 | ------ | ----------------------------------------------- | ---------------- | -------- |
@@ -884,7 +956,7 @@ Content-Type: application/json
 
 ---
 
-## 34. Manual advance / tick (demo) ✅ Ready
+## 36. Manual advance / tick (demo) ✅ Ready
 
 Same processor the cron uses. `ignoreDelay` skips `ORDER_CANCELLATION_STEP_DELAY_SEC` so a demo does not wait.
 
@@ -919,7 +991,7 @@ Set `ORDER_CANCELLATION_CRON_ENABLED=false` to drive the pipeline **only** throu
 
 ---
 
-## 35. Cancellation endpoint checklist
+## 37. Cancellation endpoint checklist
 
 | Method | Path                                            | Roles            | Status   |
 | ------ | ----------------------------------------------- | ---------------- | -------- |
