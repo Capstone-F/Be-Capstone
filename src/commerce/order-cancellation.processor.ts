@@ -136,27 +136,39 @@ export class OrderCancellationProcessor {
     cancellationId?: string;
     limit: number;
   }): Promise<OrderCancellation[]> {
-    const qb = this.cancellationRepository
-      .createQueryBuilder('c')
-      .leftJoinAndSelect('c.items', 'items')
-      .where('c.status NOT IN (:...skip)', {
-        skip: [...AUTO_SKIP_STATUSES],
-      })
-      .orderBy('c.nextRunAt', 'ASC')
-      .take(options.limit);
+    const isPg = this.isPostgres();
 
-    if (!options.ignoreDelay) {
-      qb.andWhere('c.nextRunAt <= :now', { now: new Date() });
-    }
-    if (options.cancellationId) {
-      qb.andWhere('c.id = :id', { id: options.cancellationId });
-    }
+    const runClaim = async (manager: EntityManager) => {
+      const qb = manager
+        .createQueryBuilder(OrderCancellation, 'c')
+        .leftJoinAndSelect('c.items', 'items')
+        .where('c.status NOT IN (:...skip)', {
+          skip: [...AUTO_SKIP_STATUSES],
+        })
+        .orderBy('c.nextRunAt', 'ASC')
+        .take(options.limit);
 
-    if (this.isPostgres()) {
-      qb.setLock('pessimistic_write').setOnLocked('skip_locked');
-    }
+      if (!options.ignoreDelay) {
+        qb.andWhere('c.nextRunAt <= :now', { now: new Date() });
+      }
+      if (options.cancellationId) {
+        qb.andWhere('c.id = :id', { id: options.cancellationId });
+      }
 
-    return qb.getMany();
+      if (isPg) {
+        // Lock only the root row — Postgres rejects FOR UPDATE on LEFT JOIN null side (items).
+        qb.setLock('pessimistic_write', undefined, ['c']).setOnLocked(
+          'skip_locked',
+        );
+      }
+
+      return qb.getMany();
+    };
+
+    if (isPg) {
+      return this.dataSource.transaction((manager) => runClaim(manager));
+    }
+    return runClaim(this.cancellationRepository.manager);
   }
 
   private async advanceSafely(

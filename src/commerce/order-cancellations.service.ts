@@ -395,7 +395,15 @@ export class OrderCancellationsService {
       manager.connection?.driver?.options?.type ??
       this.cancellationRepository.manager.connection?.driver?.options?.type;
     if (driverType === 'postgres') {
-      return { lock: { mode: 'pessimistic_write' as const } };
+      // Only lock the root table — Postgres rejects FOR UPDATE on LEFT JOIN null side.
+      const tableName =
+        manager.getRepository(OrderCancellation).metadata.tableName;
+      return {
+        lock: {
+          mode: 'pessimistic_write' as const,
+          tables: [tableName],
+        },
+      };
     }
     return {};
   }
