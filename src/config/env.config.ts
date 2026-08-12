@@ -322,6 +322,29 @@ export const ENV_DEFINITIONS = {
     defaultValue: '20',
     description: 'Max cancellations claimed per processor tick.',
   },
+  DELIVERY_SIMULATION_ENABLED: {
+    required: false,
+    defaultValue: 'false',
+    description:
+      'When true, the delivery-status simulator walks GHN deliveries through the happy path (sandbox only — GHN sandbox does not fire webhooks). Keep false in production.',
+  },
+  DELIVERY_SIMULATION_TICK_CRON: {
+    required: false,
+    defaultValue: '*/15 * * * * *',
+    description:
+      'Cron expression for the delivery-status simulator tick (default every 15 seconds).',
+  },
+  DELIVERY_SIMULATION_STEP_DELAY_SEC: {
+    required: false,
+    defaultValue: '60',
+    description:
+      'Seconds to wait between simulated GHN status steps (ready_to_pick → picking → … → delivered).',
+  },
+  DELIVERY_SIMULATION_BATCH_SIZE: {
+    required: false,
+    defaultValue: '20',
+    description: 'Max deliveries claimed per simulator tick.',
+  },
 } as const satisfies Record<string, EnvDefinition>;
 
 export type EnvKey = keyof typeof ENV_DEFINITIONS;
@@ -388,6 +411,10 @@ export type AppEnv = {
   ORDER_CANCELLATION_TICK_CRON: string;
   ORDER_CANCELLATION_STEP_DELAY_SEC: number;
   ORDER_CANCELLATION_BATCH_SIZE: number;
+  DELIVERY_SIMULATION_ENABLED: boolean;
+  DELIVERY_SIMULATION_TICK_CRON: string;
+  DELIVERY_SIMULATION_STEP_DELAY_SEC: number;
+  DELIVERY_SIMULATION_BATCH_SIZE: number;
 };
 
 export function getMissingRequiredEnv(
@@ -659,6 +686,24 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
       raw.ORDER_CANCELLATION_BATCH_SIZE,
       'ORDER_CANCELLATION_BATCH_SIZE',
       ENV_DEFINITIONS.ORDER_CANCELLATION_BATCH_SIZE.defaultValue,
+    ),
+    DELIVERY_SIMULATION_ENABLED: parseBool(
+      raw.DELIVERY_SIMULATION_ENABLED,
+      'DELIVERY_SIMULATION_ENABLED',
+      false,
+    ),
+    DELIVERY_SIMULATION_TICK_CRON:
+      raw.DELIVERY_SIMULATION_TICK_CRON?.trim() ||
+      ENV_DEFINITIONS.DELIVERY_SIMULATION_TICK_CRON.defaultValue,
+    DELIVERY_SIMULATION_STEP_DELAY_SEC: parsePositiveInt(
+      raw.DELIVERY_SIMULATION_STEP_DELAY_SEC,
+      'DELIVERY_SIMULATION_STEP_DELAY_SEC',
+      ENV_DEFINITIONS.DELIVERY_SIMULATION_STEP_DELAY_SEC.defaultValue,
+    ),
+    DELIVERY_SIMULATION_BATCH_SIZE: parsePositiveInt(
+      raw.DELIVERY_SIMULATION_BATCH_SIZE,
+      'DELIVERY_SIMULATION_BATCH_SIZE',
+      ENV_DEFINITIONS.DELIVERY_SIMULATION_BATCH_SIZE.defaultValue,
     ),
   };
 }

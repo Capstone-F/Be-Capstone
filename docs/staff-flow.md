@@ -728,6 +728,8 @@ POST /products
 
 Customers can self-cancel `PENDING` / `PAID` orders (`POST /orders/:id/cancel`). Staff / App Admin can cancel any order that is not yet `DELIVERED` (or already `CANCELLED` / `REFUNDED`). A background processor then walks the cancellation one stage per tick: refund the customer **wallet**, mark sold units `RETURNED` (in transit), and wait for staff to confirm the physical restock.
 
+`SYSTEM` cancellations also appear in this queue when a delivery reaches `RETURNED` (GHN return webhook or admin `force-status`). `requestedByUserId` is null and `requestedByActor` is `SYSTEM`. Treat them like staff-initiated cancels for confirm-return.
+
 Customer-side cancel is documented in [ecommerce-flow.md](ecommerce-flow.md). This section is the staff desk.
 
 ---
@@ -758,7 +760,7 @@ REFUNDING ──retries exhausted──▶ FAILED
 
 | Stage             | Who moves it                      | Side effects                                                                                 |
 | ----------------- | --------------------------------- | -------------------------------------------------------------------------------------------- |
-| `REQUESTED`       | Customer or staff create          | Snapshot refund amount + sold-instance counts. `nextRunAt = now`                             |
+| `REQUESTED`       | Customer, staff, or SYSTEM create | Snapshot refund amount + sold-instance counts. `nextRunAt = now`                             |
 | `REFUNDING`       | Cron / `advance`                  | `order.status = CANCELLED`                                                                   |
 | `REFUNDED`        | Cron / `advance`                  | Wallet credit (`TransactionType.REFUND`); `order.status = REFUNDED`                          |
 | `AWAITING_RETURN` | Cron / `advance`                  | `ProductInstance` `SOLD → RETURNED`. **Does not** change `remainingQuantity`                 |

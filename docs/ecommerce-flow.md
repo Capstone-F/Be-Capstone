@@ -502,11 +502,12 @@ GHN status → `DeliveryStatus` / `OrderStatus` mapping: [shipping.md](shipping.
 
 Order + GHN fee + payment + carrier tracking are **done**. Still open:
 
-| #   | Item                           | Purpose                                                                 | Status     |
-| --- | ------------------------------ | ----------------------------------------------------------------------- | ---------- |
-| 1   | GHN create retry / reconcile   | Re-hand off `PAID` orders with null `providerOrderCode` if GHN was down | ❌ Missing |
-| 2   | Saved customer addresses       | Reuse GHN address across orders                                         | ❌ Missing |
-| 3   | Auto-refund on GHN return/fail | Delivery `FAILED`/`RETURNED` does not auto-open a cancellation          | 🔶 Extend  |
+| #   | Item                         | Purpose                                                                               | Status     |
+| --- | ---------------------------- | ------------------------------------------------------------------------------------- | ---------- |
+| 1   | Saved customer addresses     | Reuse GHN address across orders                                                       | ❌ Missing |
+| 2   | Auto-refund on GHN fail only | `FAILED` delivery still needs staff cancel; `RETURNED` auto-opens SYSTEM cancellation | 🔶 Extend  |
+
+GHN create retry is available via `POST /admin/deliveries/:id/create-ghn-order` (see [shipping.md](shipping.md#sandbox-status-simulation)). `RETURNED` deliveries auto-open a `SYSTEM` cancellation on the next cancellation tick.
 
 ### Happy-path sequence
 
@@ -582,10 +583,11 @@ Wait until `status` is not `PENDING` / `PROCESSING` before showing success / tra
 
 `PENDING` → `PROCESSING` → `SHIPPED` → `IN_TRANSIT` → `DELIVERED` (also `FAILED`, `RETURNED`)
 
-Return/fail delivery states do **not** auto-open a cancellation. Staff can still cancel a `PROCESSING`/`SHIPPED` order via `POST /admin/order-cancellations` (wallet refund, shipping withheld). See [staff-flow.md §D](staff-flow.md#d-order-cancellations--returns).
+Return delivery states (`RETURNED`) auto-open a `SYSTEM` cancellation on the next cancellation tick (wallet refund + restock queue). `FAILED` still needs staff via `POST /admin/order-cancellations`. See [staff-flow.md §D](staff-flow.md#d-order-cancellations--returns) and [shipping.md](shipping.md#sandbox-status-simulation).
 
 ```
 Ready today:     Discover → Auth → Cart → GHN address → Order+fee → Payment → GHN ship → Track
-                 Cancel → wallet refund → staff restock
-Still open:      GHN create retry, saved addresses, auto-refund on GHN return/fail
+                 (sandbox) simulate statuses via /admin/deliveries
+                 Cancel / RETURNED → wallet refund → staff restock
+Still open:      Saved addresses; auto-cancel on FAILED (not just RETURNED)
 ```

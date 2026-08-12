@@ -41,12 +41,12 @@ export class OrderCancellation {
   })
   status: OrderCancellationStatus;
 
-  @Column({ type: 'uuid' })
-  requestedByUserId: string;
+  @Column({ type: 'uuid', nullable: true })
+  requestedByUserId: string | null;
 
-  @ManyToOne(() => User, { onDelete: 'RESTRICT' })
+  @ManyToOne(() => User, { nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'requestedByUserId' })
-  requestedByUser: User;
+  requestedByUser: User | null;
 
   @Column({
     type: 'varchar',

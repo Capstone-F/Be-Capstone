@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { AppEnv, getMissingRequiredEnv, resolveAppEnv } from './env.config';
 import { LlmConfig } from './llm.config';
 import { PaymentConfig, PayosConfig } from './payment.config';
+import { DeliverySimulationConfig } from './delivery-simulation.config';
 import { OrderCancellationConfig } from './order-cancellation.config';
 import { ShippingConfig } from './shipping.config';
 
@@ -220,6 +221,19 @@ export class AppConfigService {
       tickCron: this.env.ORDER_CANCELLATION_TICK_CRON,
       stepDelaySec: this.env.ORDER_CANCELLATION_STEP_DELAY_SEC,
       batchSize: this.env.ORDER_CANCELLATION_BATCH_SIZE,
+    };
+  }
+
+  /**
+   * Sandbox delivery-status simulator (GHN sandbox does not fire webhooks).
+   * Keep cronEnabled false in production.
+   */
+  get deliverySimulationConfig(): DeliverySimulationConfig {
+    return {
+      cronEnabled: this.env.DELIVERY_SIMULATION_ENABLED,
+      tickCron: this.env.DELIVERY_SIMULATION_TICK_CRON,
+      stepDelaySec: this.env.DELIVERY_SIMULATION_STEP_DELAY_SEC,
+      batchSize: this.env.DELIVERY_SIMULATION_BATCH_SIZE,
     };
   }
 

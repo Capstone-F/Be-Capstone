@@ -1,9 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AppConfigService } from '../config/config.service';
 import { ORDER_CANCELLATION_TICK_CRON_DEFAULT } from '../config/order-cancellation.config';
+import { Delivery } from '../delivery/delivery.entity';
+import { DeliveryStatus } from '../delivery/enums';
 import { StockService } from '../stock/stock.service';
 import { WalletService } from '../wallet/wallet.service';
 import { TransactionType, OrderCancellationStatus, OrderStatus } from './enums';
@@ -42,6 +44,7 @@ export type TickTransition = {
 export type TickResult = {
   advanced: TickTransition[];
   skipped: number;
+  autoCancelled: string[];
 };
 
 @Injectable()
@@ -51,6 +54,8 @@ export class OrderCancellationProcessor {
   constructor(
     @InjectRepository(OrderCancellation)
     private readonly cancellationRepository: Repository<OrderCancellation>,
+    @InjectRepository(Delivery)
+    private readonly deliveryRepository: Repository<Delivery>,
     private readonly cancellationsService: OrderCancellationsService,
     private readonly stockService: StockService,
     private readonly walletService: WalletService,
@@ -81,7 +86,16 @@ export class OrderCancellationProcessor {
 
   async tick(options: TickOptions = {}): Promise<TickResult> {
     const steps = Math.max(1, options.steps ?? 1);
-    const result: TickResult = { advanced: [], skipped: 0 };
+    const result: TickResult = {
+      advanced: [],
+      skipped: 0,
+      autoCancelled: [],
+    };
+
+    // Single-cancellation advances skip the RETURNED sweep — demos drive one row.
+    if (!options.cancellationId) {
+      result.autoCancelled = await this.sweepReturnedDeliveries();
+    }
 
     if (options.cancellationId) {
       for (let i = 0; i < steps; i++) {
@@ -129,6 +143,52 @@ export class OrderCancellationProcessor {
       }
     }
     return result;
+  }
+
+  /**
+   * When a delivery reaches RETURNED (simulator force or real GHN webhook),
+   * auto-create a SYSTEM cancellation so refund + restock kick off.
+   */
+  private async sweepReturnedDeliveries(): Promise<string[]> {
+    const batchSize = this.config.orderCancellationConfig.batchSize;
+    const candidates = await this.deliveryRepository
+      .createQueryBuilder('d')
+      .innerJoin('d.order', 'order')
+      .leftJoin(OrderCancellation, 'c', 'c.orderId = d.orderId')
+      .where('d.status = :status', { status: DeliveryStatus.RETURNED })
+      .andWhere('c.id IS NULL')
+      .andWhere('order.status NOT IN (:...blocked)', {
+        blocked: [OrderStatus.CANCELLED, OrderStatus.REFUNDED],
+      })
+      .orderBy('d.updatedAt', 'ASC')
+      .take(batchSize)
+      .getMany();
+
+    const created: string[] = [];
+    for (const delivery of candidates) {
+      try {
+        await this.cancellationsService.requestBySystem(
+          delivery.orderId,
+          'Auto-cancelled after delivery returned',
+        );
+        created.push(delivery.orderId);
+        this.logger.log(
+          `SYSTEM cancellation created for returned delivery order ${delivery.orderId}`,
+        );
+      } catch (error) {
+        if (error instanceof ConflictException) {
+          // Customer/staff cancel raced us — fine.
+          continue;
+        }
+        this.logger.error(
+          `Failed to auto-cancel returned order ${delivery.orderId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          error instanceof Error ? error.stack : undefined,
+        );
+      }
+    }
+    return created;
   }
 
   private async claimDue(options: {

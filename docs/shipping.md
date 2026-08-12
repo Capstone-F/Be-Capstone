@@ -45,8 +45,11 @@ Because the customer prepays shipping through VNPay, GHN orders are sent with
 | GET    | `/delivery/districts?provinceId=` | Session cookie | GHN districts in a province              |
 | GET    | `/delivery/wards?districtId=`     | Session cookie | GHN wards in a district                  |
 | POST   | `/delivery/fee-quote`             | Session cookie | Preview the fee for the cart + address   |
-| POST   | `/delivery/ghn/webhook/:secret`   | Public         | GHN status callback (sole status writer) |
+| POST   | `/delivery/ghn/webhook/:secret`   | Public         | GHN status callback                      |
 | GET    | `/delivery/order/:orderId`        | Session cookie | Delivery + tracking history for my order |
+
+Admin/staff sandbox controls (demo when GHN does not fire webhooks) live under
+`/admin/deliveries` — see [Sandbox status simulation](#sandbox-status-simulation).
 
 `POST /orders` now **requires** a `shippingAddress` body — it previously took no body at all.
 
@@ -63,12 +66,53 @@ GHN's 22 statuses (`src/delivery/ghn.status-map.ts`) collapse onto our enums:
 | `delivery_fail`, `waiting_to_return`, `cancel`, `exception`, `damage`, `lost`  | FAILED         | _(unchanged)_ |
 | `return`, `return_*`, `returning`, `returned`                                  | RETURNED       | _(unchanged)_ |
 
-Return/cancel/exception states deliberately **do not** move the order. It was paid; deciding
-`CANCELLED`/`REFUNDED` is a money decision. Staff/admin own that path via
-`POST /admin/order-cancellations` (wallet refund + restock). See
-[staff-flow.md §D](staff-flow.md#d-order-cancellations--returns). GHN shipment cancel for an
-order already handed to the carrier stays a manual dashboard action; `AWAITING_RETURN` is the
-hold point for that.
+Return/cancel/exception states deliberately **do not** move `OrderStatus` in the webhook
+apply path. A delivery that reaches `RETURNED` is later picked up by the order-cancellation
+processor (`sweepReturnedDeliveries`), which creates a `SYSTEM` cancellation (wallet refund
+
+- restock). `FAILED` states still need a staff decision via
+  `POST /admin/order-cancellations`. See
+  [staff-flow.md §D](staff-flow.md#d-order-cancellations--returns). GHN shipment cancel for an
+  order already handed to the carrier stays a manual dashboard action; `AWAITING_RETURN` is the
+  hold point for that.
+
+## Sandbox status simulation
+
+GHN's sandbox **does not fire webhooks**, so delivery/order statuses would otherwise stay at
+`PROCESSING` forever after `createGhnOrderForPaidOrder`. A local simulator walks eligible
+deliveries (those with a real `providerOrderCode`) through the happy-path GHN sequence and
+feeds each status through the **same** `applyProviderStatus` path the webhook uses — so
+`GHN_STATUS_MAP`, the stale guard, and `delivery_status_events` behave identically to
+production.
+
+Happy path (one step per tick / `advance`):
+
+```
+ready_to_pick → picking → picked → transporting → sorting → delivering → delivered
+```
+
+| Method | Path                                     | Auth              | Purpose                                             |
+| ------ | ---------------------------------------- | ----------------- | --------------------------------------------------- |
+| GET    | `/admin/deliveries`                      | staff / app_admin | List deliveries (filter status / orderId / missing) |
+| GET    | `/admin/deliveries/:id`                  | staff / app_admin | Delivery detail + tracking events                   |
+| POST   | `/admin/deliveries/tick`                 | staff / app_admin | Run one simulator pass (cron equivalent)            |
+| POST   | `/admin/deliveries/:id/advance`          | staff / app_admin | Advance one delivery N happy-path steps             |
+| POST   | `/admin/deliveries/:id/force-status`     | staff / app_admin | Force any `GHN_STATUS_MAP` key (e.g. `returned`)    |
+| POST   | `/admin/deliveries/:id/create-ghn-order` | staff / app_admin | Retry GHN create when `providerOrderCode` is null   |
+
+Only deliveries with a non-null `providerOrderCode` are simulated. Use
+`POST /admin/deliveries/:id/create-ghn-order` (or `missingProviderCode=true` on the list) to
+recover `PAID` orders where GHN was down at IPN time.
+
+Forcing `returned` → next cancellation `tick` creates a `SYSTEM` cancellation → refund +
+`AWAITING_RETURN`. See [admin-flow.md §15](admin-flow.md#15-flow-l--delivery-status-simulation).
+
+| Env                                  | Purpose                                     | Default          |
+| ------------------------------------ | ------------------------------------------- | ---------------- |
+| `DELIVERY_SIMULATION_ENABLED`        | Run the simulator cron (keep false in prod) | `false`          |
+| `DELIVERY_SIMULATION_TICK_CRON`      | Cron expression                             | `*/15 * * * * *` |
+| `DELIVERY_SIMULATION_STEP_DELAY_SEC` | Seconds between happy-path steps            | `60`             |
+| `DELIVERY_SIMULATION_BATCH_SIZE`     | Max deliveries claimed per tick             | `20`             |
 
 ## Webhook trust model
 
@@ -101,8 +145,8 @@ GHN order creation is guarded on `providerOrderCode IS NULL` and claimed with a 
 
 **Known limitation:** the VNPay IPN's own once-only gate means that if GHN is down at the
 moment of payment, the order stays `PAID` with `providerOrderCode` null and is **not**
-retried. `createGhnOrderForPaidOrder` is safe to re-call — a retry trigger (admin endpoint or
-a cron reconcile over `PAID` orders with a null code) is the natural follow-up.
+retried automatically. Recovery: `POST /admin/deliveries/:id/create-ghn-order` (list with
+`?missingProviderCode=true` to find candidates). `createGhnOrderForPaidOrder` is idempotent.
 
 ## Environment variables
 

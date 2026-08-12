@@ -53,4 +53,5 @@ export enum OrderCancellationStatus {
 export enum OrderCancellationActor {
   CUSTOMER = 'CUSTOMER',
   STAFF = 'STAFF',
+  SYSTEM = 'SYSTEM',
 }
