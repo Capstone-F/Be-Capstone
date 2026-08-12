@@ -28,10 +28,13 @@ Money is `int` VND. `Order.shippingFeeVnd` is quoted at checkout and included in
    from GHN (outside the DB transaction), stores it on the order, and writes a `PENDING`
    `Delivery` holding the address. `totalVnd = subtotalVnd - discountVnd + shippingFeeVnd`.
 4. **Payment** — `POST /payments/checkout` → VNPay → IPN. See [`payments.md`](payments.md).
-5. **GHN handover** — on IPN success (after stock deduction) the backend creates the GHN order,
+5. **GHN create** — on IPN success (after stock deduction) the backend creates the GHN order,
    stores `providerOrderCode` + `expectedDeliveryTime`, and moves delivery `PROCESSING` /
    order `PAID → PROCESSING`.
-6. **Tracking** — GHN posts status callbacks to the webhook, which maps them onto
+6. **Staff handover** — warehouse staff confirm the parcel was physically given to GHN via
+   `POST /admin/orders/:orderId/handover`. This stamps `handedOverAt` / `handedOverByUserId`
+   and applies GHN status `picked` (delivery → `SHIPPED`, order → `SHIPPED`).
+7. **Tracking** — GHN posts status callbacks to the webhook, which maps them onto
    `DeliveryStatus` and `OrderStatus`. Customers read `GET /delivery/order/:orderId`.
 
 Because the customer prepays shipping through VNPay, GHN orders are sent with
@@ -39,17 +42,19 @@ Because the customer prepays shipping through VNPay, GHN orders are sent with
 
 ## Endpoints
 
-| Method | Path                              | Auth           | Purpose                                  |
-| ------ | --------------------------------- | -------------- | ---------------------------------------- |
-| GET    | `/delivery/provinces`             | Session cookie | GHN provinces for the address picker     |
-| GET    | `/delivery/districts?provinceId=` | Session cookie | GHN districts in a province              |
-| GET    | `/delivery/wards?districtId=`     | Session cookie | GHN wards in a district                  |
-| POST   | `/delivery/fee-quote`             | Session cookie | Preview the fee for the cart + address   |
-| POST   | `/delivery/ghn/webhook/:secret`   | Public         | GHN status callback                      |
-| GET    | `/delivery/order/:orderId`        | Session cookie | Delivery + tracking history for my order |
+| Method | Path                              | Auth              | Purpose                                  |
+| ------ | --------------------------------- | ----------------- | ---------------------------------------- |
+| GET    | `/delivery/provinces`             | Session cookie    | GHN provinces for the address picker     |
+| GET    | `/delivery/districts?provinceId=` | Session cookie    | GHN districts in a province              |
+| GET    | `/delivery/wards?districtId=`     | Session cookie    | GHN wards in a district                  |
+| POST   | `/delivery/fee-quote`             | Session cookie    | Preview the fee for the cart + address   |
+| POST   | `/delivery/ghn/webhook/:secret`   | Public            | GHN status callback                      |
+| GET    | `/delivery/order/:orderId`        | Session cookie    | Delivery + tracking history for my order |
+| POST   | `/admin/orders/:orderId/handover` | staff / app_admin | Confirm parcel handed to the carrier     |
 
 Admin/staff sandbox controls (demo when GHN does not fire webhooks) live under
 `/admin/deliveries` — see [Sandbox status simulation](#sandbox-status-simulation).
+Staff pack-and-ship queue: `GET /admin/deliveries?awaitingHandover=true`.
 
 `POST /orders` now **requires** a `shippingAddress` body — it previously took no body at all.
 
@@ -72,7 +77,7 @@ processor (`sweepReturnedDeliveries`), which creates a `SYSTEM` cancellation (wa
 
 - restock). `FAILED` states still need a staff decision via
   `POST /admin/order-cancellations`. See
-  [staff-flow.md §D](staff-flow.md#d-order-cancellations--returns). GHN shipment cancel for an
+  [staff-flow.md §E](staff-flow.md#e-order-cancellations--returns). GHN shipment cancel for an
   order already handed to the carrier stays a manual dashboard action; `AWAITING_RETURN` is the
   hold point for that.
 
@@ -88,17 +93,22 @@ production.
 Happy path (one step per tick / `advance`):
 
 ```
-ready_to_pick → picking → picked → transporting → sorting → delivering → delivered
+ready_to_pick → picking → [staff handover] → picked → transporting → sorting → delivering → delivered
 ```
 
-| Method | Path                                     | Auth              | Purpose                                             |
-| ------ | ---------------------------------------- | ----------------- | --------------------------------------------------- |
-| GET    | `/admin/deliveries`                      | staff / app_admin | List deliveries (filter status / orderId / missing) |
-| GET    | `/admin/deliveries/:id`                  | staff / app_admin | Delivery detail + tracking events                   |
-| POST   | `/admin/deliveries/tick`                 | staff / app_admin | Run one simulator pass (cron equivalent)            |
-| POST   | `/admin/deliveries/:id/advance`          | staff / app_admin | Advance one delivery N happy-path steps             |
-| POST   | `/admin/deliveries/:id/force-status`     | staff / app_admin | Force any `GHN_STATUS_MAP` key (e.g. `returned`)    |
-| POST   | `/admin/deliveries/:id/create-ghn-order` | staff / app_admin | Retry GHN create when `providerOrderCode` is null   |
+The simulator **parks at `picking`** until staff call
+`POST /admin/orders/:orderId/handover`. Handover applies `picked` itself; afterward the
+simulator resumes from `transporting`.
+
+| Method | Path                                     | Auth              | Purpose                                                          |
+| ------ | ---------------------------------------- | ----------------- | ---------------------------------------------------------------- |
+| GET    | `/admin/deliveries`                      | staff / app_admin | List (status / orderId / missingProviderCode / awaitingHandover) |
+| GET    | `/admin/deliveries/:id`                  | staff / app_admin | Delivery detail + tracking events                                |
+| POST   | `/admin/deliveries/tick`                 | staff / app_admin | Run one simulator pass (cron equivalent)                         |
+| POST   | `/admin/deliveries/:id/advance`          | staff / app_admin | Advance one delivery N happy-path steps                          |
+| POST   | `/admin/deliveries/:id/force-status`     | staff / app_admin | Force any `GHN_STATUS_MAP` key (e.g. `returned`)                 |
+| POST   | `/admin/deliveries/:id/create-ghn-order` | staff / app_admin | Retry GHN create when `providerOrderCode` is null                |
+| POST   | `/admin/orders/:orderId/handover`        | staff / app_admin | Confirm parcel handed to carrier (`picked`)                      |
 
 Only deliveries with a non-null `providerOrderCode` are simulated. Use
 `POST /admin/deliveries/:id/create-ghn-order` (or `missingProviderCode=true` on the list) to

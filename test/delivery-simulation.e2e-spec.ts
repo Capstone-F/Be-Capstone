@@ -198,6 +198,30 @@ describe('Delivery status simulation (e2e)', () => {
       providerStatus: null,
     });
 
+    const { body: parked } = await request(app.getHttpServer())
+      .post(`/admin/deliveries/${delivery.id}/advance`)
+      .set('Cookie', staffSid)
+      .send({ steps: 7 })
+      .expect(200);
+
+    expect(parked.delivery.status).toBe(DeliveryStatus.PROCESSING);
+    expect(parked.delivery.providerStatus).toBe('picking');
+    expect(
+      parked.transitions.map(
+        (t: { providerStatus: string }) => t.providerStatus,
+      ),
+    ).toEqual(['ready_to_pick', 'picking']);
+
+    const { body: handed } = await request(app.getHttpServer())
+      .post(`/admin/orders/${order.id}/handover`)
+      .set('Cookie', staffSid)
+      .send({})
+      .expect(200);
+
+    expect(handed.status).toBe(DeliveryStatus.SHIPPED);
+    expect(handed.providerStatus).toBe('picked');
+    expect(handed.handedOverAt).toBeTruthy();
+
     const { body: advanced } = await request(app.getHttpServer())
       .post(`/admin/deliveries/${delivery.id}/advance`)
       .set('Cookie', staffSid)
@@ -206,20 +230,11 @@ describe('Delivery status simulation (e2e)', () => {
 
     expect(advanced.delivery.status).toBe(DeliveryStatus.DELIVERED);
     expect(advanced.delivery.providerStatus).toBe('delivered');
-    expect(advanced.transitions).toHaveLength(7);
     expect(
       advanced.transitions.map(
         (t: { providerStatus: string }) => t.providerStatus,
       ),
-    ).toEqual([
-      'ready_to_pick',
-      'picking',
-      'picked',
-      'transporting',
-      'sorting',
-      'delivering',
-      'delivered',
-    ]);
+    ).toEqual(['transporting', 'sorting', 'delivering', 'delivered']);
 
     const orderAfter = await dataSource.getRepository(Order).findOneByOrFail({
       id: order.id,

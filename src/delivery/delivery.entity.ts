@@ -10,6 +10,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Order } from '../commerce/order.entity';
+import { User } from '../users/user.entity';
 import { DeliveryStatus, DeliveryType } from './enums';
 import { DeliveryProvider } from './delivery-provider.entity';
 import { DeliveryStatusEvent } from './delivery-status-event.entity';
@@ -98,6 +99,23 @@ export class Delivery {
   /** Webhook `Time` of the last applied event — guards against out-of-order retries. */
   @Column({ type: 'timestamptz', nullable: true })
   lastStatusAt: Date | null;
+
+  /**
+   * Staff confirmation that the parcel was physically handed to the carrier.
+   * Null until POST /admin/orders/:orderId/handover.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  handedOverAt: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  handedOverByUserId: string | null;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'handedOverByUserId' })
+  handedOverByUser: User | null;
+
+  @Column({ type: 'text', nullable: true })
+  handoverNote: string | null;
 
   @OneToMany(() => DeliveryStatusEvent, (event) => event.delivery)
   statusEvents: DeliveryStatusEvent[];

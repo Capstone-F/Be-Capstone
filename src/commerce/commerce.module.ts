@@ -20,6 +20,7 @@ import { OrderCancellationsController } from './order-cancellations.controller';
 import { OrderCancellationsService } from './order-cancellations.service';
 import { OrderItem } from './order-item.entity';
 import { Order } from './order.entity';
+import { OrdersAdminController } from './orders-admin.controller';
 import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
 import { Transaction } from './transaction.entity';
@@ -46,6 +47,7 @@ import { Transaction } from './transaction.entity';
   ],
   controllers: [
     OrdersController,
+    OrdersAdminController,
     CommerceSettingsController,
     OrderCancellationsController,
   ],
