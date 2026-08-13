@@ -84,6 +84,8 @@ const baseVariant: ProductVariant = {
   routineStepDetails: [],
   createdAt: new Date(),
   updatedAt: new Date(),
+  weightGram: 100,
+  imageUrl: null,
 };
 
 describe('StockService', () => {
