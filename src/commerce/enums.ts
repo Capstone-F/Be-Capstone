@@ -20,6 +20,7 @@ export enum OrderDiscountType {
 export enum CommerceSettingKey {
   SURVEY_COMBO_DISCOUNT_PCT = 'SURVEY_COMBO_DISCOUNT_PCT',
   SURVEY_COMBO_MIN_SUBTOTAL_VND = 'SURVEY_COMBO_MIN_SUBTOTAL_VND',
+  PLATFORM_COMMISSION_PCT = 'PLATFORM_COMMISSION_PCT',
 }
 
 export enum TransactionStatus {
@@ -36,8 +37,19 @@ export enum TransactionType {
   WALLET_TOPUP = 'WALLET_TOPUP',
   REFUND = 'REFUND',
   WITHDRAWAL = 'WITHDRAWAL',
+  WITHDRAWAL_REVERSAL = 'WITHDRAWAL_REVERSAL',
   ESCROW_RELEASE = 'ESCROW_RELEASE',
   COMMISSION = 'COMMISSION',
+}
+
+/** Double-entry style accounts for platform ledger rows. */
+export enum LedgerAccount {
+  CUSTOMER_WALLET = 'CUSTOMER_WALLET',
+  PLATFORM_ESCROW = 'PLATFORM_ESCROW',
+  PLATFORM_REVENUE = 'PLATFORM_REVENUE',
+  CLINIC_WALLET = 'CLINIC_WALLET',
+  EXTERNAL_GATEWAY = 'EXTERNAL_GATEWAY',
+  BANK_OUT = 'BANK_OUT',
 }
 
 export enum OrderCancellationStatus {

@@ -3,18 +3,20 @@ import { Repository } from 'typeorm';
 import { Clinic } from './clinic.entity';
 import { ClinicsService } from './clinics.service';
 
-const makeClinic = (overrides: Partial<Clinic> = {}): Clinic =>
-  ({
-    id: 'clinic-1',
-    name: 'GlowScan Clinic',
-    address: '12 Nguyen Hue',
-    latitude: 10.7769,
-    longitude: 106.7009,
-    isActive: true,
-    createdAt: new Date('2026-01-01'),
-    updatedAt: new Date('2026-01-01'),
-    ...overrides,
-  }) as Clinic;
+const makeClinic = (overrides: Partial<Clinic> = {}): Clinic => ({
+  id: 'clinic-1',
+  name: 'GlowScan Clinic',
+  address: '12 Nguyen Hue',
+  latitude: 10.7769,
+  longitude: 106.7009,
+  isActive: true,
+  bankName: null,
+  bankAccountNumber: null,
+  bankAccountHolder: null,
+  createdAt: new Date('2026-01-01'),
+  updatedAt: new Date('2026-01-01'),
+  ...overrides,
+});
 
 describe('ClinicsService', () => {
   afterEach(() => jest.clearAllMocks());

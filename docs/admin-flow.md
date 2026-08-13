@@ -11,7 +11,7 @@ See also:
 
 - [Dashboard Integration Guide](dashboard-flow.md) — authoritative Admin, Expert, and Staff dashboard aggregates
 - [Staff Flow Guide](staff-flow.md) — customer support chat queue (`staff` / `app_admin`); stock import forms detail (shared with `app_admin`, see [§7.5](#75-stock-import-forms-approval-workflow) here too); order cancellations & returns (see [§14](#14-flow-k--order-cancellations-refunds--restock) here and [staff-flow.md §E](staff-flow.md#e-order-cancellations--returns)); delivery simulation (see [§15](#15-flow-l--delivery-status-simulation))
-- [Clinic Manager Flow Guide](clinic-manager-flow.md) — clinic-scoped expert onboarding, fees, availability
+- [Clinic Manager Flow Guide](clinic-manager-flow.md) — clinic-scoped expert onboarding, fees, availability, **escrow / clinic wallet / withdrawals**
 - [User Management & RBAC](users.md) — roles, clinic scoping, user model
 - [E-Commerce Integration Guide](ecommerce-flow.md) — customer purchase path; admin owns catalog + combo settings
 - [Survey Flow Guide](survey-flow.md) — customer survey path; admin owns question bank + QA cheats
@@ -1095,6 +1095,11 @@ Env: `DELIVERY_SIMULATION_ENABLED` (default false in code; set true in `.env` fo
 | ------ | ------------------------------------------------ | ---------------- | -------- |
 | GET    | `/admin/commerce-settings/survey-combo-discount` | app_admin        | ✅ Ready |
 | PATCH  | `/admin/commerce-settings/survey-combo-discount` | app_admin        | ✅ Ready |
+| GET    | `/admin/commerce-settings/platform-commission`   | app_admin        | ✅ Ready |
+| PATCH  | `/admin/commerce-settings/platform-commission`   | app_admin        | ✅ Ready |
+| GET    | `/admin/clinic-withdrawals`                      | staff, app_admin | ✅ Ready |
+| POST   | `/admin/clinic-withdrawals/:id/mark-paid`        | staff, app_admin | ✅ Ready |
+| POST   | `/admin/clinic-withdrawals/:id/reject`           | staff, app_admin | ✅ Ready |
 | GET    | `/admin/wallets/:userId`                         | app_admin        | ✅ Ready |
 | POST   | `/admin/wallets/:userId/top-up`                  | app_admin        | ✅ Ready |
 | POST   | `/admin/order-cancellations`                     | app_admin, staff | ✅ Ready |

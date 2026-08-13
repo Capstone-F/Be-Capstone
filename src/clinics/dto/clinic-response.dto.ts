@@ -22,6 +22,18 @@ export class ClinicResponseDto {
   @ApiProperty({ example: true })
   isActive!: boolean;
 
+  @ApiPropertyOptional({ nullable: true, example: 'Vietcombank' })
+  bankName!: string | null;
+
+  @ApiPropertyOptional({ nullable: true, example: '0123456789' })
+  bankAccountNumber!: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    example: 'GlowScan District 1 Clinic',
+  })
+  bankAccountHolder!: string | null;
+
   @ApiProperty()
   createdAt!: Date;
 

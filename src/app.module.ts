@@ -34,6 +34,7 @@ import { LlmModule } from './llm/llm.module';
 import { WalletModule } from './wallet/wallet.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { FinanceModule } from './finance/finance.module';
 
 @Module({
   imports: [
@@ -74,6 +75,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
     RuleEngineModule,
     LlmModule,
     WalletModule,
+    FinanceModule,
     PaymentsModule,
     UploadsModule,
     DashboardModule,

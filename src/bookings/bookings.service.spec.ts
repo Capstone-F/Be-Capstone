@@ -164,6 +164,29 @@ describe('BookingsService', () => {
     const walletService = {
       debit: jest.fn().mockResolvedValue({ id: 'tx-1' }),
       credit: jest.fn().mockResolvedValue({ id: 'tx-refund-1' }),
+      debitWithManager: jest.fn().mockResolvedValue({ id: 'tx-1' }),
+      creditWithManager: jest.fn().mockResolvedValue({ id: 'tx-refund-1' }),
+    };
+
+    const escrowService = {
+      holdConsultationWithManager: jest
+        .fn()
+        .mockResolvedValue({ id: 'hold-1' }),
+      findByConsultation: jest.fn().mockResolvedValue(null),
+      findHeldByConsultation: jest.fn().mockResolvedValue(null),
+      refundWithManager: jest.fn().mockResolvedValue(null),
+      releaseWithManager: jest.fn().mockResolvedValue(null),
+    };
+
+    const dataSource = {
+      transaction: jest.fn(
+        async (cb: (manager: unknown) => Promise<unknown>) => {
+          const manager = {
+            save: jest.fn(async (_entity: unknown, row: unknown) => row),
+          };
+          return cb(manager);
+        },
+      ),
     };
 
     const service = new BookingsService(
@@ -174,6 +197,8 @@ describe('BookingsService', () => {
       feedbackRepo,
       treatmentRepo as never,
       walletService as never,
+      escrowService as never,
+      dataSource as never,
     );
 
     return {
@@ -185,6 +210,8 @@ describe('BookingsService', () => {
       feedbackRepo,
       treatmentRepo,
       walletService,
+      escrowService,
+      dataSource,
     };
   }
 

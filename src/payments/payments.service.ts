@@ -20,7 +20,7 @@ import {
 import type { IpnResponse } from 'vnpay';
 import { AppConfigService } from '../config/config.service';
 import { Order } from '../commerce/order.entity';
-import { OrderStatus, TransactionType } from '../commerce/enums';
+import { LedgerAccount, OrderStatus, TransactionType } from '../commerce/enums';
 import { DeliveryService } from '../delivery/delivery.service';
 import { StockService } from '../stock/stock.service';
 import { Customer } from '../users/customer.entity';
@@ -396,9 +396,7 @@ export class PaymentsService {
           providerTransactionId: verify.providerTransactionId ?? null,
           bankCode: verify.bankCode ?? null,
           paidAt: success ? now : null,
-          ...(options.rawIpn != null
-            ? { rawIpn: options.rawIpn as Record<string, unknown> }
-            : {}),
+          ...(options.rawIpn != null ? { rawIpn: options.rawIpn } : {}),
         },
       );
 
@@ -433,6 +431,8 @@ export class PaymentsService {
             userId: payment.userId,
             note: `Wallet top-up payment ${payment.id}`,
             externalRef: payment.id,
+            fromAccount: LedgerAccount.EXTERNAL_GATEWAY,
+            toAccount: LedgerAccount.CUSTOMER_WALLET,
           });
         } else if (
           payment.purpose === PaymentPurpose.ORDER &&

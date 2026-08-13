@@ -8,16 +8,18 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import {
   Between,
+  DataSource,
   FindOptionsWhere,
   In,
   MoreThanOrEqual,
   Repository,
 } from 'typeorm';
 import { Role } from '../auth/roles.enum';
-import { TransactionType } from '../commerce/enums';
+import { LedgerAccount, TransactionType } from '../commerce/enums';
 import { ConsultationRequest } from '../consultations/consultation-request.entity';
 import { BookingCancelledBy, ConsultationStatus } from '../consultations/enums';
 import { Feedback } from '../consultations/feedback.entity';
+import { EscrowService } from '../finance/escrow.service';
 import { TreatmentStatus } from '../treatments/enums';
 import { Treatment } from '../treatments/treatment.entity';
 import { Customer } from '../users/customer.entity';
@@ -92,6 +94,8 @@ export class BookingsService {
     @InjectRepository(Treatment)
     private readonly treatmentRepository: Repository<Treatment>,
     private readonly walletService: WalletService,
+    private readonly escrowService: EscrowService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async createBooking(
@@ -165,19 +169,40 @@ export class BookingsService {
     if (!Number.isFinite(fee) || fee <= 0) {
       throw new BadRequestException('Expert consultation fee is not payable');
     }
+    if (!expert.clinicId) {
+      throw new BadRequestException('Expert is not bound to a clinic');
+    }
 
-    const tx = await this.walletService.debit({
-      type: TransactionType.CONSULTATION_PAYMENT,
-      amountVnd: fee,
-      userId,
-      consultationId: consultation.id,
-      note: `Consultation fee for booking ${consultation.id}`,
+    await this.dataSource.transaction(async (manager) => {
+      const tx = await this.walletService.debitWithManager(manager, {
+        type: TransactionType.CONSULTATION_PAYMENT,
+        amountVnd: fee,
+        userId,
+        consultationId: consultation.id,
+        clinicId: expert.clinicId,
+        expertId: expert.id,
+        fromAccount: LedgerAccount.CUSTOMER_WALLET,
+        toAccount: LedgerAccount.PLATFORM_ESCROW,
+        externalRef: `consultation-pay:${consultation.id}`,
+        note: `Consultation fee for booking ${consultation.id}`,
+      });
+
+      await this.escrowService.holdConsultationWithManager(manager, {
+        consultationId: consultation.id,
+        clinicId: expert.clinicId,
+        expertId: expert.id,
+        customerUserId: userId,
+        amountVnd: fee,
+        holdTransactionId: tx.id,
+      });
+
+      consultation.feeChargedVnd = String(fee);
+      consultation.paidTransactionId = tx.id;
+      await manager.save(ConsultationRequest, consultation);
     });
 
-    consultation.feeChargedVnd = String(fee);
-    consultation.paidTransactionId = tx.id;
-    const saved = await this.consultationRepository.save(consultation);
-    return this.toBookingResponseFromSaved(saved, consultation, expert);
+    const saved = await this.requireBooking(bookingId);
+    return this.toBookingResponseFromSaved(saved, saved, expert);
   }
 
   async confirmBooking(
@@ -226,28 +251,24 @@ export class BookingsService {
       );
     }
 
-    const feeCharged = Number(consultation.feeChargedVnd ?? 0);
-    if (
-      consultation.paidTransactionId &&
-      feeCharged > 0 &&
-      consultation.customer?.userId
-    ) {
-      await this.walletService.credit({
-        type: TransactionType.REFUND,
-        amountVnd: feeCharged,
-        userId: consultation.customer.userId,
-        consultationId: consultation.id,
-        note: `Refund consultation fee for booking ${consultation.id}`,
-      });
-    }
+    await this.dataSource.transaction(async (manager) => {
+      const hold = await this.escrowService.findByConsultation(
+        manager,
+        consultation.id,
+      );
+      if (hold) {
+        await this.escrowService.refundWithManager(manager, hold.id);
+      }
 
-    consultation.status = ConsultationStatus.CANCELLED;
-    consultation.cancelledAt = new Date();
-    consultation.cancelReason = dto.reason?.trim() || null;
-    consultation.cancelledBy = cancelledBy;
+      consultation.status = ConsultationStatus.CANCELLED;
+      consultation.cancelledAt = new Date();
+      consultation.cancelReason = dto.reason?.trim() || null;
+      consultation.cancelledBy = cancelledBy;
+      await manager.save(ConsultationRequest, consultation);
+    });
 
-    const saved = await this.consultationRepository.save(consultation);
-    return this.toBookingResponseFromSaved(saved, consultation);
+    const saved = await this.requireBooking(bookingId);
+    return this.toBookingResponseFromSaved(saved, saved);
   }
 
   async startBooking(
@@ -290,10 +311,22 @@ export class BookingsService {
       );
     }
 
-    consultation.status = ConsultationStatus.COMPLETED;
-    consultation.completedAt = new Date();
-    const saved = await this.consultationRepository.save(consultation);
-    return this.toBookingResponseFromSaved(saved, consultation, expert);
+    await this.dataSource.transaction(async (manager) => {
+      const hold = await this.escrowService.findHeldByConsultation(
+        manager,
+        consultation.id,
+      );
+      if (hold) {
+        await this.escrowService.releaseWithManager(manager, hold.id);
+      }
+
+      consultation.status = ConsultationStatus.COMPLETED;
+      consultation.completedAt = new Date();
+      await manager.save(ConsultationRequest, consultation);
+    });
+
+    const saved = await this.requireBooking(bookingId);
+    return this.toBookingResponseFromSaved(saved, saved, expert);
   }
 
   async submitFeedback(

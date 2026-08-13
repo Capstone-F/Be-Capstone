@@ -2,7 +2,7 @@
 
 End-to-end guide for integrating GlowScan’s **live consultation → video/chat intake → expert creates multi-phase plan → customer pays → activate phase → complete consultation → chart / cancel / follow-ups** flow with this backend.
 
-Entities: **`Treatment`** (plan lifecycle), **`TreatmentPhase`** (priced stages), **`TreatmentEvent`** (progress photos / timeline), **`Routine`** (`EXPERT_PRESCRIBED`, linked via `treatmentPhaseId`). Money for the plan uses the customer **`Wallet`** + ledger **`Transaction`** (`TREATMENT_PLAN_PAYMENT` / `REFUND`) — **not** the ecommerce `Payment` / VNPay checkout stack. Catalog products are optional purchases; phase products are prescriptions.
+Entities: **`Treatment`** (plan lifecycle), **`TreatmentPhase`** (priced stages), **`TreatmentEvent`** (progress photos / timeline), **`Routine`** (`EXPERT_PRESCRIBED`, linked via `treatmentPhaseId`). Money for the plan uses the customer **`Wallet`** → **per-phase platform escrow** → release to the **clinic wallet** when a phase is activated (minus commission) — **not** the ecommerce `Payment` / VNPay checkout stack. Clinic payouts: [clinic-manager-flow.md](clinic-manager-flow.md). Catalog products are optional purchases; phase products are prescriptions.
 
 **Auth (register / login):** do not duplicate here — use:
 
@@ -15,6 +15,7 @@ See also:
 - [Real-time Communication Flow](realtime-communication-flow.md) — video + ZIM chat tokens during the session
 - [Routine Tracking](routine-tracking-flow.md) — daily adherence after phase routine is ACTIVE
 - [User Management & RBAC](users.md) — experts, clinics, roles
+- [Clinic Manager Flow](clinic-manager-flow.md) — escrow release, clinic wallet, withdrawals
 - [E-Commerce](ecommerce-flow.md) / [VNPay](payments.md) — **product orders + wallet top-up only**, not plan debit
 
 ---
@@ -707,15 +708,15 @@ Unit coverage: `src/treatments/treatments.service.spec.ts`.
 
 ## 17. Remaining gaps & roadmap
 
-| Topic                                         | Status                                                  |
-| --------------------------------------------- | ------------------------------------------------------- |
-| Object storage / multipart photo upload       | ✅ `POST /uploads/images` (R2); events store `photoUrl` |
-| ACTIVE phase fee prorating on cancel          | ❌ Full ACTIVE fee kept                                 |
-| Ecommerce “purchased” vs “used” products      | ❌ Chart uses routine completions only                  |
-| Force consult complete only after plan pay    | ❌ Product UX; booking API does not enforce             |
-| Auto COMPLETED treatment when all phases done | 🔶 Not wired                                            |
-| Expert payout / escrow from plan fees         | ❌                                                      |
-| Notifications on pay / cancel / activate      | ❌                                                      |
+| Topic                                         | Status                                                                                  |
+| --------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Object storage / multipart photo upload       | ✅ `POST /uploads/images` (R2); events store `photoUrl`                                 |
+| ACTIVE phase fee prorating on cancel          | ❌ Full ACTIVE fee kept                                                                 |
+| Ecommerce “purchased” vs “used” products      | ❌ Chart uses routine completions only                                                  |
+| Force consult complete only after plan pay    | ❌ Product UX; booking API does not enforce                                             |
+| Auto COMPLETED treatment when all phases done | 🔶 Not wired                                                                            |
+| Expert payout / escrow from plan fees         | ✅ Per-phase release on activate — see [clinic-manager-flow.md](clinic-manager-flow.md) |
+| Notifications on pay / cancel / activate      | ❌                                                                                      |
 
 ---
 

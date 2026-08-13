@@ -744,5 +744,5 @@ Các file unit test nằm cạnh source (`*.spec.ts`). E2E test nằm trong thư
 - **[docs/auth-mobile.vi.md](docs/auth-mobile.vi.md)** — Hướng dẫn auth Expo / mobile (deep link + Bearer)
 - **[docs/auth-mobile.md](docs/auth-mobile.md)** — English mobile auth guide
 - **[docs/admin-flow.md](docs/admin-flow.md)** — Tích hợp App Admin (users, experts, catalog, survey bank, wallet, settings)
-- **[docs/clinic-manager-flow.md](docs/clinic-manager-flow.md)** — Tích hợp Clinic Manager (users theo clinic, onboarding expert, phí, lịch rảnh)
+- **[docs/clinic-manager-flow.md](docs/clinic-manager-flow.md)** — Tích hợp Clinic Manager (experts, phí, escrow / ví clinic / rút tiền)
 - Swagger UI tại `/docs`
