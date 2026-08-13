@@ -7,7 +7,7 @@ End-to-end guide for **Staff** (`staff`) and **App Admin** (`app_admin`):
 3. **Catalog onboarding** — create products (+ ingredients), set variant images (shared with `app_admin`)
 4. **Carrier handover** — confirm a packed order was physically given to GHN (`SHIPPED`)
 5. **Order cancellations & returns** — cancel an order → cron refunds to wallet → confirm the physical restock
-6. **Clinic withdrawals** — list `REQUESTED` withdrawals → transfer VND manually → `mark-paid` (or `reject`) — see [clinic-manager-flow.md §10](clinic-manager-flow.md#10-staff-payout-workflow)
+6. **Clinic withdrawals** (`app_admin` only) — list `REQUESTED` withdrawals → transfer VND manually → `mark-paid` (or `reject`) — see [clinic-manager-flow.md §10](clinic-manager-flow.md#10-admin-payout-workflow)
 
 **Auth (login):** do not duplicate here — use:
 
@@ -18,7 +18,7 @@ See also:
 
 - [Dashboard Integration Guide](dashboard-flow.md) — Staff work queues and authoritative operational trends
 - [Admin Integration Guide](admin-flow.md) — admin-only surface (users/RBAC, clinics, survey bank, commerce settings, wallet)
-- [Clinic Manager Flow Guide](clinic-manager-flow.md) — clinic-scoped expert onboarding, fees, availability, **escrow / clinic wallet / withdrawals** (staff marks withdrawals paid)
+- [Clinic Manager Flow Guide](clinic-manager-flow.md) — clinic-scoped expert onboarding, fees, availability, **escrow / clinic wallet / withdrawals** (app_admin marks withdrawals paid)
 - [User Management & RBAC](users.md) — roles and permissions
 
 ---
@@ -1002,9 +1002,9 @@ Set `ORDER_CANCELLATION_CRON_ENABLED=false` to drive the pipeline **only** throu
 | POST   | `/admin/order-cancellations/:id/confirm-return` | staff, app_admin | ✅ Ready |
 | POST   | `/admin/order-cancellations/:id/advance`        | staff, app_admin | ✅ Ready |
 | POST   | `/admin/order-cancellations/tick`               | staff, app_admin | ✅ Ready |
-| GET    | `/admin/clinic-withdrawals`                     | staff, app_admin | ✅ Ready |
-| POST   | `/admin/clinic-withdrawals/:id/mark-paid`       | staff, app_admin | ✅ Ready |
-| POST   | `/admin/clinic-withdrawals/:id/reject`          | staff, app_admin | ✅ Ready |
+| GET    | `/admin/clinic-withdrawals`                     | app_admin        | ✅ Ready |
+| POST   | `/admin/clinic-withdrawals/:id/mark-paid`       | app_admin        | ✅ Ready |
+| POST   | `/admin/clinic-withdrawals/:id/reject`          | app_admin        | ✅ Ready |
 
 **Typical Staff sequence (paid order, restock desk):**
 

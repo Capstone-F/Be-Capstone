@@ -12,7 +12,7 @@ A clinic manager is a **single-clinic** operator. Every write is silently scoped
 See also:
 
 - [Admin Integration Guide](admin-flow.md) — global surface; admin owns clinics, roles, catalog, commission setting
-- [Staff Flow Guide](staff-flow.md) — stock, support chat, and **manual clinic withdrawal payouts**
+- [Admin Flow Guide](admin-flow.md) — **manual clinic withdrawal payouts** (app_admin marks paid / rejects)
 - [User Management & RBAC](users.md) — roles, clinic scoping, user model
 - [Consultation Flow](consultation-flow.md) — booking pay → escrow → release on complete
 - [Treatment Plan Flow](treatment-plan-flow.md) — plan pay → per-phase escrow → release on activate
@@ -41,7 +41,7 @@ See also:
 7. [Clinic bank account](#7-clinic-bank-account)
 8. [Clinic wallet & statement](#8-clinic-wallet--statement)
 9. [Withdrawals](#9-withdrawals)
-10. [Staff payout workflow](#10-staff-payout-workflow)
+10. [Admin payout workflow](#10-admin-payout-workflow)
 11. [Platform commission setting](#11-platform-commission-setting)
 12. [Scoping rules & error matrix](#12-scoping-rules--error-matrix)
 13. [Endpoint checklist](#13-endpoint-checklist)
@@ -65,7 +65,7 @@ Customer pays booking / treatment plan (wallet debit)
                           Clinic manager requests withdraw
                                    │
                                    ▼
-                          Staff marks PAID after bank transfer
+                          Admin marks PAID after bank transfer
 ```
 
 | Source              | Hold created at                                 | Release trigger                                 | Refund                                              |
@@ -205,7 +205,7 @@ Shows **all** transactions with `clinicId = yours`, including:
 | `ESCROW_RELEASE`         | Net amount credited to clinic wallet        |
 | `COMMISSION`             | Platform cut from the same release          |
 | `WITHDRAWAL`             | Withdrawal requested (debit clinic wallet)  |
-| `WITHDRAWAL_REVERSAL`    | Staff rejected a withdrawal                 |
+| `WITHDRAWAL_REVERSAL`    | Admin rejected a withdrawal                 |
 
 Ecommerce product orders and customer wallet top-ups are **not** on this statement.
 
@@ -236,15 +236,15 @@ Statuses: `REQUESTED` → staff `PAID` or `REJECTED`.
 
 ---
 
-## 10. Staff payout workflow
+## 10. Admin payout workflow
 
-Staff / App Admin move money **manually** from the platform bank account to the clinic bank account, then confirm in the API.
+App Admin moves money **manually** from the platform bank account to the clinic bank account, then confirms in the API.
 
-| Method | Path                                         | Role             |
-| ------ | -------------------------------------------- | ---------------- |
-| `GET`  | `/admin/clinic-withdrawals?status=REQUESTED` | staff, app_admin |
-| `POST` | `/admin/clinic-withdrawals/:id/mark-paid`    | staff, app_admin |
-| `POST` | `/admin/clinic-withdrawals/:id/reject`       | staff, app_admin |
+| Method | Path                                         | Role      |
+| ------ | -------------------------------------------- | --------- |
+| `GET`  | `/admin/clinic-withdrawals?status=REQUESTED` | app_admin |
+| `POST` | `/admin/clinic-withdrawals/:id/mark-paid`    | app_admin |
+| `POST` | `/admin/clinic-withdrawals/:id/reject`       | app_admin |
 
 ```http
 POST /admin/clinic-withdrawals/<id>/mark-paid

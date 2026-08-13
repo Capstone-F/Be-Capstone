@@ -124,7 +124,7 @@ describe('ClinicWithdrawalsService', () => {
     expect(result.amountVnd).toBe('500000');
   });
 
-  it('re-credits clinic wallet when staff rejects a withdrawal', async () => {
+  it('re-credits clinic wallet when admin rejects a withdrawal', async () => {
     const { service, clinicWalletService, ledgerService } = makeService();
 
     await service.requestWithdrawal('clinic-1', 'manager-1', 500000);
