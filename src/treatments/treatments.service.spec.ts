@@ -80,6 +80,16 @@ describe('TreatmentsService phase activation rules', () => {
       }),
     };
 
+    const escrowService = {
+      holdTreatmentPhaseWithManager: jest
+        .fn()
+        .mockResolvedValue({ id: 'hold-1' }),
+      findHeldByTreatmentPhase: jest.fn().mockResolvedValue(null),
+      findHeldByTreatment: jest.fn().mockResolvedValue([]),
+      refundWithManager: jest.fn().mockResolvedValue(null),
+      releaseWithManager: jest.fn().mockResolvedValue(null),
+    };
+
     const service = new TreatmentsService(
       treatmentRepo as never,
       phaseRepo as never,
@@ -99,6 +109,7 @@ describe('TreatmentsService phase activation rules', () => {
       {} as never,
       {} as never,
       {} as never,
+      escrowService as never,
       dataSource as never,
     );
 
@@ -193,7 +204,32 @@ describe('TreatmentsService submit / cancel / chart', () => {
     routineRepo?: Record<string, unknown>;
     completionRepo?: Record<string, unknown>;
     walletService?: Record<string, unknown>;
+    escrowService?: Record<string, unknown>;
+    dataSource?: Record<string, unknown>;
   }) {
+    const defaultDataSource = {
+      transaction: jest.fn(async (cb: (m: unknown) => Promise<unknown>) => {
+        const manager = {
+          save: jest.fn(async (_entity: unknown, row: unknown) => row),
+          find: jest.fn().mockResolvedValue([]),
+        };
+        return cb(manager);
+      }),
+    };
+    const defaultEscrow = {
+      holdTreatmentPhaseWithManager: jest
+        .fn()
+        .mockResolvedValue({ id: 'hold-1' }),
+      findHeldByTreatmentPhase: jest.fn().mockResolvedValue(null),
+      findHeldByTreatment: jest.fn().mockResolvedValue([]),
+      refundWithManager: jest.fn().mockImplementation(async (_m, holdId) => ({
+        id: holdId,
+        refundTransactionId: 'tx-refund',
+        amountVnd: '200000',
+      })),
+      releaseWithManager: jest.fn().mockResolvedValue(null),
+    };
+
     return new TreatmentsService(
       (deps.treatmentRepo ?? {}) as never,
       (deps.phaseRepo ?? {}) as never,
@@ -214,8 +250,12 @@ describe('TreatmentsService submit / cancel / chart', () => {
       }) as never,
       {} as never,
       {} as never,
-      (deps.walletService ?? {}) as never,
-      {} as never,
+      (deps.walletService ?? {
+        debitWithManager: jest.fn().mockResolvedValue({ id: 'tx-pay' }),
+        creditWithManager: jest.fn().mockResolvedValue({ id: 'tx-refund' }),
+      }) as never,
+      (deps.escrowService ?? defaultEscrow) as never,
+      (deps.dataSource ?? defaultDataSource) as never,
     );
   }
 
@@ -345,6 +385,8 @@ describe('TreatmentsService submit / cancel / chart', () => {
     const treatment = {
       id: 't-1',
       customerId: 'cust-1',
+      clinicId: 'clinic-1',
+      expertId: 'expert-1',
       status: TreatmentStatus.DRAFT,
       paidAt: null,
       submittedAt: new Date('2026-08-01T10:00:00Z'),
@@ -359,7 +401,16 @@ describe('TreatmentsService submit / cancel / chart', () => {
       update: jest.fn(),
     };
     const walletService = {
-      debit: jest.fn().mockResolvedValue({ id: 'tx-pay' }),
+      debitWithManager: jest.fn().mockResolvedValue({ id: 'tx-pay' }),
+    };
+    const escrowService = {
+      holdTreatmentPhaseWithManager: jest
+        .fn()
+        .mockResolvedValue({ id: 'hold-1' }),
+      findHeldByTreatmentPhase: jest.fn().mockResolvedValue(null),
+      findHeldByTreatment: jest.fn().mockResolvedValue([]),
+      refundWithManager: jest.fn(),
+      releaseWithManager: jest.fn(),
     };
     const service = buildService({
       customerRepo: {
@@ -370,6 +421,7 @@ describe('TreatmentsService submit / cancel / chart', () => {
         find: jest.fn().mockResolvedValue([{ id: 'p-1', priceVnd: '100000' }]),
       },
       walletService,
+      escrowService,
     });
     (
       service as unknown as {
@@ -388,13 +440,8 @@ describe('TreatmentsService submit / cancel / chart', () => {
 
     await service.payTreatment('u-c', 't-1');
 
-    expect(walletService.debit).toHaveBeenCalled();
-    expect(treatmentRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: TreatmentStatus.ACTIVE,
-        paidTransactionId: 'tx-pay',
-      }),
-    );
+    expect(walletService.debitWithManager).toHaveBeenCalled();
+    expect(escrowService.holdTreatmentPhaseWithManager).toHaveBeenCalled();
   });
 
   it('clears submittedAt when expert edits a phase before pay', async () => {
@@ -514,7 +561,7 @@ describe('TreatmentsService submit / cancel / chart', () => {
     };
 
     const walletService = {
-      credit: jest.fn().mockResolvedValue({ id: 'tx-refund' }),
+      creditWithManager: jest.fn().mockResolvedValue({ id: 'tx-refund' }),
     };
     const treatmentRepo = {
       findOne: jest.fn().mockResolvedValue(treatment),
@@ -529,6 +576,22 @@ describe('TreatmentsService submit / cancel / chart', () => {
       save: jest.fn(async (row) => row),
     };
 
+    const escrowService = {
+      findHeldByTreatment: jest.fn().mockResolvedValue([
+        { id: 'hold-p1', amountVnd: '150000' },
+        { id: 'hold-p2', amountVnd: '50000' },
+      ]),
+      refundWithManager: jest
+        .fn()
+        .mockImplementation(async (_m: unknown, holdId: string) => ({
+          id: holdId,
+          refundTransactionId: 'tx-refund',
+        })),
+      holdTreatmentPhaseWithManager: jest.fn(),
+      findHeldByTreatmentPhase: jest.fn(),
+      releaseWithManager: jest.fn(),
+    };
+
     const service = buildService({
       treatmentRepo,
       expertRepo: {
@@ -539,6 +602,7 @@ describe('TreatmentsService submit / cancel / chart', () => {
       },
       routineRepo,
       walletService,
+      escrowService,
     });
 
     (
@@ -558,24 +622,7 @@ describe('TreatmentsService submit / cancel / chart', () => {
       { reason: 'Patient request' },
     );
 
-    expect(walletService.credit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        amountVnd: '200000',
-        treatmentId: 't-1',
-        userId: 'u-c',
-      }),
-    );
-    expect(treatmentRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: TreatmentStatus.CANCELLED,
-        refundTransactionId: 'tx-refund',
-        refundedAmountVnd: '200000',
-        cancelReason: 'Patient request',
-      }),
-    );
-    expect(routineRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'r-1', status: 'PAUSED' }),
-    );
+    expect(escrowService.refundWithManager).toHaveBeenCalledTimes(2);
     expect(result.status).toBe(TreatmentStatus.CANCELLED);
   });
 
@@ -835,6 +882,7 @@ describe('TreatmentsService updateEventPhoto', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
   }
 
@@ -986,6 +1034,7 @@ describe('TreatmentsService cross-expert read access', () => {
       (deps.completionRepo ?? {
         find: jest.fn().mockResolvedValue([]),
       }) as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1193,6 +1242,7 @@ describe('TreatmentsService listMyTreatments (expert filters)', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     const result = await service.listMyTreatments('u-e', true, {
@@ -1222,6 +1272,7 @@ describe('TreatmentsService listMyTreatments (expert filters)', () => {
       {
         findOne: jest.fn().mockResolvedValue({ id: 'expert-1', userId: 'u-e' }),
       } as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

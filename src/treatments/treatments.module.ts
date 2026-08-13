@@ -18,6 +18,7 @@ import { CustomerAllergy } from '../users/customer-allergy.entity';
 import { Customer } from '../users/customer.entity';
 import { Expert } from '../users/expert.entity';
 import { WalletModule } from '../wallet/wallet.module';
+import { FinanceModule } from '../finance/finance.module';
 import { LockedIngredient } from './locked-ingredient.entity';
 import { TreatmentAccess } from './treatment-access.entity';
 import { TreatmentEvent } from './treatment-event.entity';
@@ -55,6 +56,7 @@ import { TreatmentsService } from './treatments.service';
     ]),
     AuthModule,
     WalletModule,
+    FinanceModule,
   ],
   controllers: [TreatmentsController],
   providers: [TreatmentsService, SessionGuard, RolesGuard],

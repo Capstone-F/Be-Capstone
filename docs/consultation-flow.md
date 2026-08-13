@@ -2,7 +2,7 @@
 
 End-to-end guide for integrating GlowScan’s **expert discovery → slot pick → booking → wallet payment → confirm / cancel → session (video + chat) → feedback** flow with this backend.
 
-Entities: **`ConsultationRequest`** (booking lifecycle) and **`Feedback`** (1:1 rating after `COMPLETED`). Display pricing uses **`Expert.consultationFee`**. Money for consultations uses the customer **`Wallet`** + ledger **`Transaction`** (`CONSULTATION_PAYMENT` / `REFUND`) — **not** the ecommerce `Payment` / VNPay checkout stack.
+Entities: **`ConsultationRequest`** (booking lifecycle) and **`Feedback`** (1:1 rating after `COMPLETED`). Display pricing uses **`Expert.consultationFee`**. Money for consultations uses the customer **`Wallet`** → **platform escrow** → release to the **clinic wallet** on complete (minus commission) — **not** the ecommerce `Payment` / VNPay checkout stack. Clinic payouts: [clinic-manager-flow.md](clinic-manager-flow.md).
 
 During an active booking, customer and expert talk via **ZegoCloud** (video room + ZIM in-app chat). This backend only **mints tokens** and resolves the peer — clients join Zego with those credentials. Full client integration: [Real-time Communication Flow](realtime-communication-flow.md).
 
@@ -17,6 +17,7 @@ See also:
 - [Real-time Communication Flow](realtime-communication-flow.md) — video + chat token APIs for FE / Mobile
 - [User Management & RBAC](users.md) — experts, clinics, roles
 - [Treatment Plan Flow](treatment-plan-flow.md) — multi-phase plan created during live `IN_PROGRESS` session
+- [Clinic Manager Flow](clinic-manager-flow.md) — escrow release, clinic wallet, withdrawals
 - [E-Commerce](ecommerce-flow.md) / [VNPay](payments.md) — **product orders + wallet top-up only**, not consultation debit
 
 ---
@@ -665,9 +666,7 @@ After feedback: `feedback: { "rating": 5, "comment": "..." }`.
 
 ```json
 {
-  "items": [
-    /* BookingResponseDto */
-  ],
+  "items": [/* BookingResponseDto */],
   "total": 5,
   "page": 1,
   "limit": 20
@@ -837,4 +836,4 @@ Worth checking by hand: double-pay (`400 already paid`); confirm before pay (`40
 1. **Local chat transcript API** — optional sync of ZIM history into `ChatHistory` (not required for MVP launch).
 2. **Notifications** (push/email on confirm / cancel / plan paid).
 3. **Routine edit policy after phase activate** — MVP allows edit; stricter locking TBD (treatment flow).
-4. Expert payout / escrow release from consultation and plan fees.
+4. ~~Expert payout / escrow release from consultation and plan fees.~~ ✅ See [clinic-manager-flow.md](clinic-manager-flow.md) (escrow → clinic wallet → staff withdrawal).

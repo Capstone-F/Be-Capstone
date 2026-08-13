@@ -6,10 +6,11 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, DataSource, In, IsNull, Not, Repository } from 'typeorm';
-import { TransactionType } from '../commerce/enums';
+import { LedgerAccount, TransactionType } from '../commerce/enums';
 import { ConsultationRequest } from '../consultations/consultation-request.entity';
 import { Feedback } from '../consultations/feedback.entity';
 import { ConsultationStatus } from '../consultations/enums';
+import { EscrowService } from '../finance/escrow.service';
 import { Ingredient } from '../ingredients/ingredient.entity';
 import { TimeOfUse } from '../ingredients/enums';
 import { ProductIngredient } from '../products/product-ingredient.entity';
@@ -108,6 +109,7 @@ export class TreatmentsService {
     @InjectRepository(StockBatch)
     private readonly stockBatchRepo: Repository<StockBatch>,
     private readonly walletService: WalletService,
+    private readonly escrowService: EscrowService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -428,20 +430,51 @@ export class TreatmentsService {
         'Treatment startDate and endDate are required',
       );
     }
+    if (!reloaded.clinicId) {
+      throw new BadRequestException('Treatment is not bound to a clinic');
+    }
 
-    const tx = await this.walletService.debit({
-      type: TransactionType.TREATMENT_PLAN_PAYMENT,
-      amountVnd: total,
-      userId: customerUserId,
-      treatmentId: reloaded.id,
-      note: `Treatment plan payment ${reloaded.id}`,
+    const payablePhases = reloaded.phases.filter(
+      (p) => Number(p.priceVnd || '0') > 0,
+    );
+    if (!payablePhases.length) {
+      throw new BadRequestException(
+        'Treatment has no payable phases (expert must submit plan first)',
+      );
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      const tx = await this.walletService.debitWithManager(manager, {
+        type: TransactionType.TREATMENT_PLAN_PAYMENT,
+        amountVnd: total,
+        userId: customerUserId,
+        treatmentId: reloaded.id,
+        clinicId: reloaded.clinicId,
+        expertId: reloaded.expertId,
+        fromAccount: LedgerAccount.CUSTOMER_WALLET,
+        toAccount: LedgerAccount.PLATFORM_ESCROW,
+        externalRef: `treatment-pay:${reloaded.id}`,
+        note: `Treatment plan payment ${reloaded.id}`,
+      });
+
+      for (const phase of payablePhases) {
+        await this.escrowService.holdTreatmentPhaseWithManager(manager, {
+          treatmentId: reloaded.id,
+          treatmentPhaseId: phase.id,
+          clinicId: reloaded.clinicId!,
+          expertId: reloaded.expertId,
+          customerUserId,
+          amountVnd: phase.priceVnd,
+          holdTransactionId: tx.id,
+        });
+      }
+
+      reloaded.paidAt = new Date();
+      reloaded.paidTransactionId = tx.id;
+      reloaded.status = TreatmentStatus.ACTIVE;
+      reloaded.totalPriceVnd = String(total);
+      await manager.save(Treatment, reloaded);
     });
-
-    reloaded.paidAt = new Date();
-    reloaded.paidTransactionId = tx.id;
-    reloaded.status = TreatmentStatus.ACTIVE;
-    reloaded.totalPriceVnd = String(total);
-    await this.treatmentRepo.save(reloaded);
 
     return this.getTreatmentDetail(treatmentId);
   }
@@ -1042,6 +1075,15 @@ export class TreatmentsService {
           await manager.save(Routine, routine);
         }
       }
+
+      // Release escrow for this phase (non-refundable once ACTIVE)
+      const hold = await this.escrowService.findHeldByTreatmentPhase(
+        manager,
+        phaseId,
+      );
+      if (hold) {
+        await this.escrowService.releaseWithManager(manager, hold.id);
+      }
     });
 
     return this.toPhaseDto(await this.loadPhase(phaseId));
@@ -1072,47 +1114,74 @@ export class TreatmentsService {
     let refundTxId: string | null = null;
     let refundedAmount: string | null = null;
 
-    if (pendingRefund > 0n && treatment.paidAt) {
-      const customer = await this.customerRepo.findOne({
-        where: { id: treatment.customerId },
-      });
-      if (!customer?.userId) {
-        throw new BadRequestException(
-          'Customer wallet user is required to refund',
+    await this.dataSource.transaction(async (manager) => {
+      const held = await this.escrowService.findHeldByTreatment(
+        manager,
+        treatment.id,
+      );
+
+      let refunded = 0n;
+      let lastRefundTxId: string | null = null;
+      for (const hold of held) {
+        const refundedHold = await this.escrowService.refundWithManager(
+          manager,
+          hold.id,
         );
+        if (refundedHold?.refundTransactionId) {
+          lastRefundTxId = refundedHold.refundTransactionId;
+        }
+        refunded += BigInt(hold.amountVnd);
       }
-      const tx = await this.walletService.credit({
-        type: TransactionType.REFUND,
-        amountVnd: pendingRefund.toString(),
-        userId: customer.userId,
-        treatmentId: treatment.id,
-        note: `Refund PENDING phases for treatment ${treatment.id}`,
-      });
-      refundTxId = tx.id;
-      refundedAmount = pendingRefund.toString();
-    }
 
-    treatment.status = TreatmentStatus.CANCELLED;
-    treatment.cancelledAt = new Date();
-    treatment.cancelReason = dto.reason?.trim() || null;
-    treatment.cancelledBy = cancelledBy;
-    treatment.refundTransactionId = refundTxId;
-    treatment.refundedAmountVnd = refundedAmount;
-    await this.treatmentRepo.save(treatment);
-
-    const phaseIds = (treatment.phases ?? []).map((p) => p.id);
-    if (phaseIds.length > 0) {
-      const activeRoutines = await this.routineRepo.find({
-        where: {
-          treatmentPhaseId: In(phaseIds),
-          status: RoutineStatus.ACTIVE,
-        },
-      });
-      for (const routine of activeRoutines) {
-        routine.status = RoutineStatus.PAUSED;
-        await this.routineRepo.save(routine);
+      if (pendingRefund > 0n && treatment.paidAt && held.length === 0) {
+        // Legacy paid plans without escrow holds — refund PENDING phases directly
+        const customer = await this.customerRepo.findOne({
+          where: { id: treatment.customerId },
+        });
+        if (!customer?.userId) {
+          throw new BadRequestException(
+            'Customer wallet user is required to refund',
+          );
+        }
+        const tx = await this.walletService.creditWithManager(manager, {
+          type: TransactionType.REFUND,
+          amountVnd: pendingRefund.toString(),
+          userId: customer.userId,
+          treatmentId: treatment.id,
+          clinicId: treatment.clinicId,
+          expertId: treatment.expertId,
+          note: `Refund PENDING phases for treatment ${treatment.id}`,
+          externalRef: `treatment-refund-legacy:${treatment.id}`,
+        });
+        lastRefundTxId = tx.id;
+        refunded = pendingRefund;
       }
-    }
+
+      refundTxId = lastRefundTxId;
+      refundedAmount = refunded > 0n ? refunded.toString() : null;
+
+      treatment.status = TreatmentStatus.CANCELLED;
+      treatment.cancelledAt = new Date();
+      treatment.cancelReason = dto.reason?.trim() || null;
+      treatment.cancelledBy = cancelledBy;
+      treatment.refundTransactionId = refundTxId;
+      treatment.refundedAmountVnd = refundedAmount;
+      await manager.save(Treatment, treatment);
+
+      const phaseIds = (treatment.phases ?? []).map((p) => p.id);
+      if (phaseIds.length > 0) {
+        const activeRoutines = await manager.find(Routine, {
+          where: {
+            treatmentPhaseId: In(phaseIds),
+            status: RoutineStatus.ACTIVE,
+          },
+        });
+        for (const routine of activeRoutines) {
+          routine.status = RoutineStatus.PAUSED;
+          await manager.save(Routine, routine);
+        }
+      }
+    });
 
     return this.getTreatmentDetail(treatmentId);
   }

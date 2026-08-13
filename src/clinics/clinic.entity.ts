@@ -26,6 +26,18 @@ export class Clinic {
   @Column({ default: true })
   isActive: boolean;
 
+  /** Bank name for clinic withdrawals (set by clinic manager). */
+  @Column({ nullable: true, type: 'varchar' })
+  bankName: string | null;
+
+  /** Bank account number for clinic withdrawals. */
+  @Column({ nullable: true, type: 'varchar' })
+  bankAccountNumber: string | null;
+
+  /** Account holder name for clinic withdrawals. */
+  @Column({ nullable: true, type: 'varchar' })
+  bankAccountHolder: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 
