@@ -11,6 +11,7 @@ import {
   DataSource,
   FindOptionsWhere,
   In,
+  LessThanOrEqual,
   MoreThanOrEqual,
   Repository,
 } from 'typeorm';
@@ -34,6 +35,11 @@ import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { CreateBookingFeedbackDto } from './dto/create-booking-feedback.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { ListBookingsQueryDto } from './dto/list-bookings-query.dto';
+import { ListClinicBookingsQueryDto } from './dto/list-clinic-bookings-query.dto';
+import {
+  ClinicBookingResponseDto,
+  PaginatedClinicBookingsDto,
+} from './dto/clinic-booking-response.dto';
 import { ListSlotsQueryDto } from './dto/list-slots-query.dto';
 import {
   AvailableSlotsResponseDto,
@@ -396,6 +402,103 @@ export class BookingsService {
       consultation.customer,
       consultation.expert,
     );
+  }
+
+  /**
+   * List bookings across all experts in a clinic (clinic manager oversight).
+   * Read-only; scoped by joining through the expert's clinic. Enriches each row
+   * with the escrow hold status so managers can see when funds release.
+   */
+  async findByClinic(
+    clinicId: string,
+    query: ListClinicBookingsQueryDto,
+  ): Promise<PaginatedClinicBookingsDto> {
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 20));
+    const skip = (page - 1) * limit;
+
+    const where: FindOptionsWhere<ConsultationRequest> = {
+      expert: { clinicId },
+    };
+    if (query.expertId) {
+      where.expertId = query.expertId;
+    }
+    if (query.status) {
+      where.status = query.status;
+    }
+    if (query.from && query.to) {
+      where.scheduledAt = Between(new Date(query.from), new Date(query.to));
+    } else if (query.from) {
+      where.scheduledAt = MoreThanOrEqual(new Date(query.from));
+    } else if (query.to) {
+      where.scheduledAt = LessThanOrEqual(new Date(query.to));
+    }
+
+    const [consultations, total] =
+      await this.consultationRepository.findAndCount({
+        where,
+        relations: [
+          'expert',
+          'expert.user',
+          'expert.clinic',
+          'customer',
+          'customer.user',
+          'feedback',
+        ],
+        order: { scheduledAt: 'DESC', createdAt: 'DESC' },
+        skip,
+        take: limit,
+      });
+
+    const statusMap = await this.escrowService.getStatusByConsultationIds(
+      consultations.map((c) => c.id),
+    );
+
+    const items = consultations.map((c) => ({
+      ...this.toBookingResponse(c, c.customer, c.expert),
+      escrowStatus: statusMap.get(c.id) ?? null,
+    }));
+
+    return { items, total, page, limit };
+  }
+
+  /** Single booking detail for a clinic manager, scoped to their clinic. */
+  async getClinicBooking(
+    clinicId: string,
+    bookingId: string,
+  ): Promise<ClinicBookingResponseDto> {
+    const consultation = await this.consultationRepository.findOne({
+      where: { id: bookingId },
+      relations: [
+        'expert',
+        'expert.user',
+        'expert.clinic',
+        'customer',
+        'customer.user',
+        'feedback',
+      ],
+    });
+    if (!consultation) {
+      throw new NotFoundException(`Booking ${bookingId} not found`);
+    }
+    if (consultation.expert?.clinicId !== clinicId) {
+      throw new ForbiddenException(
+        'This booking does not belong to your clinic',
+      );
+    }
+
+    const statusMap = await this.escrowService.getStatusByConsultationIds([
+      consultation.id,
+    ]);
+
+    return {
+      ...this.toBookingResponse(
+        consultation,
+        consultation.customer,
+        consultation.expert,
+      ),
+      escrowStatus: statusMap.get(consultation.id) ?? null,
+    };
   }
 
   async listMyBookings(

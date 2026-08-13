@@ -16,6 +16,7 @@ import { CallerContext } from '../users/users.service';
 import { CreateExpertDto } from './dto/create-expert.dto';
 import { UpdateExpertDto } from './dto/update-expert.dto';
 import { ListExpertsQueryDto } from './dto/list-experts.dto';
+import { ListClinicExpertsQueryDto } from './dto/list-clinic-experts.dto';
 import { ListExpertFeedbacksQueryDto } from './dto/list-expert-feedbacks.dto';
 import {
   ExpertFeedbackItemDto,
@@ -108,6 +109,45 @@ export class ExpertsService {
   async findOne(id: string): Promise<ExpertResponseDto> {
     const expert = await this.requireExpert(id);
     return this.toResponse(expert, null);
+  }
+
+  /**
+   * List experts in a clinic for its manager, including deactivated ones.
+   * Unlike {@link findMany} (the public directory), this is not restricted to
+   * active experts and always scopes to the manager's own clinic.
+   */
+  async findByClinicForManager(
+    clinicId: string,
+    query: ListClinicExpertsQueryDto,
+  ): Promise<PaginatedExpertsDto> {
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 20));
+    const skip = (page - 1) * limit;
+
+    const qb = this.expertRepository
+      .createQueryBuilder('expert')
+      .innerJoinAndSelect('expert.user', 'user')
+      .leftJoinAndSelect('expert.clinic', 'clinic')
+      .where('expert.clinicId = :clinicId', { clinicId });
+
+    if (query.specialization) {
+      qb.andWhere('expert.specialization = :specialization', {
+        specialization: query.specialization,
+      });
+    }
+    if (query.isActive !== undefined) {
+      qb.andWhere('expert.isActive = :isActive', { isActive: query.isActive });
+    }
+
+    qb.orderBy('expert.isActive', 'DESC')
+      .addOrderBy('user.name', 'ASC')
+      .skip(skip)
+      .take(limit);
+
+    const [experts, total] = await qb.getManyAndCount();
+    const items = experts.map((expert) => this.toResponse(expert, null));
+
+    return { items, total, page, limit };
   }
 
   async findFeedbacksByExpertId(

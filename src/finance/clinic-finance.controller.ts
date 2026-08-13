@@ -3,6 +3,7 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   Post,
@@ -90,6 +91,32 @@ export class ClinicFinanceController {
     @Query() query: ListClinicTransactionsQueryDto,
   ): Promise<PaginatedClinicTransactionsDto> {
     return this.statementService.listTransactions(
+      this.requireClinicId(req),
+      query,
+    );
+  }
+
+  @Get('transactions/export')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header(
+    'Content-Disposition',
+    'attachment; filename="clinic-transactions.csv"',
+  )
+  @ApiOperation({
+    summary: 'Export the clinic ledger statement as CSV',
+    description:
+      'Same filters as GET /clinic/transactions (type, expertId, from, to); ' +
+      'pagination is ignored and up to 10,000 rows are returned oldest-first.',
+  })
+  @ApiOkResponse({
+    description: 'CSV file (text/csv)',
+    schema: { type: 'string' },
+  })
+  exportTransactions(
+    @Req() req: Request,
+    @Query() query: ListClinicTransactionsQueryDto,
+  ): Promise<string> {
+    return this.statementService.exportTransactionsCsv(
       this.requireClinicId(req),
       query,
     );

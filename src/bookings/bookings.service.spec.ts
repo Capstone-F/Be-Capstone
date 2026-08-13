@@ -176,6 +176,7 @@ describe('BookingsService', () => {
       findHeldByConsultation: jest.fn().mockResolvedValue(null),
       refundWithManager: jest.fn().mockResolvedValue(null),
       releaseWithManager: jest.fn().mockResolvedValue(null),
+      getStatusByConsultationIds: jest.fn().mockResolvedValue(new Map()),
     };
 
     const dataSource = {
@@ -1086,6 +1087,74 @@ describe('BookingsService', () => {
       await expect(
         service.getMyBooking('stranger', [Role.Customer], consultation.id),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('clinic oversight', () => {
+    it('lists bookings scoped to the clinic and attaches escrow status', async () => {
+      const consultation = makeConsultation();
+      const { service, consultationRepo, escrowService } = makeService({
+        findAndCountResult: [[consultation], 1],
+      });
+      escrowService.getStatusByConsultationIds.mockResolvedValue(
+        new Map([[consultation.id, 'HELD']]),
+      );
+
+      const result = await service.findByClinic('clinic-1', {});
+
+      const findAndCountArg = (consultationRepo.findAndCount as jest.Mock).mock
+        .calls[0][0];
+      expect(findAndCountArg.where).toMatchObject({
+        expert: { clinicId: 'clinic-1' },
+      });
+      expect(result.total).toBe(1);
+      expect(result.items[0].escrowStatus).toBe('HELD');
+      expect(result.items[0].id).toBe(consultation.id);
+    });
+
+    it('returns null escrowStatus when no hold exists', async () => {
+      const consultation = makeConsultation();
+      const { service } = makeService({
+        findAndCountResult: [[consultation], 1],
+      });
+
+      const result = await service.findByClinic('clinic-1', {});
+
+      expect(result.items[0].escrowStatus).toBeNull();
+    });
+
+    it('returns a single booking that belongs to the clinic', async () => {
+      const consultation = makeConsultation();
+      const { service, consultationRepo } = makeService({});
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+
+      const result = await service.getClinicBooking(
+        'clinic-1',
+        consultation.id,
+      );
+
+      expect(result.id).toBe(consultation.id);
+    });
+
+    it('forbids reading a booking from another clinic', async () => {
+      const consultation = makeConsultation({
+        expert: makeExpert({ clinicId: 'other-clinic' }),
+      });
+      const { service, consultationRepo } = makeService({});
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+
+      await expect(
+        service.getClinicBooking('clinic-1', consultation.id),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('throws NotFound when the booking does not exist', async () => {
+      const { service, consultationRepo } = makeService({});
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(null);
+
+      await expect(
+        service.getClinicBooking('clinic-1', 'missing'),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });

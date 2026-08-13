@@ -58,6 +58,7 @@ type MockQb = {
   where: jest.Mock;
   andWhere: jest.Mock;
   orderBy: jest.Mock;
+  addOrderBy: jest.Mock;
   skip: jest.Mock;
   take: jest.Mock;
   select: jest.Mock;
@@ -74,6 +75,7 @@ const makeQueryBuilder = (experts: Expert[] = [], total?: number): MockQb => ({
   where: jest.fn().mockReturnThis(),
   andWhere: jest.fn().mockReturnThis(),
   orderBy: jest.fn().mockReturnThis(),
+  addOrderBy: jest.fn().mockReturnThis(),
   skip: jest.fn().mockReturnThis(),
   take: jest.fn().mockReturnThis(),
   select: jest.fn().mockReturnThis(),
@@ -461,7 +463,7 @@ describe('ExpertsService', () => {
 
       await expect(
         service.update(adminCaller, 'expert-1', {
-          clinicId: '' as unknown as string,
+          clinicId: '',
         }),
       ).rejects.toThrow(BadRequestException);
     });
@@ -684,6 +686,38 @@ describe('ExpertsService', () => {
       await expect(
         service.findFeedbacksByExpertId('missing', {}),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('findByClinicForManager', () => {
+    it('scopes to the clinic and returns paginated experts including inactive', async () => {
+      const active = makeExpert({ id: 'e-active', isActive: true });
+      const inactive = makeExpert({ id: 'e-inactive', isActive: false });
+      const { service, expertRepo, qb } = makeService({
+        experts: [active, inactive],
+      });
+
+      const result = await service.findByClinicForManager('clinic-1', {
+        page: 1,
+        limit: 20,
+      });
+
+      expect(expertRepo.createQueryBuilder).toHaveBeenCalledWith('expert');
+      expect(qb.where).toHaveBeenCalledWith('expert.clinicId = :clinicId', {
+        clinicId: 'clinic-1',
+      });
+      expect(result.total).toBe(2);
+      expect(result.items.map((e) => e.id)).toEqual(['e-active', 'e-inactive']);
+    });
+
+    it('applies the isActive filter when provided', async () => {
+      const { service, qb } = makeService({ experts: [] });
+
+      await service.findByClinicForManager('clinic-1', { isActive: false });
+
+      expect(qb.andWhere).toHaveBeenCalledWith('expert.isActive = :isActive', {
+        isActive: false,
+      });
     });
   });
 });
