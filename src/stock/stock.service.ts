@@ -423,6 +423,8 @@ export class StockService {
     const variants = await this.variantRepository
       .createQueryBuilder('variant')
       .leftJoinAndSelect('variant.product', 'product')
+      .leftJoinAndSelect('product.productIngredients', 'productIngredients')
+      .leftJoinAndSelect('productIngredients.ingredient', 'ingredient')
       .where('variant.isActive = :isActive', { isActive: true })
       .andWhere('product.isActive = :isActive', { isActive: true })
       .getMany();
@@ -440,14 +442,23 @@ export class StockService {
       stockMap.set(b.productVariantId, parseInt(b.stockQuantity, 10));
     }
 
-    return variants.map((v) => ({
-      productVariantId: v.id,
-      productId: v.productId,
-      productName: v.product.name,
-      sku: v.sku,
-      priceVnd: v.priceVnd,
-      imageUrl: v.imageUrl,
-      stockQuantity: stockMap.get(v.id) ?? 0,
-    }));
+    return variants.map((v) => {
+      const activeIngredients = v.product.productIngredients
+        ? v.product.productIngredients
+            .filter((pi) => pi.ingredient?.isActiveIngredient)
+            .map((pi) => pi.ingredient.name)
+        : [];
+
+      return {
+        productVariantId: v.id,
+        productId: v.productId,
+        productName: v.product.name,
+        sku: v.sku,
+        priceVnd: v.priceVnd,
+        imageUrl: v.imageUrl,
+        stockQuantity: stockMap.get(v.id) ?? 0,
+        activeIngredients,
+      };
+    });
   }
 }

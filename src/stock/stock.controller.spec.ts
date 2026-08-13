@@ -6,11 +6,14 @@ describe('StockController', () => {
   const stockService = {
     createBatch: jest.fn(),
     recordMovement: jest.fn(),
+    listInventory: jest.fn(),
   } as unknown as jest.Mocked<
-    Pick<StockService, 'createBatch' | 'recordMovement'>
+    Pick<StockService, 'createBatch' | 'recordMovement' | 'listInventory'>
   >;
 
-  const controller = new StockController(stockService as StockService);
+  const controller = new StockController(
+    stockService as unknown as StockService,
+  );
 
   beforeEach(() => jest.clearAllMocks());
 
