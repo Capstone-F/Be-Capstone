@@ -63,18 +63,14 @@ export class PaymentsController {
     @Query() query: ReturnQueryFromVNPay,
     @Res() res: Response,
   ): Promise<void> {
-    const { redirectUrl } = await this.paymentsService.handleReturn(
-      query as unknown as Record<string, unknown>,
-    );
+    const { redirectUrl } = await this.paymentsService.handleReturn(query);
     res.redirect(redirectUrl);
   }
 
   @Get('vnpay/ipn')
   @ApiExcludeEndpoint()
   async vnpayIpn(@Query() query: ReturnQueryFromVNPay): Promise<unknown> {
-    return this.paymentsService.handleIpn(
-      query as unknown as Record<string, unknown>,
-    );
+    return this.paymentsService.handleIpn(query);
   }
 
   @Get('payos/return')
@@ -126,7 +122,7 @@ export class PaymentsController {
   private requireUserId(req: Request): string {
     const auth = getAuthContext(req);
     if (!auth?.userId) {
-      throw new UnauthorizedException('Not authenticated');
+      throw new UnauthorizedException('Chưa xác thực');
     }
     return auth.userId;
   }

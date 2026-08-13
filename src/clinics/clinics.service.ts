@@ -25,7 +25,7 @@ export class ClinicsService {
   async requireById(id: string): Promise<Clinic> {
     const clinic = await this.findById(id);
     if (!clinic) {
-      throw new NotFoundException(`Clinic ${id} not found`);
+      throw new NotFoundException(`Không tìm thấy phòng khám ${id}`);
     }
     return clinic;
   }

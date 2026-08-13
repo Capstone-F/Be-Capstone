@@ -61,11 +61,11 @@ export class EscrowService {
     ratePct: number,
   ): { commissionVnd: number; netVnd: number } {
     if (!Number.isInteger(amountVnd) || amountVnd <= 0) {
-      throw new BadRequestException('Amount must be a positive integer VND');
+      throw new BadRequestException('Số tiền phải là số nguyên dương VND');
     }
     if (!Number.isFinite(ratePct) || ratePct < 0 || ratePct > 100) {
       throw new BadRequestException(
-        'Commission rate must be between 0 and 100',
+        'Tỷ lệ hoa hồng phải nằm trong khoảng từ 0 đến 100',
       );
     }
     const commissionVnd = Math.floor((amountVnd * ratePct) / 100);
@@ -90,7 +90,7 @@ export class EscrowService {
   ): Promise<number> {
     if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
       throw new BadRequestException(
-        'Commission percent must be between 0 and 100',
+        'Phần trăm hoa hồng phải nằm trong khoảng từ 0 đến 100',
       );
     }
     let setting = await this.settingRepo.findOneBy({
@@ -176,14 +176,14 @@ export class EscrowService {
   ): Promise<EscrowHold | null> {
     const hold = await this.lockHold(manager, holdId);
     if (!hold) {
-      throw new NotFoundException(`Escrow hold ${holdId} not found`);
+      throw new NotFoundException(`Không tìm thấy khoản ký quỹ ${holdId}`);
     }
     if (hold.status === EscrowHoldStatus.RELEASED) {
       return hold;
     }
     if (hold.status !== EscrowHoldStatus.HELD) {
       throw new BadRequestException(
-        `Escrow hold cannot be released (status: ${hold.status})`,
+        `Không thể giải ngân khoản ký quỹ (trạng thái: ${hold.status})`,
       );
     }
 
@@ -254,14 +254,14 @@ export class EscrowService {
   ): Promise<EscrowHold | null> {
     const hold = await this.lockHold(manager, holdId);
     if (!hold) {
-      throw new NotFoundException(`Escrow hold ${holdId} not found`);
+      throw new NotFoundException(`Không tìm thấy khoản ký quỹ ${holdId}`);
     }
     if (hold.status === EscrowHoldStatus.REFUNDED) {
       return hold;
     }
     if (hold.status !== EscrowHoldStatus.HELD) {
       throw new BadRequestException(
-        `Escrow hold cannot be refunded (status: ${hold.status})`,
+        `Không thể hoàn tiền khoản ký quỹ (trạng thái: ${hold.status})`,
       );
     }
 
@@ -415,7 +415,7 @@ export class EscrowService {
   private parsePositiveAmount(value: number | string): number {
     const amount = typeof value === 'string' ? Number(value) : value;
     if (!Number.isFinite(amount) || !Number.isInteger(amount) || amount <= 0) {
-      throw new BadRequestException('Amount must be a positive integer VND');
+      throw new BadRequestException('Số tiền phải là số nguyên dương VND');
     }
     return amount;
   }

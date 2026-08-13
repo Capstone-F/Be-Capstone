@@ -45,7 +45,7 @@ export class StorageService {
   }): Promise<UploadedImage> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException(
-        'Object storage (R2) is not configured',
+        'Bộ lưu trữ đối tượng (R2) chưa được cấu hình',
       );
     }
 

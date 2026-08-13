@@ -22,7 +22,7 @@ function extractJsonPayload(content: string): string {
 function requireNonEmptyString(value: unknown, field: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw new InternalServerErrorException(
-      `LLM routine response missing or invalid field: ${field}`,
+      `Phản hồi routine từ LLM thiếu hoặc không hợp lệ ở trường: ${field}`,
     );
   }
   return value.trim();
@@ -33,7 +33,7 @@ function parsePeriod(value: unknown): RoutinePeriod {
     return value;
   }
   throw new InternalServerErrorException(
-    `LLM routine response has invalid period: ${String(value)}`,
+    `Phản hồi routine từ LLM có period không hợp lệ: ${String(value)}`,
   );
 }
 
@@ -48,7 +48,7 @@ function parseStepOrder(value: unknown): number {
     }
   }
   throw new InternalServerErrorException(
-    'LLM routine response has invalid stepOrder',
+    'Phản hồi routine từ LLM có stepOrder không hợp lệ',
   );
 }
 
@@ -108,7 +108,7 @@ function coerceDosageText(value: unknown): string | null {
 function parseStep(raw: unknown, index: number): RoutineGenerationStepOutput {
   if (!raw || typeof raw !== 'object') {
     throw new InternalServerErrorException(
-      `LLM routine response step at index ${index} is not an object`,
+      `Bước trong phản hồi routine từ LLM tại vị trí ${index} không phải là một đối tượng`,
     );
   }
   const step = raw as Record<string, unknown>;
@@ -143,20 +143,20 @@ export function parseRoutineGenerationOutput(
     parsed = JSON.parse(extractJsonPayload(content));
   } catch {
     throw new InternalServerErrorException(
-      'LLM routine response is not valid JSON',
+      'Phản hồi routine từ LLM không phải là JSON hợp lệ',
     );
   }
 
   if (!parsed || typeof parsed !== 'object') {
     throw new InternalServerErrorException(
-      'LLM routine response must be a JSON object',
+      'Phản hồi routine từ LLM phải là một đối tượng JSON',
     );
   }
 
   const obj = parsed as Record<string, unknown>;
   if (!Array.isArray(obj.steps)) {
     throw new InternalServerErrorException(
-      'LLM routine response missing steps array',
+      'Phản hồi routine từ LLM thiếu mảng steps',
     );
   }
 

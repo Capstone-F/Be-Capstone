@@ -55,7 +55,7 @@ export class ClinicWalletService {
 
     const balance = BigInt(wallet.balanceVnd);
     if (balance < BigInt(amount)) {
-      throw new BadRequestException('Insufficient clinic wallet balance');
+      throw new BadRequestException('Số dư ví phòng khám không đủ');
     }
 
     wallet.balanceVnd = String(balance - BigInt(amount));
@@ -89,21 +89,21 @@ export class ClinicWalletService {
     }
 
     if (!wallet) {
-      throw new NotFoundException('Clinic wallet not found');
+      throw new NotFoundException('Không tìm thấy ví phòng khám');
     }
     return wallet;
   }
 
   private assertWalletActive(wallet: ClinicWallet): void {
     if (!wallet.isActive) {
-      throw new BadRequestException('Clinic wallet is inactive');
+      throw new BadRequestException('Ví phòng khám không hoạt động');
     }
   }
 
   private parsePositiveAmount(value: number | string): number {
     const amount = typeof value === 'string' ? Number(value) : value;
     if (!Number.isFinite(amount) || !Number.isInteger(amount) || amount <= 0) {
-      throw new BadRequestException('Amount must be a positive integer VND');
+      throw new BadRequestException('Số tiền phải là số nguyên dương VND');
     }
     return amount;
   }

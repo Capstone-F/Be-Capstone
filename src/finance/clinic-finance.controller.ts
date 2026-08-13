@@ -157,7 +157,7 @@ export class ClinicFinanceController {
   private requireAuth(req: Request) {
     const auth = getAuthContext(req);
     if (!auth?.userId) {
-      throw new UnauthorizedException('Not authenticated');
+      throw new UnauthorizedException('Chưa xác thực');
     }
     return auth;
   }
@@ -165,7 +165,9 @@ export class ClinicFinanceController {
   private requireClinicId(req: Request): string {
     const auth = this.requireAuth(req);
     if (!auth.clinicId) {
-      throw new ForbiddenException('Clinic manager is not bound to a clinic');
+      throw new ForbiddenException(
+        'Quản lý phòng khám chưa được gắn với phòng khám nào',
+      );
     }
     return auth.clinicId;
   }

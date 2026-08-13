@@ -201,16 +201,14 @@ export class DashboardService {
           netConsultationFeesVnd: asNumber(row?.consultation_fees),
         };
       }),
-      recentActivity: activityRows.map(
-        (row): DashboardActivityDto => ({
-          id: String(row.id),
-          type: String(row.type),
-          title: String(row.title),
-          description: row.description == null ? null : String(row.description),
-          amountVnd: row.amount_vnd == null ? null : asNumber(row.amount_vnd),
-          occurredAt: new Date(String(row.occurred_at)),
-        }),
-      ),
+      recentActivity: activityRows.map((row): DashboardActivityDto => ({
+        id: String(row.id),
+        type: String(row.type),
+        title: String(row.title),
+        description: row.description == null ? null : String(row.description),
+        amountVnd: row.amount_vnd == null ? null : asNumber(row.amount_vnd),
+        occurredAt: new Date(String(row.occurred_at)),
+      })),
     };
   }
 
@@ -224,7 +222,8 @@ export class DashboardService {
       [userId],
     );
     const expertId = expertRows[0]?.id;
-    if (!expertId) throw new NotFoundException('Expert profile not found');
+    if (!expertId)
+      throw new NotFoundException('Không tìm thấy hồ sơ chuyên gia');
 
     const [metricRows, trendRows, pendingRows, upcomingRows] =
       await Promise.all([

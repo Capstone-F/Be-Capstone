@@ -29,7 +29,9 @@ export class MobileAuthService {
   async exchangeCode(code: string): Promise<MobileTokenResponse> {
     const payload = await this.mobileAuthCode.consume(code);
     if (!payload) {
-      throw new UnauthorizedException('Invalid, expired, or already used code');
+      throw new UnauthorizedException(
+        'Mã không hợp lệ, đã hết hạn hoặc đã được sử dụng',
+      );
     }
 
     const user = await this.usersService.getOwnProfile(payload.userId);

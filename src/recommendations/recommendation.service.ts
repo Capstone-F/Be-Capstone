@@ -56,7 +56,7 @@ export class RecommendationService {
     });
     if (!survey) {
       throw new BadRequestException(
-        'Complete a skincare survey before requesting recommendations',
+        'Hoàn thành khảo sát chăm sóc da trước khi yêu cầu gợi ý',
       );
     }
 
@@ -104,9 +104,7 @@ export class RecommendationService {
       relations: ['items'],
     });
     if (!recommendation) {
-      throw new NotFoundException(
-        `Recommendation ${recommendationId} not found`,
-      );
+      throw new NotFoundException(`Không tìm thấy gợi ý ${recommendationId}`);
     }
     return recommendation;
   }
@@ -169,7 +167,7 @@ export class RecommendationService {
           customerSurveyId: surveyId,
         }),
       );
-      return { ...emptyRec, items: [] } as unknown as SurveyRecommendation;
+      return { ...emptyRec, items: [] };
     }
 
     const [allergies] = await Promise.all([
@@ -285,7 +283,7 @@ export class RecommendationService {
           customerSurveyId: surveyId,
         }),
       );
-      return { ...emptyRec, items: [] } as unknown as SurveyRecommendation;
+      return { ...emptyRec, items: [] };
     }
 
     // One primary variant per protocol
@@ -466,13 +464,13 @@ export class RecommendationService {
       },
     });
     if (!customer) {
-      throw new UnauthorizedException('Invalid guest token');
+      throw new UnauthorizedException('Token khách không hợp lệ');
     }
     if (
       customer.guestExpiresAt &&
       customer.guestExpiresAt.getTime() < Date.now()
     ) {
-      throw new UnauthorizedException('Guest token expired');
+      throw new UnauthorizedException('Token khách đã hết hạn');
     }
     return customer;
   }
@@ -482,7 +480,9 @@ export class RecommendationService {
       where: { userId },
     });
     if (!customer) {
-      throw new ForbiddenException('No customer profile for this user');
+      throw new ForbiddenException(
+        'Không có hồ sơ khách hàng cho người dùng này',
+      );
     }
     return customer;
   }

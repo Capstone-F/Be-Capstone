@@ -222,7 +222,7 @@ describe('CustomersService', () => {
         service.updateOwnCustomerProfile('user-1', {
           dateOfBirth: '2099-01-01',
         }),
-      ).rejects.toThrow('dateOfBirth must not be in the future');
+      ).rejects.toThrow('dateOfBirth không được ở tương lai');
     });
 
     it('should create customer lazily and update fields', async () => {
@@ -392,7 +392,7 @@ describe('CustomersService', () => {
         service.updateOwnCustomerProfile('user-1', {
           allergyLabelCodes: ['UNKNOWN_ALLERGEN'],
         }),
-      ).rejects.toThrow('Invalid allergy label codes: UNKNOWN_ALLERGEN');
+      ).rejects.toThrow('Mã nhãn dị ứng không hợp lệ: UNKNOWN_ALLERGEN');
     });
   });
 
@@ -404,7 +404,7 @@ describe('CustomersService', () => {
         service.updateOwnSkinType('user-1', {
           skinTypeCode: 'OSPT',
         }),
-      ).rejects.toThrow('Unknown Baumann skin type code: OSPT');
+      ).rejects.toThrow('Mã loại da Baumann không xác định: OSPT');
     });
 
     it('should upsert skin type details and clear axis scores', async () => {
@@ -449,7 +449,7 @@ describe('CustomersService', () => {
             wrinkledTightScore: null,
             assessedAt: new Date('2026-08-01'),
           },
-        } as Customer);
+        });
       jest
         .spyOn(customerSkinTypeDetailsRepository, 'findOne')
         .mockResolvedValue(existingDetails);
@@ -527,7 +527,7 @@ describe('CustomersService', () => {
             wrinkledTightScore: 30,
             assessedAt,
           },
-        } as Customer);
+        });
       jest
         .spyOn(customerSkinTypeDetailsRepository, 'findOne')
         .mockResolvedValue(null);
@@ -603,7 +603,7 @@ describe('CustomersService', () => {
             wrinkledTightScore: null,
             assessedAt: new Date('2026-08-01'),
           },
-        } as Customer);
+        });
       jest
         .spyOn(customerSkinTypeDetailsRepository, 'findOne')
         .mockResolvedValue(null);
@@ -756,7 +756,7 @@ describe('CustomersService', () => {
       jest.spyOn(consultationRepository, 'findOne').mockResolvedValue({
         ...acceptedConsultation,
         status: ConsultationStatus.PENDING,
-      } as ConsultationRequest);
+      });
 
       await expect(
         service.getConsultationContext('u-expert-b', 'customer-1', 'booking-1'),
@@ -768,7 +768,7 @@ describe('CustomersService', () => {
       jest.spyOn(consultationRepository, 'findOne').mockResolvedValue({
         ...acceptedConsultation,
         status: ConsultationStatus.COMPLETED,
-      } as ConsultationRequest);
+      });
       jest.spyOn(customerRepository, 'findOne').mockResolvedValue(customer);
       jest.spyOn(customerAllergyRepository, 'find').mockResolvedValue([]);
       jest.spyOn(customerSurveyRepository, 'find').mockResolvedValue([]);
@@ -788,7 +788,7 @@ describe('CustomersService', () => {
       jest.spyOn(consultationRepository, 'findOne').mockResolvedValue({
         ...acceptedConsultation,
         status: ConsultationStatus.CANCELLED,
-      } as ConsultationRequest);
+      });
       jest.spyOn(customerRepository, 'findOne').mockResolvedValue(customer);
       jest.spyOn(customerAllergyRepository, 'find').mockResolvedValue([]);
       jest.spyOn(customerSurveyRepository, 'find').mockResolvedValue([]);
@@ -808,7 +808,7 @@ describe('CustomersService', () => {
       jest.spyOn(consultationRepository, 'findOne').mockResolvedValue({
         ...acceptedConsultation,
         expertId: 'expert-other',
-      } as ConsultationRequest);
+      });
 
       await expect(
         service.getConsultationContext('u-expert-b', 'customer-1', 'booking-1'),
@@ -820,7 +820,7 @@ describe('CustomersService', () => {
       jest.spyOn(consultationRepository, 'findOne').mockResolvedValue({
         ...acceptedConsultation,
         customerId: 'customer-other',
-      } as ConsultationRequest);
+      });
 
       await expect(
         service.getConsultationContext('u-expert-b', 'customer-1', 'booking-1'),

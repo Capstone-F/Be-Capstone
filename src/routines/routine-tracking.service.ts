@@ -106,11 +106,13 @@ export class RoutineTrackingService {
     const routine = await this.requireOwnedRoutine(customer.id, routineId);
     if (routine.type !== RoutineType.AI_RECOMMENDED) {
       throw new BadRequestException(
-        'Only AI_RECOMMENDED routines can be cancelled',
+        'Chỉ lộ trình chăm sóc AI_RECOMMENDED mới có thể hủy',
       );
     }
     if (routine.status !== RoutineStatus.ACTIVE) {
-      throw new BadRequestException('Routine is not ACTIVE');
+      throw new BadRequestException(
+        'Lộ trình chăm sóc không ở trạng thái ACTIVE',
+      );
     }
     routine.status = RoutineStatus.COMPLETED;
     await this.routineRepository.save(routine);
@@ -241,7 +243,7 @@ export class RoutineTrackingService {
     now: Date = new Date(),
   ): Promise<TodayRoutineDto> {
     if (dto.reason === SkipReason.OTHER && !dto.note?.trim()) {
-      throw new BadRequestException('note is required when reason is OTHER');
+      throw new BadRequestException('note là bắt buộc khi reason là OTHER');
     }
     return this.actOnStep(
       userId,
@@ -274,7 +276,7 @@ export class RoutineTrackingService {
     this.assertDateString(date);
     if (date !== today) {
       throw new BadRequestException(
-        'Check-in date must be today (Asia/Ho_Chi_Minh) for MVP',
+        'Ngày check-in phải là hôm nay (Asia/Ho_Chi_Minh) cho MVP',
       );
     }
 
@@ -287,9 +289,7 @@ export class RoutineTrackingService {
       },
     });
     if (existing) {
-      throw new ConflictException(
-        `Check-in already exists for ${date} ${period}`,
-      );
+      throw new ConflictException(`Check-in đã tồn tại cho ${date} ${period}`);
     }
 
     const periodSteps = await this.stepRepository.find({
@@ -356,7 +356,7 @@ export class RoutineTrackingService {
     this.assertDateString(from);
     this.assertDateString(to);
     if (from > to) {
-      throw new BadRequestException('from must be <= to');
+      throw new BadRequestException('from phải <= to');
     }
 
     const rows = await this.checkInRepository.find({
@@ -382,7 +382,7 @@ export class RoutineTrackingService {
     this.assertDateString(from);
     this.assertDateString(to);
     if (from > to) {
-      throw new BadRequestException('from must be <= to');
+      throw new BadRequestException('from phải <= to');
     }
 
     const today = getVnToday(now);
@@ -565,7 +565,9 @@ export class RoutineTrackingService {
     );
     const step = (routine.steps ?? []).find((s) => s.id === stepId);
     if (!step) {
-      throw new NotFoundException(`Step ${stepId} not found on routine`);
+      throw new NotFoundException(
+        `Không tìm thấy bước ${stepId} trong lộ trình chăm sóc`,
+      );
     }
 
     const today = getVnToday(now);
@@ -581,7 +583,7 @@ export class RoutineTrackingService {
         // idempotent
       } else {
         throw new ConflictException(
-          `Step already marked ${existing.status} for today; cannot change to ${outcome.status}`,
+          `Bước đã được đánh dấu ${existing.status} cho hôm nay; không thể chuyển sang ${outcome.status}`,
         );
       }
     } else {
@@ -723,7 +725,7 @@ export class RoutineTrackingService {
     const amountRaw = detail?.amountMl;
     const amountMl =
       amountRaw === null || amountRaw === undefined ? null : Number(amountRaw);
-    const resolvedAmountMl = Number.isFinite(amountMl as number)
+    const resolvedAmountMl = Number.isFinite(amountMl)
       ? (amountMl as number)
       : null;
 
@@ -780,7 +782,7 @@ export class RoutineTrackingService {
         amountRaw === null || amountRaw === undefined
           ? null
           : Number(amountRaw);
-      if (!Number.isFinite(amountMl as number) || (amountMl as number) <= 0) {
+      if (!Number.isFinite(amountMl) || (amountMl as number) <= 0) {
         continue;
       }
 
@@ -869,7 +871,7 @@ export class RoutineTrackingService {
       oilLevel: checkIn.oilLevel,
       rednessLevel: checkIn.rednessLevel,
       moistureLevel: checkIn.moistureLevel,
-      completionRate: Number.isFinite(rate as number) ? rate : null,
+      completionRate: Number.isFinite(rate) ? rate : null,
       note: checkIn.note,
       sideEffects: (checkIn.sideEffects ?? []).map((se) => ({
         id: se.id,
@@ -883,7 +885,7 @@ export class RoutineTrackingService {
 
   private assertDateString(value: string): void {
     if (!DATE_RE.test(value)) {
-      throw new BadRequestException(`Invalid date: ${value}`);
+      throw new BadRequestException(`Ngày không hợp lệ: ${value}`);
     }
   }
 
@@ -892,7 +894,9 @@ export class RoutineTrackingService {
       where: { userId },
     });
     if (!customer) {
-      throw new ForbiddenException('No customer profile for this user');
+      throw new ForbiddenException(
+        'Không có hồ sơ khách hàng cho người dùng này',
+      );
     }
     return customer;
   }
@@ -907,10 +911,14 @@ export class RoutineTrackingService {
       relations,
     });
     if (!routine) {
-      throw new NotFoundException(`Routine ${routineId} not found`);
+      throw new NotFoundException(
+        `Không tìm thấy lộ trình chăm sóc ${routineId}`,
+      );
     }
     if (routine.customerId !== customerId) {
-      throw new ForbiddenException('Routine belongs to another customer');
+      throw new ForbiddenException(
+        'Lộ trình chăm sóc thuộc về khách hàng khác',
+      );
     }
     return routine;
   }
@@ -928,7 +936,9 @@ export class RoutineTrackingService {
     );
     await this.expireRoutineIfPhaseEnded(routine, now);
     if (routine.status !== RoutineStatus.ACTIVE) {
-      throw new BadRequestException('Routine is not ACTIVE');
+      throw new BadRequestException(
+        'Lộ trình chăm sóc không ở trạng thái ACTIVE',
+      );
     }
     return routine;
   }

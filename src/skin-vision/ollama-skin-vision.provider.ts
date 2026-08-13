@@ -36,7 +36,7 @@ export class OllamaSkinVisionProvider implements SkinVisionProvider {
   ): Promise<SkinVisionAnalyzeOutput> {
     if (!input.imageBase64?.trim()) {
       throw new ServiceUnavailableException(
-        'Skin vision requires imageBase64 for Ollama analysis',
+        'Skin vision yêu cầu imageBase64 để phân tích bằng Ollama',
       );
     }
 
@@ -69,7 +69,7 @@ export class OllamaSkinVisionProvider implements SkinVisionProvider {
         err instanceof Error ? err.message : 'Unknown network error';
       this.logger.error(`Ollama skin vision request failed: ${message}`);
       throw new ServiceUnavailableException(
-        `Ollama is unavailable: ${message}`,
+        `Ollama không khả dụng: ${message}`,
       );
     }
 
@@ -79,7 +79,7 @@ export class OllamaSkinVisionProvider implements SkinVisionProvider {
         `Ollama skin vision returned ${response.status}: ${body.slice(0, 200)}`,
       );
       throw new ServiceUnavailableException(
-        `Ollama request failed with status ${response.status}`,
+        `Yêu cầu tới Ollama thất bại với trạng thái ${response.status}`,
       );
     }
 
@@ -88,18 +88,18 @@ export class OllamaSkinVisionProvider implements SkinVisionProvider {
       payload = (await response.json()) as OllamaChatResponse;
     } catch {
       throw new ServiceUnavailableException(
-        'Ollama returned a non-JSON response',
+        'Ollama trả về phản hồi không phải JSON',
       );
     }
 
     if (payload.error) {
-      throw new ServiceUnavailableException(`Ollama error: ${payload.error}`);
+      throw new ServiceUnavailableException(`Lỗi Ollama: ${payload.error}`);
     }
 
     const content = payload.message?.content;
     if (typeof content !== 'string' || content.trim().length === 0) {
       throw new ServiceUnavailableException(
-        'Ollama response missing message content',
+        'Phản hồi từ Ollama thiếu nội dung tin nhắn',
       );
     }
 
@@ -109,7 +109,7 @@ export class OllamaSkinVisionProvider implements SkinVisionProvider {
       const message = err instanceof Error ? err.message : 'Parse error';
       this.logger.error(`Failed to parse skin vision output: ${message}`);
       throw new ServiceUnavailableException(
-        `Ollama skin vision returned unusable output: ${message}`,
+        `Skin vision Ollama trả về kết quả không sử dụng được: ${message}`,
       );
     }
   }

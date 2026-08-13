@@ -59,7 +59,7 @@ export class OllamaLlmRoutineProvider implements LlmRoutineProvider {
         err instanceof Error ? err.message : 'Unknown network error';
       this.logger.error(`Ollama request failed: ${message}`);
       throw new ServiceUnavailableException(
-        `Ollama is unavailable: ${message}`,
+        `Ollama không khả dụng: ${message}`,
       );
     }
 
@@ -69,7 +69,7 @@ export class OllamaLlmRoutineProvider implements LlmRoutineProvider {
         `Ollama returned ${response.status}: ${body.slice(0, 200)}`,
       );
       throw new ServiceUnavailableException(
-        `Ollama request failed with status ${response.status}`,
+        `Yêu cầu tới Ollama thất bại với trạng thái ${response.status}`,
       );
     }
 
@@ -78,18 +78,18 @@ export class OllamaLlmRoutineProvider implements LlmRoutineProvider {
       payload = (await response.json()) as OllamaChatResponse;
     } catch {
       throw new ServiceUnavailableException(
-        'Ollama returned a non-JSON response',
+        'Ollama trả về phản hồi không phải JSON',
       );
     }
 
     if (payload.error) {
-      throw new ServiceUnavailableException(`Ollama error: ${payload.error}`);
+      throw new ServiceUnavailableException(`Lỗi Ollama: ${payload.error}`);
     }
 
     const content = payload.message?.content;
     if (typeof content !== 'string' || content.trim().length === 0) {
       throw new ServiceUnavailableException(
-        'Ollama response missing message content',
+        'Phản hồi từ Ollama thiếu nội dung tin nhắn',
       );
     }
 

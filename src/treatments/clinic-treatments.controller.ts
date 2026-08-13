@@ -82,10 +82,12 @@ export class ClinicTreatmentsController {
   private requireClinicId(req: Request): string {
     const auth = getAuthContext(req);
     if (!auth?.userId) {
-      throw new UnauthorizedException('Not authenticated');
+      throw new UnauthorizedException('Chưa xác thực');
     }
     if (!auth.clinicId) {
-      throw new ForbiddenException('Clinic manager is not bound to a clinic');
+      throw new ForbiddenException(
+        'Quản lý phòng khám chưa được gán vào phòng khám nào',
+      );
     }
     return auth.clinicId;
   }

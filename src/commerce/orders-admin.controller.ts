@@ -75,7 +75,7 @@ export class OrdersAdminController {
   private requireUserId(req: Request): string {
     const auth = getAuthContext(req);
     if (!auth?.userId) {
-      throw new UnauthorizedException('Not authenticated');
+      throw new UnauthorizedException('Chưa xác thực');
     }
     return auth.userId;
   }

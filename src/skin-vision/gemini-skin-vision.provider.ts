@@ -30,7 +30,7 @@ export class GeminiSkinVisionProvider implements SkinVisionProvider {
   ): Promise<SkinVisionAnalyzeOutput> {
     if (!input.imageBase64?.trim()) {
       throw new ServiceUnavailableException(
-        'Skin vision requires imageBase64 for Gemini analysis',
+        'Skin vision yêu cầu imageBase64 để phân tích bằng Gemini',
       );
     }
 
@@ -60,7 +60,7 @@ export class GeminiSkinVisionProvider implements SkinVisionProvider {
       const message = err instanceof Error ? err.message : 'Parse error';
       this.logger.error(`Failed to parse skin vision output: ${message}`);
       throw new ServiceUnavailableException(
-        `Gemini skin vision returned unusable output: ${message}`,
+        `Skin vision Gemini trả về kết quả không sử dụng được: ${message}`,
       );
     }
   }

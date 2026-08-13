@@ -149,7 +149,7 @@ export class WalletService {
 
     const balance = BigInt(wallet.balanceVnd);
     if (balance < BigInt(amount)) {
-      throw new BadRequestException('Insufficient wallet balance');
+      throw new BadRequestException('Số dư ví không đủ');
     }
 
     wallet.balanceVnd = String(balance - BigInt(amount));
@@ -211,7 +211,7 @@ export class WalletService {
   private async requireUser(userId: string): Promise<User> {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) {
-      throw new NotFoundException(`User ${userId} not found`);
+      throw new NotFoundException(`Không tìm thấy người dùng ${userId}`);
     }
     return user;
   }
@@ -243,21 +243,21 @@ export class WalletService {
     }
 
     if (!wallet) {
-      throw new NotFoundException('Wallet not found');
+      throw new NotFoundException('Không tìm thấy ví');
     }
     return wallet;
   }
 
   private assertWalletActive(wallet: Wallet): void {
     if (!wallet.isActive) {
-      throw new BadRequestException('Wallet is inactive');
+      throw new BadRequestException('Ví không hoạt động');
     }
   }
 
   private parsePositiveAmount(value: number | string): number {
     const amount = typeof value === 'string' ? Number(value) : value;
     if (!Number.isFinite(amount) || !Number.isInteger(amount) || amount <= 0) {
-      throw new BadRequestException('Amount must be a positive integer VND');
+      throw new BadRequestException('Số tiền phải là số nguyên dương VND');
     }
     return amount;
   }

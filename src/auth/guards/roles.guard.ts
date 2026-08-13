@@ -40,7 +40,7 @@ export class RolesGuard implements CanActivate {
     const roles = auth?.roles;
 
     if (!hasAnyRole(roles, requiredRoles)) {
-      throw new ForbiddenException('Insufficient permissions');
+      throw new ForbiddenException('Không đủ quyền');
     }
 
     return true;

@@ -50,14 +50,14 @@ export class GhnClient {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`GHN request to ${path} failed: ${message}`);
       throw new BadGatewayException(
-        `GHN request to ${path} failed: ${message}`,
+        `Yêu cầu GHN tới ${path} thất bại: ${message}`,
       );
     }
 
     if (!response.ok) {
       const message = await response.text();
       throw new BadGatewayException(
-        `GHN request failed (${response.status}): ${message}`,
+        `Yêu cầu GHN thất bại (${response.status}): ${message}`,
       );
     }
 
@@ -65,7 +65,7 @@ export class GhnClient {
     const envelope = (await response.json()) as GhnEnvelope<T>;
     if (envelope.code !== 200) {
       throw new BadGatewayException(
-        `GHN request failed (code ${envelope.code}): ${envelope.message}`,
+        `Yêu cầu GHN thất bại (mã ${envelope.code}): ${envelope.message}`,
       );
     }
 

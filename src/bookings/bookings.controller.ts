@@ -86,7 +86,7 @@ export class BookingsController {
   listMyBookings(@Req() req: Request, @Query() query: ListBookingsQueryDto) {
     const auth = getAuthContext(req);
     if (!auth?.userId) {
-      throw new UnauthorizedException('Not authenticated');
+      throw new UnauthorizedException('Chưa xác thực');
     }
     const roles = (auth.roles?.length ? auth.roles : [Role.Customer]) as Role[];
     return this.bookingsService.listMyBookings(auth.userId, roles, query);
@@ -104,7 +104,7 @@ export class BookingsController {
   getMyBooking(@Req() req: Request, @Param('id', ParseUUIDPipe) id: string) {
     const auth = getAuthContext(req);
     if (!auth?.userId) {
-      throw new UnauthorizedException('Not authenticated');
+      throw new UnauthorizedException('Chưa xác thực');
     }
     const roles = (auth.roles?.length ? auth.roles : [Role.Customer]) as Role[];
     return this.bookingsService.getMyBooking(auth.userId, roles, id);
@@ -201,7 +201,7 @@ export class BookingsController {
   ) {
     const auth = getAuthContext(req);
     if (!auth?.userId) {
-      throw new UnauthorizedException('Not authenticated');
+      throw new UnauthorizedException('Chưa xác thực');
     }
     const roles = (auth.roles?.length ? auth.roles : []) as Role[];
     return this.bookingsService.cancelBooking(auth.userId, roles, id, body);
@@ -272,7 +272,7 @@ export class BookingsController {
   private requireUserId(req: Request): string {
     const auth = getAuthContext(req);
     if (!auth?.userId) {
-      throw new UnauthorizedException('Not authenticated');
+      throw new UnauthorizedException('Chưa xác thực');
     }
     return auth.userId;
   }
