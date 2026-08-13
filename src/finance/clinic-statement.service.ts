@@ -15,6 +15,8 @@ import { ClinicWalletSummaryDto } from './dto/clinic-wallet-summary.dto';
 import { Clinic } from '../clinics/clinic.entity';
 
 export type ClinicStatementQuery = {
+  search?: string;
+  q?: string;
   type?: TransactionType;
   expertId?: string;
   from?: string;
@@ -93,6 +95,14 @@ export class ClinicStatementService {
     }
     if (query.expertId) {
       qb.andWhere('t.expertId = :expertId', { expertId: query.expertId });
+    }
+    const searchTerm = query.search?.trim() || query.q?.trim();
+    if (searchTerm) {
+      const searchPattern = `%${searchTerm.toLowerCase()}%`;
+      qb.andWhere(
+        '(LOWER(t.note) LIKE :searchPattern OR LOWER(t.id) LIKE :searchPattern OR LOWER(t.externalRef) LIKE :searchPattern)',
+        { searchPattern },
+      );
     }
     if (query.from) {
       qb.andWhere('t.createdAt >= :from', { from: new Date(query.from) });

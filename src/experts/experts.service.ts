@@ -138,6 +138,14 @@ export class ExpertsService {
     if (query.isActive !== undefined) {
       qb.andWhere('expert.isActive = :isActive', { isActive: query.isActive });
     }
+    const searchTerm = query.search?.trim() || query.q?.trim();
+    if (searchTerm) {
+      const searchPattern = `%${searchTerm.toLowerCase()}%`;
+      qb.andWhere(
+        '(LOWER(user.name) LIKE :searchPattern OR LOWER(user.email) LIKE :searchPattern OR LOWER(expert.licenseNumber) LIKE :searchPattern)',
+        { searchPattern },
+      );
+    }
 
     qb.orderBy('expert.isActive', 'DESC')
       .addOrderBy('user.name', 'ASC')
