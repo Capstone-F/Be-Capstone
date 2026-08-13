@@ -1097,9 +1097,9 @@ Env: `DELIVERY_SIMULATION_ENABLED` (default false in code; set true in `.env` fo
 | PATCH  | `/admin/commerce-settings/survey-combo-discount` | app_admin        | ✅ Ready |
 | GET    | `/admin/commerce-settings/platform-commission`   | app_admin        | ✅ Ready |
 | PATCH  | `/admin/commerce-settings/platform-commission`   | app_admin        | ✅ Ready |
-| GET    | `/admin/clinic-withdrawals`                      | staff, app_admin | ✅ Ready |
-| POST   | `/admin/clinic-withdrawals/:id/mark-paid`        | staff, app_admin | ✅ Ready |
-| POST   | `/admin/clinic-withdrawals/:id/reject`           | staff, app_admin | ✅ Ready |
+| GET    | `/admin/clinic-withdrawals`                      | app_admin        | ✅ Ready |
+| POST   | `/admin/clinic-withdrawals/:id/mark-paid`        | app_admin        | ✅ Ready |
+| POST   | `/admin/clinic-withdrawals/:id/reject`           | app_admin        | ✅ Ready |
 | GET    | `/admin/wallets/:userId`                         | app_admin        | ✅ Ready |
 | POST   | `/admin/wallets/:userId/top-up`                  | app_admin        | ✅ Ready |
 | POST   | `/admin/order-cancellations`                     | app_admin, staff | ✅ Ready |

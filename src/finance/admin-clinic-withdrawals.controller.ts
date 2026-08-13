@@ -40,7 +40,7 @@ import { ListAdminClinicWithdrawalsQueryDto } from './dto/list-finance-query.dto
 @ApiTags('Admin Clinic Withdrawals')
 @Controller('admin/clinic-withdrawals')
 @UseGuards(SessionGuard, RolesGuard)
-@Roles(Role.Staff, Role.AppAdmin)
+@Roles(Role.AppAdmin)
 @ApiCookieAuth()
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Not authenticated' })
