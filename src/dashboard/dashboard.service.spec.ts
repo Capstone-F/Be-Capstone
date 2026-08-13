@@ -46,7 +46,7 @@ describe('dashboard period helpers', () => {
 });
 
 describe('DashboardService aggregation mapping', () => {
-  it('keeps net negative finance values and fills missing trend days', async () => {
+  it('maps authoritative ecommerce finance values and fills missing trend days', async () => {
     const query = jest
       .fn()
       .mockResolvedValueOnce([
@@ -55,8 +55,15 @@ describe('DashboardService aggregation mapping', () => {
           active_experts: '3',
           active_clinics: '2',
           paid_orders: '4',
-          net_product_revenue: '-50000',
-          net_consultation_fees: '300000',
+          gross_product_sales: '900000',
+          discounts: '50000',
+          shipping_collected: '80000',
+          product_payments_collected: '930000',
+          product_refunds: '120000',
+          average_order_value: '232500',
+          consultation_fees_collected: '300000',
+          consultation_refunds: '50000',
+          platform_commission_revenue: '30000',
         },
       ])
       .mockResolvedValueOnce([
@@ -68,12 +75,32 @@ describe('DashboardService aggregation mapping', () => {
         },
       ])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          viewed_sessions: '10',
+          added_sessions: '5',
+          checkout_sessions: '4',
+          purchased_sessions: '2',
+        },
+      ])
+      .mockResolvedValueOnce([{ available_from: '2026-08-10' }])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
     const service = new DashboardService({ query } as unknown as DataSource);
 
     const result = await service.getAdminDashboard(DashboardRange.SEVEN_DAYS);
 
-    expect(result.metrics.netProductRevenueVnd).toBe(-50000);
+    expect(result.metrics).toMatchObject({
+      productPaymentsCollectedVnd: 930000,
+      productRefundsVnd: 120000,
+      averageOrderValueVnd: 232500,
+      platformCommissionRevenueVnd: 30000,
+    });
+    expect(result.funnel.steps.at(-1)).toMatchObject({
+      sessions: 2,
+      conversionFromPreviousPct: 50,
+      overallConversionPct: 20,
+    });
     expect(result.trend).toHaveLength(7);
     expect(result.trend.every((point) => point.newCustomers === 0)).toBe(true);
   });

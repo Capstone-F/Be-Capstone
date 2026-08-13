@@ -19,6 +19,7 @@ import { MockPaymentProvider } from './providers/mock.payment-provider';
 import { PayosPaymentProvider } from './providers/payos.payment-provider';
 import { PAYMENT_GATEWAY } from './providers/payment-provider.types';
 import { VnpayPaymentProvider } from './providers/vnpay.payment-provider';
+import { CommerceAnalyticsModule } from '../analytics/commerce-analytics.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { VnpayPaymentProvider } from './providers/vnpay.payment-provider';
     StockModule,
     DeliveryModule,
     forwardRef(() => WalletModule),
+    CommerceAnalyticsModule,
     VnpayModule.registerAsync({
       inject: [AppConfigService],
       useFactory: (config: AppConfigService) => {
