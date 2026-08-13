@@ -666,6 +666,6 @@ describe('Survey purchase → routine generation (e2e)', () => {
 
     await expect(
       routineGenerator.generateForUser(user.id, { orderId: order.id }),
-    ).rejects.toThrow(/skincare survey recommendation/i);
+    ).rejects.toThrow(/gợi ý khảo sát chăm sóc da/i);
   });
 });
