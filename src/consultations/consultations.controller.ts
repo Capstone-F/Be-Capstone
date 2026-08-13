@@ -51,7 +51,7 @@ export class ConsultationsController {
   ): Promise<VideoTokenResponseDto> {
     const auth = getAuthContext(req);
     if (!auth?.userId) {
-      throw new UnauthorizedException('Not authenticated');
+      throw new UnauthorizedException('Chưa xác thực');
     }
     return this.zegoTokenService.generateVideoToken(auth.userId, bookingId);
   }
@@ -77,7 +77,7 @@ export class ConsultationsController {
   ): Promise<ChatTokenResponseDto> {
     const auth = getAuthContext(req);
     if (!auth?.userId) {
-      throw new UnauthorizedException('Not authenticated');
+      throw new UnauthorizedException('Chưa xác thực');
     }
     return this.zegoTokenService.generateChatToken(auth.userId, bookingId);
   }

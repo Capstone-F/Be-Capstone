@@ -73,11 +73,11 @@ export class OrderCancellationsService {
     const customer = await this.requireCustomer(userId);
     const order = await this.loadOrderForCancel(orderId);
     if (order.customerId !== customer.id) {
-      throw new NotFoundException(`Order ${orderId} not found`);
+      throw new NotFoundException(`Không tìm thấy đơn hàng ${orderId}`);
     }
     if (!CUSTOMER_CANCELLABLE_STATUSES.has(order.status)) {
       throw new BadRequestException(
-        `Customers can only cancel PENDING, PAID, or PROCESSING orders (current: ${order.status})`,
+        `Khách hàng chỉ có thể hủy đơn hàng ở trạng thái PENDING, PAID hoặc PROCESSING (hiện tại: ${order.status})`,
       );
     }
     return this.createCancellation(
@@ -96,7 +96,7 @@ export class OrderCancellationsService {
     const order = await this.loadOrderForCancel(orderId);
     if (STAFF_BLOCKED_STATUSES.has(order.status)) {
       throw new BadRequestException(
-        `Order cannot be cancelled (status: ${order.status})`,
+        `Không thể hủy đơn hàng (trạng thái: ${order.status})`,
       );
     }
     return this.createCancellation(
@@ -118,7 +118,7 @@ export class OrderCancellationsService {
     const order = await this.loadOrderForCancel(orderId);
     if (STAFF_BLOCKED_STATUSES.has(order.status)) {
       throw new BadRequestException(
-        `Order cannot be cancelled (status: ${order.status})`,
+        `Không thể hủy đơn hàng (trạng thái: ${order.status})`,
       );
     }
     return this.createCancellation(
@@ -142,12 +142,12 @@ export class OrderCancellationsService {
       });
       if (!cancellation) {
         throw new NotFoundException(
-          `Order cancellation ${cancellationId} not found`,
+          `Không tìm thấy yêu cầu hủy đơn hàng ${cancellationId}`,
         );
       }
       if (cancellation.status !== OrderCancellationStatus.AWAITING_RETURN) {
         throw new BadRequestException(
-          `Return can only be confirmed from AWAITING_RETURN (current: ${cancellation.status})`,
+          `Chỉ có thể xác nhận trả hàng từ trạng thái AWAITING_RETURN (hiện tại: ${cancellation.status})`,
         );
       }
 
@@ -213,7 +213,7 @@ export class OrderCancellationsService {
       relations: [...CANCELLATION_RELATIONS],
     });
     if (!cancellation) {
-      throw new NotFoundException(`Order cancellation ${id} not found`);
+      throw new NotFoundException(`Không tìm thấy yêu cầu hủy đơn hàng ${id}`);
     }
     return this.toDto(cancellation);
   }
@@ -305,9 +305,7 @@ export class OrderCancellationsService {
       return this.toDto(saved);
     } catch (error) {
       if (this.isUniqueViolation(error)) {
-        throw new ConflictException(
-          `Order ${order.id} already has a cancellation`,
-        );
+        throw new ConflictException(`Đơn hàng ${order.id} đã có yêu cầu hủy`);
       }
       throw error;
     }
@@ -327,7 +325,7 @@ export class OrderCancellationsService {
       return Math.max(0, order.subtotalVnd - order.discountVnd);
     }
     throw new BadRequestException(
-      `Cannot compute refund for order status ${order.status}`,
+      `Không thể tính số tiền hoàn cho trạng thái đơn hàng ${order.status}`,
     );
   }
 
@@ -357,20 +355,20 @@ export class OrderCancellationsService {
     );
     if (submitted.size !== dto.items.length) {
       throw new BadRequestException(
-        'Each orderItemId may appear only once in the confirm-return body',
+        'Mỗi orderItemId chỉ được xuất hiện một lần trong nội dung confirm-return',
       );
     }
     if (submitted.size !== lines.length) {
       throw new BadRequestException(
-        `confirm-return must include every cancellation item exactly once ` +
-          `(expected ${lines.length} items, got ${submitted.size})`,
+        `confirm-return phải bao gồm mỗi sản phẩm hủy đúng một lần ` +
+          `(cần ${lines.length} sản phẩm, nhận được ${submitted.size})`,
       );
     }
     for (const line of lines) {
       const submittedLine = submitted.get(line.orderItemId);
       if (!submittedLine) {
         throw new BadRequestException(
-          `Missing quantities for order item ${line.orderItemId}`,
+          `Thiếu số lượng cho sản phẩm đơn hàng ${line.orderItemId}`,
         );
       }
       if (
@@ -378,8 +376,8 @@ export class OrderCancellationsService {
         line.expectedQuantity
       ) {
         throw new BadRequestException(
-          `goodQuantity + damagedQuantity must equal expectedQuantity ` +
-            `(${line.expectedQuantity}) for order item ${line.orderItemId}`,
+          `goodQuantity + damagedQuantity phải bằng expectedQuantity ` +
+            `(${line.expectedQuantity}) cho sản phẩm đơn hàng ${line.orderItemId}`,
         );
       }
     }
@@ -391,7 +389,7 @@ export class OrderCancellationsService {
       relations: ['items'],
     });
     if (!order) {
-      throw new NotFoundException(`Order ${orderId} not found`);
+      throw new NotFoundException(`Không tìm thấy đơn hàng ${orderId}`);
     }
     return order;
   }
@@ -401,7 +399,7 @@ export class OrderCancellationsService {
       where: { userId },
     });
     if (!customer) {
-      throw new ForbiddenException('No customer profile for this user');
+      throw new ForbiddenException('Người dùng này không có hồ sơ khách hàng');
     }
     return customer;
   }

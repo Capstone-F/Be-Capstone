@@ -96,7 +96,7 @@ export class AuthController {
             err,
           );
           reject(
-            new InternalServerErrorException('Failed to persist login session'),
+            new InternalServerErrorException('Không thể lưu phiên đăng nhập'),
           );
           return;
         }
@@ -333,9 +333,7 @@ export class AuthController {
       req.session.save((err) => {
         if (err) {
           this.logger.error('Failed to save dev session', err);
-          reject(
-            new InternalServerErrorException('Failed to persist dev session'),
-          );
+          reject(new InternalServerErrorException('Không thể lưu phiên dev'));
           return;
         }
         resolve();

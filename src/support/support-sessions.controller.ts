@@ -207,7 +207,7 @@ export class SupportSessionsController {
   private requireAuth(req: Request): { userId: string; roles: string[] } {
     const auth = getAuthContext(req);
     if (!auth?.userId) {
-      throw new UnauthorizedException('Not authenticated');
+      throw new UnauthorizedException('Chưa xác thực');
     }
     return { userId: auth.userId, roles: auth.roles ?? [] };
   }

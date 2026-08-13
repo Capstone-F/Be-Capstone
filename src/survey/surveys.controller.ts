@@ -185,7 +185,7 @@ export class SurveysController {
     file: Express.Multer.File,
   ): Promise<SurveyResponseDto> {
     if (!file?.buffer?.length) {
-      throw new BadRequestException('file is required');
+      throw new BadRequestException('file là bắt buộc');
     }
     return this.surveyService.submitFaceScan(this.requireUserId(req), id, file);
   }
@@ -206,7 +206,7 @@ export class SurveysController {
   private requireUserId(req: Request): string {
     const auth = getAuthContext(req);
     if (!auth?.userId) {
-      throw new UnauthorizedException('Not authenticated');
+      throw new UnauthorizedException('Chưa xác thực');
     }
     return auth.userId;
   }
@@ -215,7 +215,7 @@ export class SurveysController {
     const actor = this.resolveOptionalActor(req);
     if (!actor) {
       throw new UnauthorizedException(
-        'Not authenticated. Log in or send X-Guest-Token',
+        'Chưa xác thực. Đăng nhập hoặc gửi X-Guest-Token',
       );
     }
     return actor;

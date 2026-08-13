@@ -4,8 +4,7 @@ const GEMINI_GENERATE_CONTENT_BASE =
   'https://generativelanguage.googleapis.com/v1beta/models';
 
 export type GeminiContentPart =
-  | { text: string }
-  | { inlineData: { mimeType: string; data: string } };
+  { text: string } | { inlineData: { mimeType: string; data: string } };
 
 export type GeminiGenerateContentParams = {
   apiKey: string;
@@ -40,7 +39,7 @@ export async function geminiGenerateContentJson(
 
   if (!apiKey.trim()) {
     throw new ServiceUnavailableException(
-      'GEMINI_API_KEY is not configured. Set it when LLM_PROVIDER=gemini.',
+      'GEMINI_API_KEY chưa được cấu hình. Hãy thiết lập khi LLM_PROVIDER=gemini.',
     );
   }
 
@@ -71,14 +70,14 @@ export async function geminiGenerateContentJson(
     const message =
       err instanceof Error ? err.message : 'Unknown network error';
     logger.error(`Gemini request failed: ${message}`);
-    throw new ServiceUnavailableException(`Gemini is unavailable: ${message}`);
+    throw new ServiceUnavailableException(`Gemini không khả dụng: ${message}`);
   }
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');
     logger.error(`Gemini returned ${response.status}: ${body.slice(0, 200)}`);
     throw new ServiceUnavailableException(
-      `Gemini request failed with status ${response.status}`,
+      `Yêu cầu tới Gemini thất bại với trạng thái ${response.status}`,
     );
   }
 
@@ -87,13 +86,13 @@ export async function geminiGenerateContentJson(
     payload = (await response.json()) as GeminiGenerateContentResponse;
   } catch {
     throw new ServiceUnavailableException(
-      'Gemini returned a non-JSON response',
+      'Gemini trả về phản hồi không phải JSON',
     );
   }
 
   if (payload.error?.message) {
     throw new ServiceUnavailableException(
-      `Gemini error: ${payload.error.message}`,
+      `Lỗi Gemini: ${payload.error.message}`,
     );
   }
 
@@ -105,7 +104,7 @@ export async function geminiGenerateContentJson(
 
   if (!content) {
     throw new ServiceUnavailableException(
-      'Gemini response missing candidate text content',
+      'Phản hồi từ Gemini thiếu nội dung văn bản',
     );
   }
 

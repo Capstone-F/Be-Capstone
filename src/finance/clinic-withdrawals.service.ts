@@ -35,12 +35,12 @@ export class ClinicWithdrawalsService {
     amountVnd: number,
   ): Promise<ClinicWithdrawalResponseDto> {
     if (!Number.isInteger(amountVnd) || amountVnd <= 0) {
-      throw new BadRequestException('Amount must be a positive integer VND');
+      throw new BadRequestException('Số tiền phải là số nguyên dương VND');
     }
 
     const clinic = await this.clinicRepo.findOne({ where: { id: clinicId } });
     if (!clinic) {
-      throw new NotFoundException(`Clinic ${clinicId} not found`);
+      throw new NotFoundException(`Không tìm thấy phòng khám ${clinicId}`);
     }
     if (
       !clinic.bankName?.trim() ||
@@ -48,7 +48,7 @@ export class ClinicWithdrawalsService {
       !clinic.bankAccountHolder?.trim()
     ) {
       throw new BadRequestException(
-        'Clinic bank account must be set before requesting a withdrawal',
+        'Phải thiết lập tài khoản ngân hàng của phòng khám trước khi tạo yêu cầu rút tiền',
       );
     }
 
@@ -104,14 +104,16 @@ export class ClinicWithdrawalsService {
         .getOne();
 
       if (!withdrawal) {
-        throw new NotFoundException(`Withdrawal ${withdrawalId} not found`);
+        throw new NotFoundException(
+          `Không tìm thấy yêu cầu rút tiền ${withdrawalId}`,
+        );
       }
       if (withdrawal.status === ClinicWithdrawalStatus.PAID) {
         return withdrawal;
       }
       if (withdrawal.status !== ClinicWithdrawalStatus.REQUESTED) {
         throw new BadRequestException(
-          `Withdrawal can only be marked paid from REQUESTED (current: ${withdrawal.status})`,
+          `Yêu cầu rút tiền chỉ có thể được đánh dấu đã thanh toán từ trạng thái REQUESTED (hiện tại: ${withdrawal.status})`,
         );
       }
 
@@ -140,14 +142,16 @@ export class ClinicWithdrawalsService {
         .getOne();
 
       if (!withdrawal) {
-        throw new NotFoundException(`Withdrawal ${withdrawalId} not found`);
+        throw new NotFoundException(
+          `Không tìm thấy yêu cầu rút tiền ${withdrawalId}`,
+        );
       }
       if (withdrawal.status === ClinicWithdrawalStatus.REJECTED) {
         return withdrawal;
       }
       if (withdrawal.status !== ClinicWithdrawalStatus.REQUESTED) {
         throw new BadRequestException(
-          `Withdrawal can only be rejected from REQUESTED (current: ${withdrawal.status})`,
+          `Yêu cầu rút tiền chỉ có thể bị từ chối từ trạng thái REQUESTED (hiện tại: ${withdrawal.status})`,
         );
       }
 
@@ -243,10 +247,14 @@ export class ClinicWithdrawalsService {
       where: { id: withdrawalId },
     });
     if (!withdrawal) {
-      throw new NotFoundException(`Withdrawal ${withdrawalId} not found`);
+      throw new NotFoundException(
+        `Không tìm thấy yêu cầu rút tiền ${withdrawalId}`,
+      );
     }
     if (withdrawal.clinicId !== clinicId) {
-      throw new ForbiddenException('Withdrawal does not belong to this clinic');
+      throw new ForbiddenException(
+        'Yêu cầu rút tiền không thuộc về phòng khám này',
+      );
     }
     return this.toDto(withdrawal);
   }

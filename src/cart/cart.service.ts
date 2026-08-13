@@ -51,7 +51,7 @@ export class CartService {
     });
     if (!variant) {
       throw new NotFoundException(
-        `Product variant ${dto.productVariantId} not found`,
+        `Không tìm thấy phân loại sản phẩm ${dto.productVariantId}`,
       );
     }
 
@@ -60,7 +60,7 @@ export class CartService {
       if (dto.source === OrderSource.SURVEY) {
         if (!dto.surveyRecommendationId) {
           throw new BadRequestException(
-            'surveyRecommendationId is required for SURVEY carts',
+            'surveyRecommendationId là bắt buộc đối với giỏ hàng SURVEY',
           );
         }
         const recommendation =
@@ -75,7 +75,7 @@ export class CartService {
     } else {
       if (cart.source !== dto.source) {
         throw new BadRequestException(
-          `Cannot mix ${cart.source} and ${dto.source} items in the same cart`,
+          `Không thể trộn lẫn sản phẩm ${cart.source} và ${dto.source} trong cùng một giỏ hàng`,
         );
       }
       if (cart.source === OrderSource.SURVEY) {
@@ -84,7 +84,7 @@ export class CartService {
           dto.surveyRecommendationId !== cart.surveyRecommendationId
         ) {
           throw new BadRequestException(
-            'Cart is locked to a different survey recommendation',
+            'Giỏ hàng đang bị khóa với một khuyến nghị khảo sát khác',
           );
         }
         // Ensure the locked recommendation still belongs to this customer.
@@ -264,7 +264,7 @@ export class CartService {
       where: { userId },
     });
     if (!customer) {
-      throw new ForbiddenException('No customer profile for this user');
+      throw new ForbiddenException('Người dùng này không có hồ sơ khách hàng');
     }
     return customer;
   }

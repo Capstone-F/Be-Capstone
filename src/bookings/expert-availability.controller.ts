@@ -147,7 +147,7 @@ export class ExpertAvailabilityController {
   private buildCallerContext(req: Request): CallerContext {
     const auth = getAuthContext(req);
     if (!auth?.userId) {
-      throw new UnauthorizedException('Not authenticated');
+      throw new UnauthorizedException('Chưa xác thực');
     }
     return {
       userId: auth.userId,

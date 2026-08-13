@@ -115,23 +115,25 @@ export class CustomersService {
       where: { userId: expertUserId },
     });
     if (!expert) {
-      throw new ForbiddenException('Expert profile required');
+      throw new ForbiddenException('Yêu cầu hồ sơ chuyên gia');
     }
 
     const consultation = await this.consultationRepository.findOne({
       where: { id: consultationId },
     });
     if (!consultation) {
-      throw new NotFoundException(`Consultation ${consultationId} not found`);
+      throw new NotFoundException(
+        `Không tìm thấy buổi tư vấn ${consultationId}`,
+      );
     }
     if (consultation.expertId !== expert.id) {
       throw new ForbiddenException(
-        'Consultation is not assigned to the current expert',
+        'Buổi tư vấn không được gán cho chuyên gia hiện tại',
       );
     }
     if (consultation.customerId !== customerId) {
       throw new ForbiddenException(
-        'Consultation customer does not match the requested customer',
+        'Khách hàng của buổi tư vấn không khớp với khách hàng được yêu cầu',
       );
     }
     if (
@@ -140,7 +142,7 @@ export class CustomersService {
       )
     ) {
       throw new ForbiddenException(
-        'Consultation must be CONFIRMED, IN_PROGRESS, COMPLETED, or CANCELLED',
+        'Buổi tư vấn phải ở trạng thái CONFIRMED, IN_PROGRESS, COMPLETED hoặc CANCELLED',
       );
     }
 
@@ -149,7 +151,7 @@ export class CustomersService {
       relations: ['skinTypeDetails', 'skinTypeDetails.skinType', 'user'],
     });
     if (!customer) {
-      throw new NotFoundException(`Customer ${customerId} not found`);
+      throw new NotFoundException(`Không tìm thấy khách hàng ${customerId}`);
     }
 
     const [allergies, surveyHistory, treatmentHistory] = await Promise.all([
@@ -194,13 +196,13 @@ export class CustomersService {
     const hasAllergyUpdate = dto.allergyLabelCodes !== undefined;
 
     if (!hasCustomerFields && !hasAllergyUpdate) {
-      throw new BadRequestException('At least one field must be provided');
+      throw new BadRequestException('Phải cung cấp ít nhất một trường');
     }
 
     if (dto.dateOfBirth !== undefined) {
       const dob = new Date(dto.dateOfBirth);
       if (dob > new Date()) {
-        throw new BadRequestException('dateOfBirth must not be in the future');
+        throw new BadRequestException('dateOfBirth không được ở tương lai');
       }
     }
 
@@ -244,7 +246,9 @@ export class CustomersService {
       where: { code },
     });
     if (!skinType) {
-      throw new BadRequestException(`Unknown Baumann skin type code: ${code}`);
+      throw new BadRequestException(
+        `Mã loại da Baumann không xác định: ${code}`,
+      );
     }
 
     const customer = await this.getOrCreateCustomerByUserId(userId);
@@ -316,20 +320,18 @@ export class CustomersService {
       isCompleted: survey.isCompleted,
       completedAt: survey.completedAt,
       createdAt: survey.createdAt,
-      answers: (survey.answers ?? []).map(
-        (answer): SurveyAnswerDto => ({
-          questionCode: answer.question?.code ?? '',
-          questionText: answer.question?.text ?? '',
-          value: answer.value,
-          labels: (answer.answerLabels ?? [])
-            .map((al) => al.label)
-            .filter((label): label is Label => label != null)
-            .map((label) => ({
-              code: label.code,
-              name: label.name,
-            })),
-        }),
-      ),
+      answers: (survey.answers ?? []).map((answer): SurveyAnswerDto => ({
+        questionCode: answer.question?.code ?? '',
+        questionText: answer.question?.text ?? '',
+        value: answer.value,
+        labels: (answer.answerLabels ?? [])
+          .map((al) => al.label)
+          .filter((label): label is Label => label != null)
+          .map((label) => ({
+            code: label.code,
+            name: label.name,
+          })),
+      })),
     }));
   }
 
@@ -441,7 +443,7 @@ export class CustomersService {
       code: ALLERGY_CATEGORY_CODE,
     });
     if (!allergyCategory) {
-      throw new BadRequestException('ALLERGY label category is not configured');
+      throw new BadRequestException('Danh mục nhãn ALLERGY chưa được cấu hình');
     }
 
     let allergyLabels: Label[] = [];
@@ -458,7 +460,7 @@ export class CustomersService {
         const foundCodes = new Set(allergyLabels.map((label) => label.code));
         const invalid = uniqueCodes.filter((code) => !foundCodes.has(code));
         throw new BadRequestException(
-          `Invalid allergy label codes: ${invalid.join(', ')}`,
+          `Mã nhãn dị ứng không hợp lệ: ${invalid.join(', ')}`,
         );
       }
     }

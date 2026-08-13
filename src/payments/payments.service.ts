@@ -86,7 +86,9 @@ export class PaymentsService {
   ): Promise<CheckoutResponseDto> {
     const customer = await this.customerRepo.findOne({ where: { userId } });
     if (!customer) {
-      throw new ForbiddenException('No customer profile for this user');
+      throw new ForbiddenException(
+        'Không có hồ sơ khách hàng cho người dùng này',
+      );
     }
 
     const order = await this.orderRepo.findOne({
@@ -94,18 +96,20 @@ export class PaymentsService {
       relations: ['delivery'],
     });
     if (!order) {
-      throw new NotFoundException('Order not found');
+      throw new NotFoundException('Không tìm thấy đơn hàng');
     }
     if (order.customerId !== customer.id) {
-      throw new ForbiddenException('Order does not belong to this customer');
+      throw new ForbiddenException('Đơn hàng không thuộc về khách hàng này');
     }
     if (order.status !== OrderStatus.PENDING) {
       throw new BadRequestException(
-        `Order is not payable (status: ${order.status})`,
+        `Đơn hàng không thể thanh toán (trạng thái: ${order.status})`,
       );
     }
     if (!order.delivery) {
-      throw new BadRequestException('Order has no shipping selection');
+      throw new BadRequestException(
+        'Đơn hàng chưa chọn phương thức vận chuyển',
+      );
     }
 
     const clientReturnUrl: string =
@@ -304,10 +308,14 @@ export class PaymentsService {
     txnRef: string,
   ): Promise<{ redirectUrl: string }> {
     if (this.config.paymentProvider !== 'mock') {
-      throw new NotFoundException('Mock payment complete is not enabled');
+      throw new NotFoundException(
+        'Hoàn tất thanh toán giả lập chưa được kích hoạt',
+      );
     }
     if (this.gateway.code !== PaymentProvider.MOCK) {
-      throw new NotFoundException('Mock payment complete is not enabled');
+      throw new NotFoundException(
+        'Hoàn tất thanh toán giả lập chưa được kích hoạt',
+      );
     }
 
     const attempt = await this.attemptRepo.findOne({
@@ -547,20 +555,20 @@ export class PaymentsService {
       relations: { order: true },
     });
     if (!payment) {
-      throw new NotFoundException('Payment not found');
+      throw new NotFoundException('Không tìm thấy thanh toán');
     }
 
     if (payment.purpose === PaymentPurpose.WALLET_TOPUP) {
       if (payment.userId !== userId) {
         throw new ForbiddenException(
-          'Payment does not belong to this customer',
+          'Thanh toán không thuộc về khách hàng này',
         );
       }
     } else {
       const customer = await this.customerRepo.findOne({ where: { userId } });
       if (!customer || payment.order?.customerId !== customer.id) {
         throw new ForbiddenException(
-          'Payment does not belong to this customer',
+          'Thanh toán không thuộc về khách hàng này',
         );
       }
     }

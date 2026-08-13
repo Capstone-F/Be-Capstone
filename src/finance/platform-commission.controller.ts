@@ -55,7 +55,7 @@ export class PlatformCommissionController {
   ): Promise<PlatformCommissionSettingDto> {
     const auth = getAuthContext(req);
     if (!auth?.userId) {
-      throw new UnauthorizedException('Not authenticated');
+      throw new UnauthorizedException('Chưa xác thực');
     }
     const percent = await this.escrowService.updatePlatformCommissionPct(
       auth.userId,

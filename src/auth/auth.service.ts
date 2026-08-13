@@ -77,7 +77,7 @@ export class AuthService {
 
     if (!token.access_token) {
       throw new BadGatewayException(
-        'Keycloak returned a token response without access_token',
+        'Keycloak trả về phản hồi token không có access_token',
       );
     }
 
@@ -100,7 +100,7 @@ export class AuthService {
 
     const result = await this.buildSessionFromToken(token, 'keycloak');
     if (!result.user.isActive) {
-      throw new UnauthorizedException('Account is disabled');
+      throw new UnauthorizedException('Tài khoản đã bị vô hiệu hóa');
     }
 
     const profile = await this.usersService.getOwnProfile(result.user.id);
@@ -131,7 +131,9 @@ export class AuthService {
       session.roles = refreshed.roles;
     } catch (err) {
       this.logger.warn('Session token refresh failed — forcing re-login', err);
-      throw new UnauthorizedException('Session expired, please login again');
+      throw new UnauthorizedException(
+        'Phiên đã hết hạn, vui lòng đăng nhập lại',
+      );
     }
   }
 
@@ -147,17 +149,16 @@ export class AuthService {
 
       const sub = typeof payload.sub === 'string' ? payload.sub : null;
       if (!sub) {
-        throw new UnauthorizedException('Invalid access token');
+        throw new UnauthorizedException('Access token không hợp lệ');
       }
 
       const user = await this.usersService.findByKeycloakSub(sub);
       if (!user) {
-        throw new UnauthorizedException('User not found');
+        throw new UnauthorizedException('Không tìm thấy người dùng');
       }
 
       const realmAccess = payload.realm_access as
-        | { roles?: string[] }
-        | undefined;
+        { roles?: string[] } | undefined;
       const roles = filterAppRoles(realmAccess?.roles ?? []);
 
       return {
@@ -170,7 +171,9 @@ export class AuthService {
       if (err instanceof UnauthorizedException) {
         throw err;
       }
-      throw new UnauthorizedException('Invalid or expired access token');
+      throw new UnauthorizedException(
+        'Access token không hợp lệ hoặc đã hết hạn',
+      );
     }
   }
 
@@ -185,7 +188,7 @@ export class AuthService {
     roles: string[];
   }> {
     if (!refreshToken?.trim()) {
-      throw new UnauthorizedException('refreshToken is required');
+      throw new UnauthorizedException('refreshToken là bắt buộc');
     }
 
     const params = new URLSearchParams({
@@ -200,7 +203,7 @@ export class AuthService {
       );
 
       if (!token.access_token) {
-        throw new UnauthorizedException('Token refresh failed');
+        throw new UnauthorizedException('Làm mới token thất bại');
       }
 
       return {
@@ -217,7 +220,9 @@ export class AuthService {
         throw err;
       }
       this.logger.warn('Keycloak refresh_token grant failed', err);
-      throw new UnauthorizedException('Invalid or expired refresh token');
+      throw new UnauthorizedException(
+        'Refresh token không hợp lệ hoặc đã hết hạn',
+      );
     }
   }
 
@@ -246,7 +251,7 @@ export class AuthService {
     flow: 'web' | 'mobile';
   } {
     if (!raw?.trim()) {
-      throw new BadRequestException('client_redirect_uri is required');
+      throw new BadRequestException('client_redirect_uri là bắt buộc');
     }
 
     const trimmed = raw.trim();
@@ -259,19 +264,19 @@ export class AuthService {
     try {
       url = new URL(trimmed);
     } catch {
-      throw new BadRequestException('Invalid client_redirect_uri');
+      throw new BadRequestException('client_redirect_uri không hợp lệ');
     }
 
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
       throw new BadRequestException(
-        'client_redirect_uri must use http or https, or a whitelisted mobile deep link',
+        'client_redirect_uri phải sử dụng http hoặc https, hoặc một mobile deep link nằm trong danh sách cho phép',
       );
     }
 
     const allowed = new URL(this.config.frontendUrl);
     if (url.origin !== allowed.origin) {
       throw new BadRequestException(
-        'client_redirect_uri origin must match FRONTEND_URL',
+        'origin của client_redirect_uri phải khớp với FRONTEND_URL',
       );
     }
 
@@ -287,7 +292,7 @@ export class AuthService {
     const resolved = this.resolveClientRedirect(raw);
     if (resolved.flow !== 'web') {
       throw new BadRequestException(
-        'client_redirect_uri must use http or https',
+        'client_redirect_uri phải sử dụng http hoặc https',
       );
     }
     return resolved.uri;

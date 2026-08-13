@@ -76,7 +76,7 @@ export class ExpertDashboardController {
 
   private requireUserId(req: Request): string {
     const auth = getAuthContext(req);
-    if (!auth?.userId) throw new UnauthorizedException('Not authenticated');
+    if (!auth?.userId) throw new UnauthorizedException('Chưa xác thực');
     return auth.userId;
   }
 }
@@ -107,7 +107,7 @@ export class StaffDashboardController {
 
   private requireUserId(req: Request): string {
     const auth = getAuthContext(req);
-    if (!auth?.userId) throw new UnauthorizedException('Not authenticated');
+    if (!auth?.userId) throw new UnauthorizedException('Chưa xác thực');
     return auth.userId;
   }
 }

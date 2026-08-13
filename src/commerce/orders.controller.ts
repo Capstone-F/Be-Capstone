@@ -92,7 +92,7 @@ export class OrdersController {
   ): Promise<OrderResponseDto> {
     const auth = getAuthContext(req);
     if (!auth?.userId) {
-      throw new UnauthorizedException('Not authenticated');
+      throw new UnauthorizedException('Chưa xác thực');
     }
     return this.ordersService.getOrderById(auth, id);
   }
@@ -138,7 +138,7 @@ export class OrdersController {
   private requireUserId(req: Request): string {
     const auth = getAuthContext(req);
     if (!auth?.userId) {
-      throw new UnauthorizedException('Not authenticated');
+      throw new UnauthorizedException('Chưa xác thực');
     }
     return auth.userId;
   }

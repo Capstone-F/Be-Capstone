@@ -117,7 +117,7 @@ export class DeliveryService {
     const customer = await this.requireCustomer(userId);
     const cart = await this.cartService.getCartByCustomerId(customer.id);
     if (cart.items.length === 0) {
-      throw new BadRequestException('Cart is empty');
+      throw new BadRequestException('Giỏ hàng trống');
     }
 
     const variants = await this.variantRepository.find({
@@ -364,13 +364,13 @@ export class DeliveryService {
       this.logger.error(
         'GHN webhook received but GHN_WEBHOOK_SECRET is not configured — rejecting',
       );
-      throw new UnauthorizedException('GHN webhook secret is not configured');
+      throw new UnauthorizedException('Chưa cấu hình khóa bí mật webhook GHN');
     }
     const a = Buffer.from(provided);
     const b = Buffer.from(expected);
     if (a.length !== b.length || !timingSafeEqual(a, b)) {
       this.logger.warn('GHN webhook rejected: invalid secret');
-      throw new UnauthorizedException('Invalid GHN webhook secret');
+      throw new UnauthorizedException('Khóa bí mật webhook GHN không hợp lệ');
     }
   }
 
@@ -390,32 +390,34 @@ export class DeliveryService {
       relations: ['order'],
     });
     if (!delivery) {
-      throw new NotFoundException(`Delivery for order ${orderId} not found`);
+      throw new NotFoundException(
+        `Không tìm thấy đơn giao hàng cho đơn hàng ${orderId}`,
+      );
     }
 
     if (!delivery.providerOrderCode) {
       throw new BadRequestException(
-        `Delivery ${delivery.id} has no providerOrderCode — create the GHN order first ` +
+        `Đơn giao hàng ${delivery.id} chưa có providerOrderCode — hãy tạo đơn GHN trước ` +
           `(POST /admin/deliveries/${delivery.id}/create-ghn-order)`,
       );
     }
 
     if (delivery.handedOverAt) {
       throw new ConflictException(
-        `Order ${orderId} has already been handed over to the carrier`,
+        `Đơn hàng ${orderId} đã được bàn giao cho đơn vị vận chuyển`,
       );
     }
 
     const orderStatus = delivery.order?.status;
     if (orderStatus && BLOCKED_HANDOVER_ORDER_STATUSES.has(orderStatus)) {
       throw new BadRequestException(
-        `Cannot hand over order ${orderId} in status ${orderStatus}`,
+        `Không thể bàn giao đơn hàng ${orderId} ở trạng thái ${orderStatus}`,
       );
     }
 
     if (TERMINAL_HANDOVER_DELIVERY_STATUSES.has(delivery.status)) {
       throw new BadRequestException(
-        `Cannot hand over delivery ${delivery.id} in status ${delivery.status}`,
+        `Không thể bàn giao đơn giao hàng ${delivery.id} ở trạng thái ${delivery.status}`,
       );
     }
 
@@ -430,7 +432,7 @@ export class DeliveryService {
     );
     if (!claim.affected) {
       throw new ConflictException(
-        `Order ${orderId} has already been handed over to the carrier`,
+        `Đơn hàng ${orderId} đã được bàn giao cho đơn vị vận chuyển`,
       );
     }
 
@@ -470,7 +472,9 @@ export class DeliveryService {
       order: { statusEvents: { occurredAt: 'ASC' } },
     });
     if (!delivery) {
-      throw new NotFoundException(`Delivery for order ${orderId} not found`);
+      throw new NotFoundException(
+        `Không tìm thấy đơn giao hàng cho đơn hàng ${orderId}`,
+      );
     }
 
     return this.toCustomerDto(delivery);
@@ -527,7 +531,7 @@ export class DeliveryService {
       order: { statusEvents: { occurredAt: 'ASC' } },
     });
     if (!delivery) {
-      throw new NotFoundException(`Delivery ${id} not found`);
+      throw new NotFoundException(`Không tìm thấy đơn giao hàng ${id}`);
     }
     return this.toAdminDto(delivery);
   }
@@ -537,7 +541,7 @@ export class DeliveryService {
       where: { id },
     });
     if (!delivery) {
-      throw new NotFoundException(`Delivery ${id} not found`);
+      throw new NotFoundException(`Không tìm thấy đơn giao hàng ${id}`);
     }
     return delivery;
   }
@@ -591,7 +595,9 @@ export class DeliveryService {
       where: { userId },
     });
     if (!customer) {
-      throw new ForbiddenException('No customer profile for this user');
+      throw new ForbiddenException(
+        'Không tìm thấy hồ sơ khách hàng cho người dùng này',
+      );
     }
     return customer;
   }

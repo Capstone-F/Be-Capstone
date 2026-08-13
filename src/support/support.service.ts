@@ -109,7 +109,7 @@ export class SupportService {
       relations: ['customerUser', 'assignedStaffUser'],
     });
     if (!session) {
-      throw new NotFoundException('No live support session found');
+      throw new NotFoundException('Không tìm thấy phiên hỗ trợ đang hoạt động');
     }
     return this.toSessionResponse(session);
   }
@@ -183,13 +183,13 @@ export class SupportService {
     if (!result.affected) {
       const session = await this.sessionRepository.findOne({ where: { id } });
       if (!session) {
-        throw new NotFoundException(`Support session ${id} not found`);
+        throw new NotFoundException(`Không tìm thấy phiên hỗ trợ ${id}`);
       }
       if (session.assignedStaffUserId === staffUserId) {
         return this.toSessionResponse(await this.loadSessionOrFail(id));
       }
       throw new ConflictException(
-        `Support session ${id} is already handled by another staff`,
+        `Phiên hỗ trợ ${id} đã được một nhân viên khác xử lý`,
       );
     }
 
@@ -204,7 +204,7 @@ export class SupportService {
   ): Promise<SupportMessageResponseDto> {
     const content = dto.content.trim();
     if (!content) {
-      throw new BadRequestException('Message content cannot be empty');
+      throw new BadRequestException('Nội dung tin nhắn không được để trống');
     }
 
     return this.sessionRepository.manager.transaction(async (manager) => {
@@ -213,11 +213,11 @@ export class SupportService {
         lock: { mode: 'pessimistic_write' },
       });
       if (!session) {
-        throw new NotFoundException(`Support session ${id} not found`);
+        throw new NotFoundException(`Không tìm thấy phiên hỗ trợ ${id}`);
       }
       if (session.status === SupportSessionStatus.CLOSED) {
         throw new ConflictException(
-          `Support session ${id} is closed and cannot accept messages`,
+          `Phiên hỗ trợ ${id} đã đóng và không thể nhận tin nhắn`,
         );
       }
 
@@ -287,7 +287,7 @@ export class SupportService {
 
     if (dto.lastReadSeq > session.messageCount) {
       throw new BadRequestException(
-        `lastReadSeq ${dto.lastReadSeq} exceeds messageCount ${session.messageCount}`,
+        `lastReadSeq ${dto.lastReadSeq} vượt quá messageCount ${session.messageCount}`,
       );
     }
 
@@ -331,7 +331,7 @@ export class SupportService {
       relations: ['customerUser', 'assignedStaffUser'],
     });
     if (!session) {
-      throw new NotFoundException(`Support session ${id} not found`);
+      throw new NotFoundException(`Không tìm thấy phiên hỗ trợ ${id}`);
     }
     return session;
   }
@@ -351,9 +351,7 @@ export class SupportService {
       // Staff may view any session in the shared queue (read for claim/detail).
       return;
     }
-    throw new ForbiddenException(
-      'You are not allowed to view this support session',
-    );
+    throw new ForbiddenException('Bạn không được phép xem phiên hỗ trợ này');
   }
 
   private assertParticipant(
@@ -371,7 +369,7 @@ export class SupportService {
       return SupportMessageSenderRole.STAFF;
     }
     throw new ForbiddenException(
-      'You are not a participant of this support session',
+      'Bạn không phải là thành viên của phiên hỗ trợ này',
     );
   }
 
@@ -391,11 +389,11 @@ export class SupportService {
     }
     if (hasAnyRole(roles, [Role.Staff, Role.AppAdmin])) {
       throw new ForbiddenException(
-        'Only the assigned staff can send messages in this support session',
+        'Chỉ nhân viên được chỉ định mới có thể gửi tin nhắn trong phiên hỗ trợ này',
       );
     }
     throw new ForbiddenException(
-      'You are not allowed to send messages in this support session',
+      'Bạn không được phép gửi tin nhắn trong phiên hỗ trợ này',
     );
   }
 
@@ -417,7 +415,7 @@ export class SupportService {
       return;
     }
     throw new ForbiddenException(
-      'Only the customer, assigned staff, or app admin can close this session',
+      'Chỉ khách hàng, nhân viên được chỉ định hoặc quản trị viên ứng dụng mới có thể đóng phiên này',
     );
   }
 

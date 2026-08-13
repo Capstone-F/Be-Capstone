@@ -15,7 +15,7 @@ export class UpdateCustomerProfileDto {
   @IsOptional()
   @IsString()
   @Matches(/^[\d+\-\s().]{7,20}$/, {
-    message: 'phone must be a valid phone number',
+    message: 'phone phải là số điện thoại hợp lệ',
   })
   phone?: string;
 
