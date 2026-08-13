@@ -103,7 +103,7 @@ export class ExpertAvailabilityService {
       where: { id: expertId },
     });
     if (!expert) {
-      throw new NotFoundException(`Expert ${expertId} not found`);
+      throw new NotFoundException(`Không tìm thấy chuyên gia ${expertId}`);
     }
     this.assertCallerCanManageAvailability(caller, expert);
     return expert;
@@ -118,7 +118,7 @@ export class ExpertAvailabilityService {
     });
     if (!row) {
       throw new NotFoundException(
-        `Availability ${id} not found for expert ${expertId}`,
+        `Không tìm thấy lịch trống ${id} cho chuyên gia ${expertId}`,
       );
     }
     return row;
@@ -135,7 +135,7 @@ export class ExpertAvailabilityService {
     if (hasAnyRole(caller.roles, [Role.ClinicManager])) {
       if (!caller.clinicId || expert.clinicId !== caller.clinicId) {
         throw new ForbiddenException(
-          'Clinic manager can only manage availability for experts in their clinic',
+          'Người quản lý phòng khám chỉ có thể quản lý lịch trống cho các chuyên gia trong phòng khám của mình',
         );
       }
       return;
@@ -144,24 +144,24 @@ export class ExpertAvailabilityService {
     if (hasAnyRole(caller.roles, [Role.Expert])) {
       if (expert.userId !== caller.userId) {
         throw new ForbiddenException(
-          'Experts can only manage their own availability',
+          'Chuyên gia chỉ có thể quản lý lịch trống của chính mình',
         );
       }
       return;
     }
 
     throw new ForbiddenException(
-      'Insufficient permissions to manage expert availability',
+      'Không đủ quyền để quản lý lịch trống của chuyên gia',
     );
   }
 
   private assertValidWindow(startHour: number, endHour: number): void {
     if (endHour <= startHour) {
-      throw new BadRequestException('endHour must be greater than startHour');
+      throw new BadRequestException('endHour phải lớn hơn startHour');
     }
     if (startHour < 9 || endHour > 20) {
       throw new BadRequestException(
-        'Availability hours must be within 09:00–20:00 (GMT+7)',
+        'Giờ lịch trống phải nằm trong khoảng 09:00–20:00 (GMT+7)',
       );
     }
   }
@@ -184,7 +184,7 @@ export class ExpertAvailabilityService {
     );
     if (overlaps) {
       throw new ConflictException(
-        'Availability block overlaps an existing block on the same day',
+        'Khối lịch trống trùng lịch với một khối hiện có trong cùng ngày',
       );
     }
   }

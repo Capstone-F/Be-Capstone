@@ -99,12 +99,26 @@ describe('BookingsService', () => {
       find: jest.fn().mockResolvedValue(options.availability ?? []),
     } as unknown as Repository<ExpertAvailability>;
 
+    const clinicBookingsQb = {
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getManyAndCount: jest
+        .fn()
+        .mockResolvedValue(options.findAndCountResult ?? [[], 0]),
+    };
+
     const consultationRepo = {
       find: jest.fn().mockResolvedValue(options.consultations ?? []),
       findOne: jest.fn().mockResolvedValue(null),
       findAndCount: jest
         .fn()
         .mockResolvedValue(options.findAndCountResult ?? [[], 0]),
+      createQueryBuilder: jest.fn(() => clinicBookingsQb),
       create: jest.fn((data) => ({ id: 'new-c-1', ...data })),
       save: jest.fn((data) =>
         Promise.resolve({
@@ -207,6 +221,7 @@ describe('BookingsService', () => {
       expertRepo,
       availabilityRepo,
       consultationRepo,
+      clinicBookingsQb,
       customerRepo,
       feedbackRepo,
       treatmentRepo,
@@ -1093,7 +1108,7 @@ describe('BookingsService', () => {
   describe('clinic oversight', () => {
     it('lists bookings scoped to the clinic and attaches escrow status', async () => {
       const consultation = makeConsultation();
-      const { service, consultationRepo, escrowService } = makeService({
+      const { service, clinicBookingsQb, escrowService } = makeService({
         findAndCountResult: [[consultation], 1],
       });
       escrowService.getStatusByConsultationIds.mockResolvedValue(
@@ -1102,11 +1117,10 @@ describe('BookingsService', () => {
 
       const result = await service.findByClinic('clinic-1', {});
 
-      const findAndCountArg = (consultationRepo.findAndCount as jest.Mock).mock
-        .calls[0][0];
-      expect(findAndCountArg.where).toMatchObject({
-        expert: { clinicId: 'clinic-1' },
-      });
+      expect(clinicBookingsQb.where).toHaveBeenCalledWith(
+        'expert.clinicId = :clinicId',
+        { clinicId: 'clinic-1' },
+      );
       expect(result.total).toBe(1);
       expect(result.items[0].escrowStatus).toBe('HELD');
       expect(result.items[0].id).toBe(consultation.id);

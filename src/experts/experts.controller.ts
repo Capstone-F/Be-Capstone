@@ -218,7 +218,7 @@ export class ExpertsController {
   private requireUserId(req: Request): string {
     const auth = getAuthContext(req);
     if (!auth?.userId) {
-      throw new UnauthorizedException('Not authenticated');
+      throw new UnauthorizedException('Chưa xác thực');
     }
     return auth.userId;
   }
@@ -226,7 +226,7 @@ export class ExpertsController {
   private buildCallerContext(req: Request): CallerContext {
     const auth = getAuthContext(req);
     if (!auth?.userId) {
-      throw new UnauthorizedException('Not authenticated');
+      throw new UnauthorizedException('Chưa xác thực');
     }
     return {
       userId: auth.userId,

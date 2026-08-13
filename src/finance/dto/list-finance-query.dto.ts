@@ -13,6 +13,16 @@ import { TransactionType } from '../../commerce/enums';
 import { ClinicWithdrawalStatus } from '../enums';
 
 export class ListClinicTransactionsQueryDto {
+  @ApiPropertyOptional({
+    description: 'Free-text search (matches note or transaction ID)',
+  })
+  @IsOptional()
+  search?: string;
+
+  @ApiPropertyOptional({ description: 'Alias for search' })
+  @IsOptional()
+  q?: string;
+
   @ApiPropertyOptional({ enum: TransactionType })
   @IsOptional()
   @IsEnum(TransactionType)

@@ -119,7 +119,7 @@ export class SurveyService {
     dto: CreateSurveyQuestionDto,
   ): Promise<AdminSurveyQuestionDto> {
     if (await this.questionRepository.findOneBy({ code: dto.code.trim() })) {
-      throw new ConflictException(`Question code ${dto.code} already exists`);
+      throw new ConflictException(`Mã câu hỏi ${dto.code} đã tồn tại`);
     }
     const optionLabels = await this.resolveOptionLabels(dto.options);
     const question = await this.questionRepository.save(
@@ -144,12 +144,12 @@ export class SurveyService {
     dto: UpdateSurveyQuestionDto,
   ): Promise<AdminSurveyQuestionDto> {
     const question = await this.questionRepository.findOneBy({ id });
-    if (!question) throw new NotFoundException(`Question ${id} not found`);
+    if (!question) throw new NotFoundException(`Không tìm thấy câu hỏi ${id}`);
     if (dto.code !== undefined) {
       const code = dto.code.trim();
       const duplicate = await this.questionRepository.findOneBy({ code });
       if (duplicate && duplicate.id !== id) {
-        throw new ConflictException(`Question code ${code} already exists`);
+        throw new ConflictException(`Mã câu hỏi ${code} đã tồn tại`);
       }
       question.code = code;
     }
@@ -182,7 +182,7 @@ export class SurveyService {
 
   async deactivateAdminQuestion(id: string): Promise<AdminSurveyQuestionDto> {
     const question = await this.questionRepository.findOneBy({ id });
-    if (!question) throw new NotFoundException(`Question ${id} not found`);
+    if (!question) throw new NotFoundException(`Không tìm thấy câu hỏi ${id}`);
     question.isActive = false;
     await this.questionRepository.save(question);
     return this.getAdminQuestion(id);
@@ -195,7 +195,7 @@ export class SurveyService {
     if (surveyId) {
       if (!actor) {
         throw new UnauthorizedException(
-          'Authentication or X-Guest-Token required for survey-scoped questions',
+          'Cần xác thực hoặc X-Guest-Token cho các câu hỏi theo phạm vi khảo sát',
         );
       }
       return this.listProgressiveQuestions(actor, surveyId);
@@ -233,7 +233,7 @@ export class SurveyService {
       ],
     });
     if (!survey) {
-      throw new NotFoundException(`Survey ${surveyId} not found`);
+      throw new NotFoundException(`Không tìm thấy khảo sát ${surveyId}`);
     }
 
     const answeredQuestionIds = new Set(
@@ -418,11 +418,11 @@ export class SurveyService {
     );
 
     if (!file?.buffer?.length) {
-      throw new BadRequestException('file is required');
+      throw new BadRequestException('file là bắt buộc');
     }
     if (!ALLOWED_FACE_MIME.has(file.mimetype)) {
       throw new BadRequestException(
-        'Unsupported file type. Allowed: jpeg, png, webp, gif, heic, heif',
+        'Loại tệp không được hỗ trợ. Cho phép: jpeg, png, webp, gif, heic, heif',
       );
     }
 
@@ -496,7 +496,7 @@ export class SurveyService {
       relations: ['options', 'options.label'],
     });
     if (questions.length !== questionIds.length) {
-      throw new BadRequestException('One or more questions are invalid');
+      throw new BadRequestException('Một hoặc nhiều câu hỏi không hợp lệ');
     }
 
     const allLabelCodes = [
@@ -508,7 +508,7 @@ export class SurveyService {
     const labelByCode = new Map(labels.map((l) => [l.code, l]));
     for (const code of allLabelCodes) {
       if (!labelByCode.has(code)) {
-        throw new BadRequestException(`Unknown label code: ${code}`);
+        throw new BadRequestException(`Mã nhãn không xác định: ${code}`);
       }
     }
 
@@ -525,7 +525,7 @@ export class SurveyService {
       for (const code of answer.labelCodes.map((value) => value.trim())) {
         if (!allowedCodes.has(code)) {
           throw new BadRequestException(
-            `Label code ${code} is not an active option for question ${question.code}`,
+            `Mã nhãn ${code} không phải là lựa chọn đang hoạt động cho câu hỏi ${question.code}`,
           );
         }
       }
@@ -579,7 +579,7 @@ export class SurveyService {
     });
     if (answerCount < 1) {
       throw new BadRequestException(
-        'Survey must have at least one answer before completion',
+        'Khảo sát phải có ít nhất một câu trả lời trước khi hoàn thành',
       );
     }
 
@@ -603,7 +603,7 @@ export class SurveyService {
     });
     if (!surveyWithAnswers) {
       throw new NotFoundException(
-        `Survey ${surveyId} not found for customer ${customerId}`,
+        `Không tìm thấy khảo sát ${surveyId} cho khách hàng ${customerId}`,
       );
     }
 
@@ -734,7 +734,7 @@ export class SurveyService {
       where: { id: customerId },
     });
     if (!customer) {
-      throw new NotFoundException(`Customer ${customerId} not found`);
+      throw new NotFoundException(`Không tìm thấy khách hàng ${customerId}`);
     }
 
     const survey = await this.surveyRepository.findOne({
@@ -742,7 +742,9 @@ export class SurveyService {
       order: { completedAt: 'DESC', createdAt: 'DESC' },
     });
     if (!survey) {
-      throw new NotFoundException(`No survey found for customer ${customerId}`);
+      throw new NotFoundException(
+        `Không tìm thấy khảo sát cho khách hàng ${customerId}`,
+      );
     }
 
     for (const input of answersInput) {
@@ -752,7 +754,7 @@ export class SurveyService {
       });
       if (!question) {
         throw new BadRequestException(
-          `Unknown active question code: ${input.questionCode}`,
+          `Mã câu hỏi đang hoạt động không xác định: ${input.questionCode}`,
         );
       }
       const allowedCodes = new Set(
@@ -763,7 +765,7 @@ export class SurveyService {
       for (const code of input.labelCodes) {
         if (!allowedCodes.has(code.trim())) {
           throw new BadRequestException(
-            `Label code ${code} is not a valid option for question ${input.questionCode}`,
+            `Mã nhãn ${code} không phải là lựa chọn hợp lệ cho câu hỏi ${input.questionCode}`,
           );
         }
       }
@@ -843,7 +845,7 @@ export class SurveyService {
       ],
     });
     if (!survey) {
-      throw new NotFoundException(`Survey ${surveyId} not found`);
+      throw new NotFoundException(`Không tìm thấy khảo sát ${surveyId}`);
     }
     return this.toSurveyDto(
       survey,
@@ -862,7 +864,7 @@ export class SurveyService {
   ): Promise<SurveyResponseDto | null> {
     const token = guestToken?.trim();
     if (!token) {
-      throw new BadRequestException('guestToken is required');
+      throw new BadRequestException('guestToken là bắt buộc');
     }
 
     const guest = await this.findGuestCustomerByToken(token);
@@ -870,7 +872,7 @@ export class SurveyService {
 
     if (guest.id === authCustomer.id) {
       throw new BadRequestException(
-        'Guest survey already belongs to this user',
+        'Khảo sát khách đã thuộc về người dùng này',
       );
     }
 
@@ -968,7 +970,7 @@ export class SurveyService {
       where: { id },
       relations: ['options', 'options.label'],
     });
-    if (!question) throw new NotFoundException(`Question ${id} not found`);
+    if (!question) throw new NotFoundException(`Không tìm thấy câu hỏi ${id}`);
     return question;
   }
 
@@ -978,7 +980,7 @@ export class SurveyService {
     const codes = options.map((option) => option.labelCode.trim());
     if (new Set(codes).size !== codes.length) {
       throw new BadRequestException(
-        'Question option label codes must be unique',
+        'Mã nhãn lựa chọn câu hỏi phải là duy nhất',
       );
     }
     const labels = await this.labelRepository.find({
@@ -987,7 +989,9 @@ export class SurveyService {
     const labelByCode = new Map(labels.map((label) => [label.code, label]));
     for (const code of codes) {
       if (!labelByCode.has(code)) {
-        throw new BadRequestException(`Unknown active label code: ${code}`);
+        throw new BadRequestException(
+          `Mã nhãn đang hoạt động không xác định: ${code}`,
+        );
       }
     }
     return labelByCode;
@@ -1043,10 +1047,10 @@ export class SurveyService {
       where: { id: surveyId, customerId: customer.id },
     });
     if (!survey) {
-      throw new NotFoundException(`Survey ${surveyId} not found`);
+      throw new NotFoundException(`Không tìm thấy khảo sát ${surveyId}`);
     }
     if (survey.isCompleted) {
-      throw new BadRequestException('Survey is already completed');
+      throw new BadRequestException('Khảo sát đã hoàn thành');
     }
     return { customer, survey };
   }
@@ -1068,13 +1072,13 @@ export class SurveyService {
       },
     });
     if (!customer) {
-      throw new UnauthorizedException('Invalid guest token');
+      throw new UnauthorizedException('Token khách không hợp lệ');
     }
     if (
       customer.guestExpiresAt &&
       customer.guestExpiresAt.getTime() < Date.now()
     ) {
-      throw new UnauthorizedException('Guest token expired');
+      throw new UnauthorizedException('Token khách đã hết hạn');
     }
     return customer;
   }
@@ -1087,7 +1091,9 @@ export class SurveyService {
     if (dto.dateOfBirth !== undefined) {
       const dob = new Date(dto.dateOfBirth);
       if (dob > new Date()) {
-        throw new BadRequestException('dateOfBirth must not be in the future');
+        throw new BadRequestException(
+          'dateOfBirth không được ở trong tương lai',
+        );
       }
       customer.dateOfBirth = dob;
       dirty = true;
@@ -1120,7 +1126,7 @@ export class SurveyService {
       code: ALLERGY_CATEGORY_CODE,
     });
     if (!allergyCategory) {
-      throw new BadRequestException('ALLERGY label category is not configured');
+      throw new BadRequestException('Danh mục nhãn ALLERGY chưa được cấu hình');
     }
 
     let allergyLabels: Label[] = [];
@@ -1137,7 +1143,7 @@ export class SurveyService {
         const foundCodes = new Set(allergyLabels.map((label) => label.code));
         const invalid = uniqueCodes.filter((code) => !foundCodes.has(code));
         throw new BadRequestException(
-          `Invalid allergy label codes: ${invalid.join(', ')}`,
+          `Mã nhãn dị ứng không hợp lệ: ${invalid.join(', ')}`,
         );
       }
     }
@@ -1160,7 +1166,9 @@ export class SurveyService {
       where: { userId },
     });
     if (!customer) {
-      throw new ForbiddenException('No customer profile for this user');
+      throw new ForbiddenException(
+        'Không có hồ sơ khách hàng cho người dùng này',
+      );
     }
     return customer;
   }

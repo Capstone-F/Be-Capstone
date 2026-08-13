@@ -35,14 +35,14 @@ export class ZegoTokenService {
       relations: ['customer', 'expert'],
     });
     if (!consultation) {
-      throw new NotFoundException(`Booking ${bookingId} not found`);
+      throw new NotFoundException(`Không tìm thấy booking ${bookingId}`);
     }
 
     const customerUserId = consultation.customer?.userId;
     const expertUserId = consultation.expert?.userId;
     if (userId !== customerUserId && userId !== expertUserId) {
       throw new ForbiddenException(
-        'Only the assigned customer or expert can join this consultation call',
+        'Chỉ khách hàng hoặc chuyên gia được chỉ định mới có thể tham gia cuộc gọi tư vấn này',
       );
     }
 
@@ -86,14 +86,14 @@ export class ZegoTokenService {
       relations: ['customer', 'expert'],
     });
     if (!consultation) {
-      throw new NotFoundException(`Booking ${bookingId} not found`);
+      throw new NotFoundException(`Không tìm thấy booking ${bookingId}`);
     }
 
     const customerUserId = consultation.customer?.userId;
     const expertUserId = consultation.expert?.userId;
     if (userId !== customerUserId && userId !== expertUserId) {
       throw new ForbiddenException(
-        'Only the assigned customer or expert can open this consultation chat',
+        'Chỉ khách hàng hoặc chuyên gia được chỉ định mới có thể mở cuộc trò chuyện tư vấn này',
       );
     }
 
@@ -101,12 +101,14 @@ export class ZegoTokenService {
     if (userId === customerUserId) {
       peerUserID = expertUserId;
       if (!peerUserID) {
-        throw new ConflictException('No expert assigned to this booking yet');
+        throw new ConflictException(
+          'Chưa có chuyên gia nào được chỉ định cho booking này',
+        );
       }
     } else {
       peerUserID = customerUserId ?? undefined;
       if (!peerUserID) {
-        throw new ConflictException('Booking customer is missing');
+        throw new ConflictException('Thiếu thông tin khách hàng của booking');
       }
     }
 
@@ -146,18 +148,18 @@ export class ZegoTokenService {
     const serverSecret = this.config.zegoServerSecret;
     if (!appIdRaw || !serverSecret) {
       throw new ServiceUnavailableException(
-        'ZegoCloud is not configured (ZEGO_APP_ID / ZEGO_SERVER_SECRET)',
+        'ZegoCloud chưa được cấu hình (ZEGO_APP_ID / ZEGO_SERVER_SECRET)',
       );
     }
     if (serverSecret.length !== 32) {
       throw new ServiceUnavailableException(
-        'ZEGO_SERVER_SECRET must be a 32-byte string',
+        'ZEGO_SERVER_SECRET phải là chuỗi 32 byte',
       );
     }
 
     const appID = Number(appIdRaw);
     if (!Number.isFinite(appID) || appID <= 0) {
-      throw new ServiceUnavailableException('ZEGO_APP_ID is invalid');
+      throw new ServiceUnavailableException('ZEGO_APP_ID không hợp lệ');
     }
 
     return { appID, serverSecret };

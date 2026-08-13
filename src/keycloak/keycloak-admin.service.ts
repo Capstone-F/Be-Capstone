@@ -77,7 +77,7 @@ export class KeycloakAdminService {
 
     if (!token.access_token) {
       throw new BadGatewayException(
-        'Keycloak admin login failed (no access_token)',
+        'Đăng nhập admin Keycloak thất bại (không có access_token)',
       );
     }
 
@@ -110,20 +110,22 @@ export class KeycloakAdminService {
     });
 
     if (response.status === 401 || response.status === 400) {
-      throw new UnauthorizedException('Invalid username or password');
+      throw new UnauthorizedException(
+        'Tên đăng nhập hoặc mật khẩu không hợp lệ',
+      );
     }
 
     if (!response.ok) {
       const message = await response.text();
       throw new BadGatewayException(
-        `Keycloak password grant failed (${response.status}): ${message}`,
+        `Cấp quyền bằng mật khẩu Keycloak thất bại (${response.status}): ${message}`,
       );
     }
 
     const token = (await response.json()) as TokenResponse;
     if (!token.access_token) {
       throw new BadGatewayException(
-        'Keycloak returned a token response without access_token',
+        'Keycloak trả về phản hồi token mà không có access_token',
       );
     }
 
@@ -145,7 +147,7 @@ export class KeycloakAdminService {
     if (!response.ok) {
       const message = await response.text();
       throw new BadGatewayException(
-        `Keycloak admin user lookup failed (${response.status}): ${message}`,
+        `Tra cứu người dùng admin Keycloak thất bại (${response.status}): ${message}`,
       );
     }
 
@@ -174,7 +176,7 @@ export class KeycloakAdminService {
     if (!response.ok) {
       const message = await response.text();
       throw new BadGatewayException(
-        `Keycloak admin list users failed (${response.status}): ${message}`,
+        `Liệt kê người dùng admin Keycloak thất bại (${response.status}): ${message}`,
       );
     }
 
@@ -195,7 +197,7 @@ export class KeycloakAdminService {
     if (!response.ok) {
       const message = await response.text();
       throw new BadGatewayException(
-        `Keycloak admin get user failed (${response.status}): ${message}`,
+        `Lấy thông tin người dùng admin Keycloak thất bại (${response.status}): ${message}`,
       );
     }
 
@@ -224,23 +226,23 @@ export class KeycloakAdminService {
         }
       }
       throw new BadGatewayException(
-        'Keycloak user created but Location header missing',
+        'Đã tạo người dùng Keycloak nhưng thiếu Location header',
       );
     }
 
     if (response.status === 204) {
       throw new BadGatewayException(
-        'Keycloak user created but no user id returned',
+        'Đã tạo người dùng Keycloak nhưng không trả về user id',
       );
     }
 
     if (response.status === 409) {
-      throw new ConflictException('Email already registered');
+      throw new ConflictException('Email đã được đăng ký');
     }
 
     const message = await response.text();
     throw new BadGatewayException(
-      `Keycloak admin user create failed (${response.status}): ${message}`,
+      `Tạo người dùng admin Keycloak thất bại (${response.status}): ${message}`,
     );
   }
 
@@ -267,7 +269,7 @@ export class KeycloakAdminService {
 
     const message = await response.text();
     throw new BadGatewayException(
-      `Keycloak admin set user enabled failed (${response.status}): ${message}`,
+      `Cập nhật trạng thái kích hoạt người dùng admin Keycloak thất bại (${response.status}): ${message}`,
     );
   }
 
@@ -294,7 +296,7 @@ export class KeycloakAdminService {
 
     const message = await response.text();
     throw new BadGatewayException(
-      `Keycloak admin update user failed (${response.status}): ${message}`,
+      `Cập nhật người dùng admin Keycloak thất bại (${response.status}): ${message}`,
     );
   }
 
@@ -325,7 +327,7 @@ export class KeycloakAdminService {
     if (!response.ok) {
       const message = await response.text();
       throw new BadGatewayException(
-        `Keycloak admin get role failed (${response.status}): ${message}`,
+        `Lấy vai trò admin Keycloak thất bại (${response.status}): ${message}`,
       );
     }
 
@@ -344,7 +346,7 @@ export class KeycloakAdminService {
     if (!response.ok) {
       const message = await response.text();
       throw new BadGatewayException(
-        `Keycloak admin get user roles failed (${response.status}): ${message}`,
+        `Lấy vai trò người dùng admin Keycloak thất bại (${response.status}): ${message}`,
       );
     }
 
@@ -378,7 +380,7 @@ export class KeycloakAdminService {
 
     const message = await response.text();
     throw new BadGatewayException(
-      `Keycloak admin assign roles failed (${response.status}): ${message}`,
+      `Gán vai trò admin Keycloak thất bại (${response.status}): ${message}`,
     );
   }
 
@@ -409,7 +411,7 @@ export class KeycloakAdminService {
 
     const message = await response.text();
     throw new BadGatewayException(
-      `Keycloak admin remove roles failed (${response.status}): ${message}`,
+      `Gỡ vai trò admin Keycloak thất bại (${response.status}): ${message}`,
     );
   }
 
@@ -451,7 +453,7 @@ export class KeycloakAdminService {
     if (!response.ok) {
       const message = await response.text();
       throw new BadGatewayException(
-        `Keycloak admin client lookup failed (${response.status}): ${message}`,
+        `Tra cứu client admin Keycloak thất bại (${response.status}): ${message}`,
       );
     }
 
@@ -464,7 +466,7 @@ export class KeycloakAdminService {
 
     if (!client) {
       throw new BadGatewayException(
-        `Keycloak client "${clientId}" not found in realm "${this.config.keycloakRealm}"`,
+        `Không tìm thấy client Keycloak "${clientId}" trong realm "${this.config.keycloakRealm}"`,
       );
     }
 
@@ -497,7 +499,7 @@ export class KeycloakAdminService {
 
     const message = await response.text();
     throw new BadGatewayException(
-      `Keycloak admin client update failed (${response.status}): ${message}`,
+      `Cập nhật client admin Keycloak thất bại (${response.status}): ${message}`,
     );
   }
 
@@ -522,7 +524,7 @@ export class KeycloakAdminService {
     if (!response.ok) {
       const message = await response.text();
       throw new BadGatewayException(
-        `Keycloak request failed (${response.status}): ${message}`,
+        `Yêu cầu tới Keycloak thất bại (${response.status}): ${message}`,
       );
     }
 
@@ -560,15 +562,14 @@ export class KeycloakAdminService {
       return JSON.parse(payload) as Record<string, unknown>;
     } catch (err) {
       this.logger.error('Failed to decode JWT payload', err);
-      throw new BadGatewayException('Invalid or malformed token');
+      throw new BadGatewayException('Token không hợp lệ hoặc bị lỗi định dạng');
     }
   }
 
   extractRolesFromToken(token: string): string[] {
     const payload = this.decodeJwtPayload(token);
     const realmAccess = payload.realm_access as
-      | { roles?: string[] }
-      | undefined;
+      { roles?: string[] } | undefined;
     return realmAccess?.roles ?? [];
   }
 

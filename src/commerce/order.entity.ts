@@ -81,6 +81,9 @@ export class Order {
   @Column({ type: 'int', default: 0 })
   totalVnd: number;
 
+  @Column({ nullable: true, type: 'uuid' })
+  analyticsSessionId: string | null;
+
   @Column({ nullable: true, type: 'timestamptz' })
   cancelledAt: Date | null;
 

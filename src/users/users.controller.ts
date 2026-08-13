@@ -142,7 +142,7 @@ export class UsersController {
   ) {
     const caller = this.buildCallerContext(req);
     if (typeof body.isActive !== 'boolean') {
-      throw new BadRequestException('isActive must be a boolean');
+      throw new BadRequestException('isActive phải là giá trị boolean');
     }
     return this.usersService.setStatus(caller, id, body.isActive);
   }
@@ -150,7 +150,7 @@ export class UsersController {
   private requireUserId(req: Request): string {
     const auth = getAuthContext(req);
     if (!auth?.userId) {
-      throw new UnauthorizedException('Not authenticated');
+      throw new UnauthorizedException('Chưa xác thực');
     }
     return auth.userId;
   }
@@ -158,7 +158,7 @@ export class UsersController {
   private buildCallerContext(req: Request): CallerContext {
     const auth = getAuthContext(req);
     if (!auth?.userId) {
-      throw new UnauthorizedException('Not authenticated');
+      throw new UnauthorizedException('Chưa xác thực');
     }
     return {
       userId: auth.userId,

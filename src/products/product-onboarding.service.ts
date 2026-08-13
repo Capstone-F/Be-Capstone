@@ -68,7 +68,7 @@ export class ProductOnboardingService {
         const ingredient = ingredientMap.get(input.name.toLowerCase());
         if (!ingredient) {
           throw new BadRequestException(
-            `Failed to resolve ingredient: ${input.name}`,
+            `Không thể xác định thành phần: ${input.name}`,
           );
         }
         return manager.create(ProductIngredient, {
@@ -138,7 +138,7 @@ export class ProductOnboardingService {
     for (const item of ingredients) {
       const trimmedName = item.name.trim();
       if (!trimmedName) {
-        throw new BadRequestException('Ingredient name must not be empty');
+        throw new BadRequestException('Tên thành phần không được để trống');
       }
 
       const key = trimmedName.toLowerCase();

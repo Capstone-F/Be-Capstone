@@ -90,7 +90,7 @@ export class TreatmentsController {
   @ApiOkResponse({ type: [TreatmentResponseDto] })
   listMine(@Req() req: Request, @Query() query: ListMyTreatmentsQueryDto) {
     const auth = getAuthContext(req);
-    if (!auth?.userId) throw new UnauthorizedException('Not authenticated');
+    if (!auth?.userId) throw new UnauthorizedException('Chưa xác thực');
     const roles = auth.roles ?? [];
     const asExpert =
       query.as === 'expert' ||
@@ -114,7 +114,7 @@ export class TreatmentsController {
   @ApiOkResponse({ type: TreatmentChartResponseDto })
   getChart(@Req() req: Request, @Param('id', ParseUUIDPipe) id: string) {
     const auth = getAuthContext(req);
-    if (!auth?.userId) throw new UnauthorizedException('Not authenticated');
+    if (!auth?.userId) throw new UnauthorizedException('Chưa xác thực');
     const roles = auth.roles ?? [];
     return this.treatmentsService.getChart(
       auth.userId,
@@ -141,7 +141,7 @@ export class TreatmentsController {
     @Query('type') type?: TreatmentEventType,
   ) {
     const auth = getAuthContext(req);
-    if (!auth?.userId) throw new UnauthorizedException('Not authenticated');
+    if (!auth?.userId) throw new UnauthorizedException('Chưa xác thực');
     const roles = auth.roles ?? [];
     return this.treatmentsService.listEvents(
       auth.userId,
@@ -169,7 +169,7 @@ export class TreatmentsController {
     @Body() dto: CreateTreatmentEventDto,
   ) {
     const auth = getAuthContext(req);
-    if (!auth?.userId) throw new UnauthorizedException('Not authenticated');
+    if (!auth?.userId) throw new UnauthorizedException('Chưa xác thực');
     const roles = auth.roles ?? [];
     return this.treatmentsService.createEvent(
       auth.userId,
@@ -198,7 +198,7 @@ export class TreatmentsController {
     @Body() dto: UpdateTreatmentEventPhotoDto,
   ) {
     const auth = getAuthContext(req);
-    if (!auth?.userId) throw new UnauthorizedException('Not authenticated');
+    if (!auth?.userId) throw new UnauthorizedException('Chưa xác thực');
     const roles = auth.roles ?? [];
     return this.treatmentsService.updateEventPhoto(
       auth.userId,
@@ -229,7 +229,7 @@ export class TreatmentsController {
     @Body() dto: CancelTreatmentDto,
   ) {
     const auth = getAuthContext(req);
-    if (!auth?.userId) throw new UnauthorizedException('Not authenticated');
+    if (!auth?.userId) throw new UnauthorizedException('Chưa xác thực');
     const roles = auth.roles ?? [];
     return this.treatmentsService.cancelTreatment(
       auth.userId,
@@ -252,7 +252,7 @@ export class TreatmentsController {
   @ApiOkResponse({ type: TreatmentResponseDto })
   getOne(@Req() req: Request, @Param('id', ParseUUIDPipe) id: string) {
     const auth = getAuthContext(req);
-    if (!auth?.userId) throw new UnauthorizedException('Not authenticated');
+    if (!auth?.userId) throw new UnauthorizedException('Chưa xác thực');
     const roles = auth.roles ?? [];
     return this.treatmentsService.getTreatmentForUser(auth.userId, id, {
       isExpert: roles.includes(Role.Expert),
@@ -442,7 +442,7 @@ export class TreatmentsController {
   private requireUserId(req: Request): string {
     const auth = getAuthContext(req);
     if (!auth?.userId) {
-      throw new UnauthorizedException('Not authenticated');
+      throw new UnauthorizedException('Chưa xác thực');
     }
     return auth.userId;
   }

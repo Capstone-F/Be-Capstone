@@ -5,15 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import {
-  Brackets,
-  DataSource,
-  FindOptionsWhere,
-  In,
-  IsNull,
-  Not,
-  Repository,
-} from 'typeorm';
+import { Brackets, DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import { LedgerAccount, TransactionType } from '../commerce/enums';
 import { ConsultationRequest } from '../consultations/consultation-request.entity';
 import { Feedback } from '../consultations/feedback.entity';
@@ -148,7 +140,9 @@ export class TreatmentsService {
         console.error(
           `Failed to auto-create customer for userId=${dto.customerId}: ${err}`,
         );
-        throw new NotFoundException(`Customer ${dto.customerId} not found`);
+        throw new NotFoundException(
+          `Không tìm thấy khách hàng ${dto.customerId}`,
+        );
       }
     }
 
@@ -157,14 +151,14 @@ export class TreatmentsService {
         where: { id: dto.sourceConsultationId },
       });
       if (!consultation) {
-        throw new NotFoundException('Source consultation not found');
+        throw new NotFoundException('Không tìm thấy buổi tư vấn nguồn');
       }
       if (
         consultation.expertId !== expert.id ||
         consultation.customerId !== customer.id
       ) {
         throw new BadRequestException(
-          'Source consultation does not match expert/customer',
+          'Buổi tư vấn nguồn không khớp với chuyên gia/khách hàng',
         );
       }
       // Plan is typically drafted during the live session (IN_PROGRESS), then
@@ -175,7 +169,7 @@ export class TreatmentsService {
       ];
       if (!allowed.includes(consultation.status)) {
         throw new BadRequestException(
-          `Source consultation must be IN_PROGRESS or COMPLETED (current: ${consultation.status})`,
+          `Buổi tư vấn nguồn phải ở trạng thái IN_PROGRESS hoặc COMPLETED (hiện tại: ${consultation.status})`,
         );
       }
     }
@@ -380,31 +374,40 @@ export class TreatmentsService {
     const limit = Math.min(100, Math.max(1, query.limit ?? 20));
     const skip = (page - 1) * limit;
 
-    const where: FindOptionsWhere<Treatment> = {
-      clinicId,
-      submittedAt: Not(IsNull()),
-    };
+    const qb = this.treatmentRepo
+      .createQueryBuilder('t')
+      .leftJoinAndSelect('t.phases', 'phases')
+      .leftJoinAndSelect('phases.phaseIngredients', 'phaseIngredients')
+      .leftJoinAndSelect('phaseIngredients.ingredient', 'ingredient')
+      .leftJoinAndSelect('phases.phaseProducts', 'phaseProducts')
+      .leftJoinAndSelect('phaseProducts.productVariant', 'productVariant')
+      .leftJoinAndSelect('phases.routines', 'routines')
+      .leftJoinAndSelect('t.expert', 'expert')
+      .leftJoinAndSelect('expert.user', 'expertUser')
+      .leftJoinAndSelect('t.customer', 'customer')
+      .leftJoinAndSelect('customer.user', 'customerUser')
+      .where('t.clinicId = :clinicId', { clinicId })
+      .andWhere('t.submittedAt IS NOT NULL');
+
     if (query.status) {
-      where.status = query.status;
+      qb.andWhere('t.status = :status', { status: query.status });
     }
     if (query.expertId) {
-      where.expertId = query.expertId;
+      qb.andWhere('t.expertId = :expertId', { expertId: query.expertId });
     }
 
-    const [rows, total] = await this.treatmentRepo.findAndCount({
-      where,
-      relations: [
-        'phases',
-        'phases.phaseIngredients',
-        'phases.phaseIngredients.ingredient',
-        'phases.phaseProducts',
-        'phases.phaseProducts.productVariant',
-        'phases.routines',
-      ],
-      order: { createdAt: 'DESC' },
-      skip,
-      take: limit,
-    });
+    const searchTerm = query.search?.trim() || query.q?.trim();
+    if (searchTerm) {
+      const searchPattern = `%${searchTerm.toLowerCase()}%`;
+      qb.andWhere(
+        '(LOWER(t.title) LIKE :searchPattern OR LOWER(customerUser.name) LIKE :searchPattern OR LOWER(expertUser.name) LIKE :searchPattern)',
+        { searchPattern },
+      );
+    }
+
+    qb.orderBy('t.createdAt', 'DESC').skip(skip).take(limit);
+
+    const [rows, total] = await qb.getManyAndCount();
 
     const escrowMap = await this.escrowService.summarizeByTreatmentIds(
       rows.map((t) => t.id),
@@ -422,7 +425,7 @@ export class TreatmentsService {
     const treatment = await this.loadTreatment(treatmentId);
     if (treatment.clinicId !== clinicId) {
       throw new ForbiddenException(
-        'This treatment does not belong to your clinic',
+        'Liệu trình này không thuộc phòng khám của bạn',
       );
     }
     const escrowMap = await this.escrowService.summarizeByTreatmentIds([
@@ -462,13 +465,13 @@ export class TreatmentsService {
 
     const phases = await this.phaseRepo.find({ where: { treatmentId } });
     if (phases.length === 0) {
-      throw new BadRequestException('Treatment must have at least one phase');
+      throw new BadRequestException('Liệu trình phải có ít nhất một giai đoạn');
     }
 
     const missingNote = phases.find((p) => !p.noteByExpert?.trim());
     if (missingNote) {
       throw new BadRequestException(
-        'Each phase requires noteByExpert before submit (why this phase/plan was created)',
+        'Mỗi giai đoạn cần noteByExpert trước khi gửi (lý do giai đoạn/kế hoạch này được tạo)',
       );
     }
 
@@ -477,12 +480,12 @@ export class TreatmentsService {
       0n,
     );
     if (total <= 0n) {
-      throw new BadRequestException('Total plan price must be greater than 0');
+      throw new BadRequestException('Tổng giá kế hoạch phải lớn hơn 0');
     }
 
     if (!treatment.startDate || !treatment.endDate) {
       throw new BadRequestException(
-        'Treatment startDate and endDate are required before payment',
+        'startDate và endDate của liệu trình là bắt buộc trước khi thanh toán',
       );
     }
 
@@ -501,19 +504,21 @@ export class TreatmentsService {
       where: { userId: customerUserId },
     });
     if (!customer || treatment.customerId !== customer.id) {
-      throw new ForbiddenException('Only the owning customer can pay');
+      throw new ForbiddenException(
+        'Chỉ khách hàng sở hữu mới có thể thanh toán',
+      );
     }
     if (treatment.status !== TreatmentStatus.DRAFT) {
       throw new BadRequestException(
-        `Treatment is not payable (status: ${treatment.status})`,
+        `Liệu trình không thể thanh toán (trạng thái: ${treatment.status})`,
       );
     }
     if (treatment.paidAt) {
-      throw new BadRequestException('Treatment is already paid');
+      throw new BadRequestException('Liệu trình đã được thanh toán');
     }
     if (!treatment.submittedAt) {
       throw new BadRequestException(
-        'Treatment plan has not been submitted by the expert',
+        'Kế hoạch liệu trình chưa được chuyên gia gửi',
       );
     }
 
@@ -522,16 +527,18 @@ export class TreatmentsService {
     const total = Number(reloaded.totalPriceVnd ?? 0);
     if (!reloaded.phases?.length || total <= 0) {
       throw new BadRequestException(
-        'Treatment has no payable phases (expert must submit plan first)',
+        'Liệu trình không có giai đoạn nào để thanh toán (chuyên gia phải gửi kế hoạch trước)',
       );
     }
     if (!reloaded.startDate || !reloaded.endDate) {
       throw new BadRequestException(
-        'Treatment startDate and endDate are required',
+        'startDate và endDate của liệu trình là bắt buộc',
       );
     }
     if (!reloaded.clinicId) {
-      throw new BadRequestException('Treatment is not bound to a clinic');
+      throw new BadRequestException(
+        'Liệu trình chưa được gán vào phòng khám nào',
+      );
     }
 
     const payablePhases = reloaded.phases.filter(
@@ -539,7 +546,7 @@ export class TreatmentsService {
     );
     if (!payablePhases.length) {
       throw new BadRequestException(
-        'Treatment has no payable phases (expert must submit plan first)',
+        'Liệu trình không có giai đoạn nào để thanh toán (chuyên gia phải gửi kế hoạch trước)',
       );
     }
 
@@ -594,7 +601,9 @@ export class TreatmentsService {
         where: { id: In(uniqueIds) },
       });
       if (found.length !== uniqueIds.length) {
-        throw new BadRequestException('One or more ingredientIds are invalid');
+        throw new BadRequestException(
+          'Một hoặc nhiều ingredientIds không hợp lệ',
+        );
       }
     }
 
@@ -720,7 +729,7 @@ export class TreatmentsService {
       });
       if (found.length !== uniqueIds.length) {
         throw new BadRequestException(
-          'One or more productVariantIds are invalid',
+          'Một hoặc nhiều productVariantIds không hợp lệ',
         );
       }
     }
@@ -768,7 +777,7 @@ export class TreatmentsService {
     const products = phase.phaseProducts ?? [];
     if (products.length === 0) {
       throw new BadRequestException(
-        'Select products for the phase before generating a routine',
+        'Chọn sản phẩm cho giai đoạn trước khi tạo lộ trình chăm sóc',
       );
     }
 
@@ -926,11 +935,13 @@ export class TreatmentsService {
       relations: ['steps', 'treatmentPhase', 'treatmentPhase.treatment'],
     });
     if (!routine || routine.type !== RoutineType.EXPERT_PRESCRIBED) {
-      throw new NotFoundException('Expert routine not found');
+      throw new NotFoundException(
+        'Không tìm thấy lộ trình chăm sóc của chuyên gia',
+      );
     }
     if (!routine.treatmentPhaseId) {
       throw new BadRequestException(
-        'Routine is not linked to a treatment phase',
+        'Lộ trình chăm sóc chưa được liên kết với giai đoạn liệu trình',
       );
     }
 
@@ -948,7 +959,7 @@ export class TreatmentsService {
       routine.status !== RoutineStatus.ACTIVE
     ) {
       throw new BadRequestException(
-        `Routine cannot be edited in status ${routine.status}`,
+        `Không thể chỉnh sửa lộ trình chăm sóc ở trạng thái ${routine.status}`,
       );
     }
 
@@ -1089,11 +1100,13 @@ export class TreatmentsService {
       relations: ['treatmentPhase'],
     });
     if (!routine || routine.type !== RoutineType.EXPERT_PRESCRIBED) {
-      throw new NotFoundException('Expert routine not found');
+      throw new NotFoundException(
+        'Không tìm thấy lộ trình chăm sóc của chuyên gia',
+      );
     }
     if (!routine.treatmentPhaseId) {
       throw new BadRequestException(
-        'Routine is not linked to a treatment phase',
+        'Lộ trình chăm sóc chưa được liên kết với giai đoạn liệu trình',
       );
     }
     await this.requireExpertTreatment(
@@ -1126,14 +1139,14 @@ export class TreatmentsService {
       );
       if (hasUnsavedDraft) {
         throw new BadRequestException(
-          'Save all phase routines before activating (DRAFT routines must be saved)',
+          'Lưu tất cả lộ trình chăm sóc của giai đoạn trước khi kích hoạt (các lộ trình DRAFT phải được lưu)',
         );
       }
     } else {
       // No routine allowed — require dates or notes
       if (!phase.startDate && !phase.endDate && !phase.notes) {
         throw new BadRequestException(
-          'Phase without routine requires startDate/endDate or notes',
+          'Giai đoạn không có lộ trình chăm sóc cần startDate/endDate hoặc notes',
         );
       }
     }
@@ -1203,7 +1216,7 @@ export class TreatmentsService {
       treatment.status !== TreatmentStatus.PAUSED
     ) {
       throw new BadRequestException(
-        `Treatment can only be cancelled when ACTIVE or PAUSED (current: ${treatment.status})`,
+        `Liệu trình chỉ có thể hủy khi ở trạng thái ACTIVE hoặc PAUSED (hiện tại: ${treatment.status})`,
       );
     }
 
@@ -1240,7 +1253,7 @@ export class TreatmentsService {
         });
         if (!customer?.userId) {
           throw new BadRequestException(
-            'Customer wallet user is required to refund',
+            'Cần người dùng ví của khách hàng để hoàn tiền',
           );
         }
         const tx = await this.walletService.creditWithManager(manager, {
@@ -1300,7 +1313,7 @@ export class TreatmentsService {
       !dto.photoUrl?.trim()
     ) {
       throw new BadRequestException(
-        'photoUrl is required for PROGRESS_PHOTO events',
+        'photoUrl là bắt buộc đối với sự kiện PROGRESS_PHOTO',
       );
     }
 
@@ -1341,11 +1354,13 @@ export class TreatmentsService {
       where: { id: eventId, treatmentId },
     });
     if (!event) {
-      throw new NotFoundException(`Treatment event ${eventId} not found`);
+      throw new NotFoundException(
+        `Không tìm thấy sự kiện liệu trình ${eventId}`,
+      );
     }
     if (event.type !== TreatmentEventType.PROGRESS_PHOTO) {
       throw new BadRequestException(
-        'photoUrl can only be updated on PROGRESS_PHOTO events',
+        'photoUrl chỉ có thể được cập nhật trên sự kiện PROGRESS_PHOTO',
       );
     }
 
@@ -1486,9 +1501,7 @@ export class TreatmentsService {
         return TreatmentCancelledBy.CUSTOMER;
       }
     }
-    throw new ForbiddenException(
-      'You do not have access to cancel this treatment',
-    );
+    throw new ForbiddenException('Bạn không có quyền hủy liệu trình này');
   }
 
   private async loadProductsUsed(
@@ -1617,7 +1630,7 @@ export class TreatmentsService {
   private assertDraftEditable(treatment: Treatment): void {
     if (treatment.status !== TreatmentStatus.DRAFT || treatment.paidAt) {
       throw new BadRequestException(
-        'Only unpaid DRAFT treatments can modify phases/pricing',
+        'Chỉ liệu trình DRAFT chưa thanh toán mới có thể chỉnh sửa giai đoạn/giá',
       );
     }
   }
@@ -1625,7 +1638,7 @@ export class TreatmentsService {
   private assertPaidActive(treatment: Treatment): void {
     if (treatment.status !== TreatmentStatus.ACTIVE || !treatment.paidAt) {
       throw new BadRequestException(
-        'Treatment must be ACTIVE and paid to configure phases',
+        'Liệu trình phải ở trạng thái ACTIVE và đã thanh toán để cấu hình giai đoạn',
       );
     }
   }
@@ -1633,7 +1646,7 @@ export class TreatmentsService {
   private async requireExpert(userId: string): Promise<Expert> {
     const expert = await this.expertRepo.findOne({ where: { userId } });
     if (!expert) {
-      throw new ForbiddenException('Expert profile required');
+      throw new ForbiddenException('Cần hồ sơ chuyên gia');
     }
     return expert;
   }
@@ -1645,7 +1658,9 @@ export class TreatmentsService {
     const expert = await this.requireExpert(expertUserId);
     const treatment = await this.loadTreatment(treatmentId);
     if (treatment.expertId !== expert.id) {
-      throw new ForbiddenException('You can only manage your own treatments');
+      throw new ForbiddenException(
+        'Bạn chỉ có thể quản lý các liệu trình của chính mình',
+      );
     }
     return { expert, treatment };
   }
@@ -1680,13 +1695,13 @@ export class TreatmentsService {
           treatment.status === TreatmentStatus.DRAFT
         ) {
           throw new ForbiddenException(
-            'Treatment plan has not been submitted by the expert yet',
+            'Kế hoạch liệu trình chưa được chuyên gia gửi',
           );
         }
         return;
       }
     }
-    throw new ForbiddenException('You do not have access to this treatment');
+    throw new ForbiddenException('Bạn không có quyền truy cập liệu trình này');
   }
 
   /** Assigned expert or owning customer only — not consultation read-only viewers. */
@@ -1704,7 +1719,7 @@ export class TreatmentsService {
       if (customer && treatment.customerId === customer.id) return;
     }
     throw new ForbiddenException(
-      'You do not have permission to modify events on this treatment',
+      'Bạn không có quyền chỉnh sửa sự kiện trên liệu trình này',
     );
   }
 
@@ -1729,7 +1744,7 @@ export class TreatmentsService {
       order: { phases: { phaseOrder: 'ASC' } },
     });
     if (!treatment) {
-      throw new NotFoundException(`Treatment ${treatmentId} not found`);
+      throw new NotFoundException(`Không tìm thấy liệu trình ${treatmentId}`);
     }
     return treatment;
   }
@@ -1748,7 +1763,7 @@ export class TreatmentsService {
       ],
     });
     if (!phase) {
-      throw new NotFoundException(`Phase ${phaseId} not found`);
+      throw new NotFoundException(`Không tìm thấy giai đoạn ${phaseId}`);
     }
     return phase;
   }

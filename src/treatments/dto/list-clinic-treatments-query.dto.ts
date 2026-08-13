@@ -7,6 +7,19 @@ import { TreatmentStatus } from '../enums';
  * Query for a clinic manager listing treatment plans in their clinic.
  */
 export class ListClinicTreatmentsQueryDto {
+  @ApiPropertyOptional({
+    description:
+      'Free-text search query (matches title, customer name, or expert name)',
+  })
+  @IsOptional()
+  search?: string;
+
+  @ApiPropertyOptional({
+    description: 'Alias for search',
+  })
+  @IsOptional()
+  q?: string;
+
   @ApiPropertyOptional({ enum: TreatmentStatus })
   @IsOptional()
   @IsEnum(TreatmentStatus)

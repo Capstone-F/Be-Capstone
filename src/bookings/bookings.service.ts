@@ -11,7 +11,6 @@ import {
   DataSource,
   FindOptionsWhere,
   In,
-  LessThanOrEqual,
   MoreThanOrEqual,
   Repository,
 } from 'typeorm';
@@ -113,7 +112,7 @@ export class BookingsService {
       relations: ['user', 'clinic'],
     });
     if (!expert) {
-      throw new NotFoundException(`Expert ${dto.expertId} not found`);
+      throw new NotFoundException(`Không tìm thấy chuyên gia ${dto.expertId}`);
     }
     this.assertExpertHasClinic(expert);
 
@@ -150,15 +149,17 @@ export class BookingsService {
     const consultation = await this.requireBooking(bookingId);
     const customerUserId = consultation.customer?.userId;
     if (!customerUserId || customerUserId !== userId) {
-      throw new ForbiddenException('Only the owning customer can pay');
+      throw new ForbiddenException(
+        'Chỉ khách hàng sở hữu mới có thể thanh toán',
+      );
     }
     if (consultation.status !== ConsultationStatus.PENDING) {
       throw new BadRequestException(
-        `Booking can only be paid while PENDING (current: ${consultation.status})`,
+        `Lịch hẹn chỉ có thể thanh toán khi đang ở trạng thái PENDING (hiện tại: ${consultation.status})`,
       );
     }
     if (this.isBookingPaid(consultation)) {
-      throw new BadRequestException('Booking is already paid');
+      throw new BadRequestException('Lịch hẹn đã được thanh toán');
     }
     if (consultation.isFollowUp) {
       consultation.feeChargedVnd = '0';
@@ -173,10 +174,12 @@ export class BookingsService {
       }));
     const fee = Math.round(Number(expert.consultationFee));
     if (!Number.isFinite(fee) || fee <= 0) {
-      throw new BadRequestException('Expert consultation fee is not payable');
+      throw new BadRequestException(
+        'Phí tư vấn của chuyên gia không thể thanh toán',
+      );
     }
     if (!expert.clinicId) {
-      throw new BadRequestException('Expert is not bound to a clinic');
+      throw new BadRequestException('Chuyên gia chưa được gắn với phòng khám');
     }
 
     await this.dataSource.transaction(async (manager) => {
@@ -217,19 +220,19 @@ export class BookingsService {
   ): Promise<BookingResponseDto> {
     const expert = await this.requireExpertByUserId(
       userId,
-      'Expert profile required to confirm bookings',
+      'Cần hồ sơ chuyên gia để xác nhận lịch hẹn',
     );
     const consultation = await this.requireBooking(bookingId);
     this.assertAssignedExpert(consultation, expert);
 
     if (consultation.status !== ConsultationStatus.PENDING) {
       throw new BadRequestException(
-        `Booking can only be confirmed from PENDING (current: ${consultation.status})`,
+        `Lịch hẹn chỉ có thể được xác nhận từ trạng thái PENDING (hiện tại: ${consultation.status})`,
       );
     }
     if (!this.isBookingPaid(consultation)) {
       throw new BadRequestException(
-        'Booking must be paid (or free follow-up) before confirm',
+        'Lịch hẹn phải được thanh toán (hoặc là lịch tái khám miễn phí) trước khi xác nhận',
       );
     }
 
@@ -253,7 +256,7 @@ export class BookingsService {
 
     if (!CANCELLABLE_STATUSES.includes(consultation.status)) {
       throw new BadRequestException(
-        `Booking can only be cancelled from PENDING or CONFIRMED (current: ${consultation.status})`,
+        `Lịch hẹn chỉ có thể được hủy từ trạng thái PENDING hoặc CONFIRMED (hiện tại: ${consultation.status})`,
       );
     }
 
@@ -283,14 +286,14 @@ export class BookingsService {
   ): Promise<BookingResponseDto> {
     const expert = await this.requireExpertByUserId(
       userId,
-      'Expert profile required to start bookings',
+      'Cần hồ sơ chuyên gia để bắt đầu lịch hẹn',
     );
     const consultation = await this.requireBooking(bookingId);
     this.assertAssignedExpert(consultation, expert);
 
     if (consultation.status !== ConsultationStatus.CONFIRMED) {
       throw new BadRequestException(
-        `Booking can only be started from CONFIRMED (current: ${consultation.status})`,
+        `Lịch hẹn chỉ có thể được bắt đầu từ trạng thái CONFIRMED (hiện tại: ${consultation.status})`,
       );
     }
 
@@ -306,14 +309,14 @@ export class BookingsService {
   ): Promise<BookingResponseDto> {
     const expert = await this.requireExpertByUserId(
       userId,
-      'Expert profile required to complete bookings',
+      'Cần hồ sơ chuyên gia để hoàn thành lịch hẹn',
     );
     const consultation = await this.requireBooking(bookingId);
     this.assertAssignedExpert(consultation, expert);
 
     if (consultation.status !== ConsultationStatus.IN_PROGRESS) {
       throw new BadRequestException(
-        `Booking can only be completed from IN_PROGRESS (current: ${consultation.status})`,
+        `Lịch hẹn chỉ có thể được hoàn thành từ trạng thái IN_PROGRESS (hiện tại: ${consultation.status})`,
       );
     }
 
@@ -345,29 +348,25 @@ export class BookingsService {
     const customerUserId = consultation.customer?.userId;
     if (!customerUserId || customerUserId !== userId) {
       throw new ForbiddenException(
-        'Only the owning customer can submit feedback',
+        'Chỉ khách hàng sở hữu mới có thể gửi phản hồi',
       );
     }
 
     if (consultation.status !== ConsultationStatus.COMPLETED) {
       throw new BadRequestException(
-        `Feedback can only be submitted for COMPLETED bookings (current: ${consultation.status})`,
+        `Phản hồi chỉ có thể được gửi cho lịch hẹn đã COMPLETED (hiện tại: ${consultation.status})`,
       );
     }
 
     if (consultation.feedback) {
-      throw new ConflictException(
-        'Feedback has already been submitted for this booking',
-      );
+      throw new ConflictException('Phản hồi đã được gửi cho lịch hẹn này');
     }
 
     const existing = await this.feedbackRepository.findOne({
       where: { consultationId: bookingId },
     });
     if (existing) {
-      throw new ConflictException(
-        'Feedback has already been submitted for this booking',
-      );
+      throw new ConflictException('Phản hồi đã được gửi cho lịch hẹn này');
     }
 
     const feedback = this.feedbackRepository.create({
@@ -394,7 +393,7 @@ export class BookingsService {
       roles.includes(Role.Expert) && consultation.expert?.userId === userId;
 
     if (!isOwnerCustomer && !isAssignedExpert) {
-      throw new ForbiddenException('You do not have access to this booking');
+      throw new ForbiddenException('Bạn không có quyền truy cập lịch hẹn này');
     }
 
     return this.toBookingResponse(
@@ -417,38 +416,49 @@ export class BookingsService {
     const limit = Math.min(100, Math.max(1, query.limit ?? 20));
     const skip = (page - 1) * limit;
 
-    const where: FindOptionsWhere<ConsultationRequest> = {
-      expert: { clinicId },
-    };
+    const qb = this.consultationRepository
+      .createQueryBuilder('c')
+      .leftJoinAndSelect('c.expert', 'expert')
+      .leftJoinAndSelect('expert.user', 'expertUser')
+      .leftJoinAndSelect('expert.clinic', 'clinic')
+      .leftJoinAndSelect('c.customer', 'customer')
+      .leftJoinAndSelect('customer.user', 'customerUser')
+      .leftJoinAndSelect('c.feedback', 'feedback')
+      .where('expert.clinicId = :clinicId', { clinicId });
+
     if (query.expertId) {
-      where.expertId = query.expertId;
+      qb.andWhere('c.expertId = :expertId', { expertId: query.expertId });
     }
     if (query.status) {
-      where.status = query.status;
-    }
-    if (query.from && query.to) {
-      where.scheduledAt = Between(new Date(query.from), new Date(query.to));
-    } else if (query.from) {
-      where.scheduledAt = MoreThanOrEqual(new Date(query.from));
-    } else if (query.to) {
-      where.scheduledAt = LessThanOrEqual(new Date(query.to));
+      qb.andWhere('c.status = :status', { status: query.status });
     }
 
-    const [consultations, total] =
-      await this.consultationRepository.findAndCount({
-        where,
-        relations: [
-          'expert',
-          'expert.user',
-          'expert.clinic',
-          'customer',
-          'customer.user',
-          'feedback',
-        ],
-        order: { scheduledAt: 'DESC', createdAt: 'DESC' },
-        skip,
-        take: limit,
+    const searchTerm = query.search?.trim() || query.q?.trim();
+    if (searchTerm) {
+      const searchPattern = `%${searchTerm.toLowerCase()}%`;
+      qb.andWhere(
+        '(LOWER(customerUser.name) LIKE :searchPattern OR LOWER(expertUser.name) LIKE :searchPattern OR LOWER(c.id) LIKE :searchPattern)',
+        { searchPattern },
+      );
+    }
+
+    if (query.from && query.to) {
+      qb.andWhere('c.scheduledAt BETWEEN :from AND :to', {
+        from: new Date(query.from),
+        to: new Date(query.to),
       });
+    } else if (query.from) {
+      qb.andWhere('c.scheduledAt >= :from', { from: new Date(query.from) });
+    } else if (query.to) {
+      qb.andWhere('c.scheduledAt <= :to', { to: new Date(query.to) });
+    }
+
+    qb.orderBy('c.scheduledAt', 'DESC')
+      .addOrderBy('c.createdAt', 'DESC')
+      .skip(skip)
+      .take(limit);
+
+    const [consultations, total] = await qb.getManyAndCount();
 
     const statusMap = await this.escrowService.getStatusByConsultationIds(
       consultations.map((c) => c.id),
@@ -479,11 +489,11 @@ export class BookingsService {
       ],
     });
     if (!consultation) {
-      throw new NotFoundException(`Booking ${bookingId} not found`);
+      throw new NotFoundException(`Không tìm thấy lịch hẹn ${bookingId}`);
     }
     if (consultation.expert?.clinicId !== clinicId) {
       throw new ForbiddenException(
-        'This booking does not belong to your clinic',
+        'Lịch hẹn này không thuộc phòng khám của bạn',
       );
     }
 
@@ -508,7 +518,7 @@ export class BookingsService {
   ): Promise<PaginatedBookingsDto> {
     if (query.tab && query.status) {
       throw new BadRequestException(
-        'Use either tab or status filter, not both',
+        'Chỉ sử dụng bộ lọc tab hoặc trạng thái, không dùng cả hai',
       );
     }
 
@@ -592,7 +602,7 @@ export class BookingsService {
       where: { id: expertId, isActive: true },
     });
     if (!expert) {
-      throw new NotFoundException(`Expert ${expertId} not found`);
+      throw new NotFoundException(`Không tìm thấy chuyên gia ${expertId}`);
     }
     this.assertExpertHasClinic(expert);
 
@@ -708,7 +718,7 @@ export class BookingsService {
     );
     if (!matchesAvailability) {
       throw new BadRequestException(
-        'scheduledAt is outside the expert availability window',
+        'scheduledAt nằm ngoài khung lịch trống của chuyên gia',
       );
     }
 
@@ -740,7 +750,7 @@ export class BookingsService {
       });
 
     if (hasConflict) {
-      throw new ConflictException('The requested slot is already booked');
+      throw new ConflictException('Khung giờ yêu cầu đã được đặt');
     }
   }
 
@@ -771,12 +781,12 @@ export class BookingsService {
     if (requested) {
       if (requested === BookingPerspective.CUSTOMER && !hasCustomer) {
         throw new ForbiddenException(
-          'Insufficient permissions to list bookings as customer',
+          'Không đủ quyền để xem danh sách lịch hẹn với vai trò khách hàng',
         );
       }
       if (requested === BookingPerspective.EXPERT && !hasExpert) {
         throw new ForbiddenException(
-          'Insufficient permissions to list bookings as expert',
+          'Không đủ quyền để xem danh sách lịch hẹn với vai trò chuyên gia',
         );
       }
       return requested;
@@ -789,13 +799,13 @@ export class BookingsService {
       return BookingPerspective.EXPERT;
     }
 
-    throw new ForbiddenException('Insufficient permissions to list bookings');
+    throw new ForbiddenException('Không đủ quyền để xem danh sách lịch hẹn');
   }
 
   private assertExpertHasClinic(expert: Expert): void {
     if (!expert.clinicId) {
       throw new BadRequestException(
-        'Expert is not linked to a clinic and cannot be booked',
+        'Chuyên gia chưa được liên kết với phòng khám và không thể đặt lịch',
       );
     }
   }
@@ -804,7 +814,7 @@ export class BookingsService {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) {
       throw new BadRequestException(
-        'scheduledAt must be a valid ISO 8601 date',
+        'scheduledAt phải là ngày hợp lệ theo chuẩn ISO 8601',
       );
     }
     return date;
@@ -813,7 +823,7 @@ export class BookingsService {
   private assertFutureTopOfHour(scheduledAt: Date): void {
     const now = new Date();
     if (scheduledAt.getTime() <= now.getTime()) {
-      throw new BadRequestException('scheduledAt must be in the future');
+      throw new BadRequestException('scheduledAt phải ở trong tương lai');
     }
     // GMT+7 is a fixed offset, so VN top-of-hour == UTC top-of-hour.
     if (
@@ -822,7 +832,7 @@ export class BookingsService {
       scheduledAt.getUTCMilliseconds() !== 0
     ) {
       throw new BadRequestException(
-        'scheduledAt must be aligned to the top of the hour (GMT+7)',
+        'scheduledAt phải được căn theo đầu giờ (GMT+7)',
       );
     }
   }
@@ -884,7 +894,7 @@ export class BookingsService {
       relations: [...BOOKING_DETAIL_RELATIONS],
     });
     if (!consultation) {
-      throw new NotFoundException(`Booking ${bookingId} not found`);
+      throw new NotFoundException(`Không tìm thấy lịch hẹn ${bookingId}`);
     }
     return consultation;
   }
@@ -908,7 +918,9 @@ export class BookingsService {
     expert: Expert,
   ): void {
     if (consultation.expertId !== expert.id) {
-      throw new ForbiddenException('You can only manage your own bookings');
+      throw new ForbiddenException(
+        'Bạn chỉ có thể quản lý lịch hẹn của chính mình',
+      );
     }
   }
 
@@ -947,7 +959,7 @@ export class BookingsService {
     }
 
     throw new ForbiddenException(
-      'Only the owning customer or assigned expert can cancel this booking',
+      'Chỉ khách hàng sở hữu hoặc chuyên gia được phân công mới có thể hủy lịch hẹn này',
     );
   }
 

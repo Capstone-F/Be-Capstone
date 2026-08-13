@@ -62,7 +62,7 @@ export class OrdersService {
     const cart = await this.cartService.getCartByCustomerId(customer.id);
 
     if (!cart.source || cart.items.length === 0) {
-      throw new BadRequestException('Cart is empty');
+      throw new BadRequestException('Giỏ hàng đang trống');
     }
 
     const variantIds = cart.items.map((i) => i.productVariantId);
@@ -70,7 +70,9 @@ export class OrdersService {
       where: { id: In(variantIds), isActive: true },
     });
     if (variants.length !== variantIds.length) {
-      throw new BadRequestException('One or more cart variants are invalid');
+      throw new BadRequestException(
+        'Một hoặc nhiều phân loại sản phẩm trong giỏ hàng không hợp lệ',
+      );
     }
     const variantById = new Map(variants.map((v) => [v.id, v]));
 
@@ -83,7 +85,7 @@ export class OrdersService {
     if (cart.source === OrderSource.SURVEY) {
       if (!cart.surveyRecommendationId) {
         throw new BadRequestException(
-          'SURVEY cart is missing surveyRecommendationId',
+          'Giỏ hàng SURVEY thiếu surveyRecommendationId',
         );
       }
       const recommendation =
@@ -133,7 +135,7 @@ export class OrdersService {
     });
     if (!provider) {
       throw new BadRequestException(
-        'GHN delivery provider is not configured — run the seed',
+        'Nhà cung cấp giao hàng GHN chưa được cấu hình — hãy chạy seed',
       );
     }
 
@@ -162,6 +164,7 @@ export class OrdersService {
           discountType,
           shippingFeeVnd,
           totalVnd,
+          analyticsSessionId: dto.analyticsSessionId ?? null,
         }),
       );
 
@@ -242,7 +245,7 @@ export class OrdersService {
     }
 
     if (!order) {
-      throw new NotFoundException(`Order ${orderId} not found`);
+      throw new NotFoundException(`Không tìm thấy đơn hàng ${orderId}`);
     }
     return this.toDto(order);
   }
@@ -267,7 +270,7 @@ export class OrdersService {
       ],
     });
     if (!order) {
-      throw new NotFoundException(`Order ${orderId} not found`);
+      throw new NotFoundException(`Không tìm thấy đơn hàng ${orderId}`);
     }
 
     for (const item of order.items ?? []) {
@@ -329,7 +332,7 @@ export class OrdersService {
   ): Promise<ComboDiscountSettingDto> {
     if (dto.percent === undefined && dto.minSubtotalVnd === undefined) {
       throw new BadRequestException(
-        'At least one of percent or minSubtotalVnd is required',
+        'Cần ít nhất một trong hai giá trị percent hoặc minSubtotalVnd',
       );
     }
     if (dto.percent !== undefined) {
@@ -395,7 +398,7 @@ export class OrdersService {
       where: { userId },
     });
     if (!customer) {
-      throw new ForbiddenException('No customer profile for this user');
+      throw new ForbiddenException('Người dùng này không có hồ sơ khách hàng');
     }
     return customer;
   }

@@ -35,6 +35,7 @@ import { WalletModule } from './wallet/wallet.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { FinanceModule } from './finance/finance.module';
+import { CommerceAnalyticsModule } from './analytics/commerce-analytics.module';
 
 @Module({
   imports: [
@@ -76,6 +77,7 @@ import { FinanceModule } from './finance/finance.module';
     LlmModule,
     WalletModule,
     FinanceModule,
+    CommerceAnalyticsModule,
     PaymentsModule,
     UploadsModule,
     DashboardModule,

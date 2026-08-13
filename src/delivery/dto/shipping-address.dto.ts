@@ -26,7 +26,7 @@ export class ShippingAddressDto {
   })
   @IsString()
   @Matches(/^0\d{9}$/, {
-    message: 'recipientPhone must be a 10-digit Vietnamese phone number',
+    message: 'recipientPhone phải là số điện thoại Việt Nam gồm 10 chữ số',
   })
   recipientPhone: string;
 

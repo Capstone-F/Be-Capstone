@@ -14,7 +14,7 @@ export class UpdateCustomerSkinTypeDto {
   })
   @IsString()
   @IsIn([...BAUMANN_SKIN_TYPE_CODES], {
-    message: `skinTypeCode must be one of: ${BAUMANN_SKIN_TYPE_CODES.join(', ')}`,
+    message: `skinTypeCode phải là một trong: ${BAUMANN_SKIN_TYPE_CODES.join(', ')}`,
   })
   skinTypeCode: BaumannSkinTypeCode;
 

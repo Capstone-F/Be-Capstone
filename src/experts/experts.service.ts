@@ -49,7 +49,7 @@ export class ExpertsService {
 
     if (hasLat !== hasLng) {
       throw new BadRequestException(
-        'Both lat and lng must be provided for distance filtering',
+        'Cần cung cấp cả lat và lng để lọc theo khoảng cách',
       );
     }
 
@@ -138,6 +138,14 @@ export class ExpertsService {
     if (query.isActive !== undefined) {
       qb.andWhere('expert.isActive = :isActive', { isActive: query.isActive });
     }
+    const searchTerm = query.search?.trim() || query.q?.trim();
+    if (searchTerm) {
+      const searchPattern = `%${searchTerm.toLowerCase()}%`;
+      qb.andWhere(
+        '(LOWER(user.name) LIKE :searchPattern OR LOWER(user.email) LIKE :searchPattern OR LOWER(expert.licenseNumber) LIKE :searchPattern)',
+        { searchPattern },
+      );
+    }
 
     qb.orderBy('expert.isActive', 'DESC')
       .addOrderBy('user.name', 'ASC')
@@ -204,7 +212,9 @@ export class ExpertsService {
       relations: ['user', 'clinic'],
     });
     if (!expert) {
-      throw new NotFoundException('Expert profile not found for current user');
+      throw new NotFoundException(
+        'Không tìm thấy hồ sơ chuyên gia cho người dùng hiện tại',
+      );
     }
     return this.toResponse(expert, null);
   }
@@ -216,7 +226,7 @@ export class ExpertsService {
     this.assertCanManageExperts(caller);
 
     if (!dto.clinicId?.trim()) {
-      throw new BadRequestException('clinicId is required');
+      throw new BadRequestException('clinicId là bắt buộc');
     }
 
     const clinicId = this.resolveClinicIdForCaller(caller, dto.clinicId);
@@ -224,11 +234,11 @@ export class ExpertsService {
 
     const user = await this.userRepository.findOneBy({ id: dto.userId });
     if (!user) {
-      throw new NotFoundException(`User ${dto.userId} not found`);
+      throw new NotFoundException(`Không tìm thấy người dùng ${dto.userId}`);
     }
     if (!user.roles?.includes(Role.Expert)) {
       throw new BadRequestException(
-        'userId must belong to a user with the expert role',
+        'userId phải thuộc về người dùng có vai trò chuyên gia',
       );
     }
     this.assertCallerCanAccessUserClinic(caller, user);
@@ -238,14 +248,14 @@ export class ExpertsService {
     });
     if (existing) {
       throw new ConflictException(
-        `Expert profile already exists for user ${dto.userId}`,
+        `Hồ sơ chuyên gia đã tồn tại cho người dùng ${dto.userId}`,
       );
     }
 
     const isActive = dto.isActive ?? true;
     if (isActive && !clinicId) {
       throw new BadRequestException(
-        'clinicId is required to activate an expert',
+        'clinicId là bắt buộc để kích hoạt chuyên gia',
       );
     }
 
@@ -281,7 +291,7 @@ export class ExpertsService {
 
     if (dto.clinicId !== undefined) {
       if (!dto.clinicId?.trim()) {
-        throw new BadRequestException('clinicId cannot be cleared');
+        throw new BadRequestException('clinicId không thể bị xóa');
       }
       const clinicId = this.resolveClinicIdForCaller(caller, dto.clinicId);
       const clinic = await this.clinicsService.requireById(clinicId);
@@ -310,7 +320,7 @@ export class ExpertsService {
     if (dto.isActive !== undefined) {
       if (dto.isActive === true && !expert.clinicId) {
         throw new BadRequestException(
-          'clinicId is required to activate an expert',
+          'clinicId là bắt buộc để kích hoạt chuyên gia',
         );
       }
       expert.isActive = dto.isActive;
@@ -338,7 +348,9 @@ export class ExpertsService {
       relations: ['user', 'clinic'],
     });
     if (!expert) {
-      throw new NotFoundException('Expert profile not found for current user');
+      throw new NotFoundException(
+        'Không tìm thấy hồ sơ chuyên gia cho người dùng hiện tại',
+      );
     }
 
     expert.avatarUrl = avatarUrl.trim();
@@ -357,7 +369,9 @@ export class ExpertsService {
       relations: ['user', 'clinic'],
     });
     if (!expert) {
-      throw new NotFoundException('Expert profile not found for current user');
+      throw new NotFoundException(
+        'Không tìm thấy hồ sơ chuyên gia cho người dùng hiện tại',
+      );
     }
 
     expert.consultationFee = consultationFee;
@@ -388,7 +402,7 @@ export class ExpertsService {
       relations: ['user', 'clinic'],
     });
     if (!expert) {
-      throw new NotFoundException(`Expert ${id} not found`);
+      throw new NotFoundException(`Không tìm thấy chuyên gia ${id}`);
     }
     return expert;
   }
@@ -396,7 +410,7 @@ export class ExpertsService {
   private assertCanManageExperts(caller: CallerContext): void {
     if (!hasAnyRole(caller.roles, [Role.AppAdmin, Role.ClinicManager])) {
       throw new ForbiddenException(
-        'Insufficient permissions to manage expert profiles',
+        'Không đủ quyền để quản lý hồ sơ chuyên gia',
       );
     }
   }
@@ -407,11 +421,13 @@ export class ExpertsService {
   ): string {
     if (caller.roles.includes(Role.ClinicManager)) {
       if (!caller.clinicId) {
-        throw new ForbiddenException('Clinic manager is not bound to a clinic');
+        throw new ForbiddenException(
+          'Người quản lý phòng khám chưa được gắn với phòng khám',
+        );
       }
       if (requestedClinicId !== caller.clinicId) {
         throw new ForbiddenException(
-          'Clinic manager can only manage experts in their clinic',
+          'Người quản lý phòng khám chỉ có thể quản lý các chuyên gia trong phòng khám của mình',
         );
       }
       return caller.clinicId;
@@ -429,7 +445,7 @@ export class ExpertsService {
     if (caller.roles.includes(Role.ClinicManager)) {
       if (!caller.clinicId || user.clinicId !== caller.clinicId) {
         throw new ForbiddenException(
-          'Clinic manager can only manage experts in their clinic',
+          'Người quản lý phòng khám chỉ có thể quản lý các chuyên gia trong phòng khám của mình',
         );
       }
     }
@@ -445,7 +461,7 @@ export class ExpertsService {
     if (caller.roles.includes(Role.ClinicManager)) {
       if (!caller.clinicId || expert.clinicId !== caller.clinicId) {
         throw new ForbiddenException(
-          'Clinic manager can only manage experts in their clinic',
+          'Người quản lý phòng khám chỉ có thể quản lý các chuyên gia trong phòng khám của mình',
         );
       }
     }
@@ -462,7 +478,7 @@ export class ExpertsService {
     if (hasAnyRole(caller.roles, [Role.ClinicManager])) {
       if (!caller.clinicId || expert.clinicId !== caller.clinicId) {
         throw new ForbiddenException(
-          'Clinic manager can only manage consultation fees for experts in their clinic',
+          'Người quản lý phòng khám chỉ có thể quản lý phí tư vấn cho các chuyên gia trong phòng khám của mình',
         );
       }
       return;
@@ -471,15 +487,13 @@ export class ExpertsService {
     if (hasAnyRole(caller.roles, [Role.Expert])) {
       if (expert.userId !== caller.userId) {
         throw new ForbiddenException(
-          'Experts can only manage their own consultation fee',
+          'Chuyên gia chỉ có thể quản lý phí tư vấn của chính mình',
         );
       }
       return;
     }
 
-    throw new ForbiddenException(
-      'Insufficient permissions to manage consultation fee',
-    );
+    throw new ForbiddenException('Không đủ quyền để quản lý phí tư vấn');
   }
 
   private buildBaseQuery(query: ListExpertsQueryDto) {

@@ -67,7 +67,7 @@ export class ProductsService {
       relations: ['brand', 'category', 'variants'],
     });
     if (!product) {
-      throw new NotFoundException(`Product ${id} not found`);
+      throw new NotFoundException(`Không tìm thấy sản phẩm ${id}`);
     }
 
     const mappings = await this.productIngredientRepository.find({
@@ -87,7 +87,9 @@ export class ProductsService {
       where: { id: variantId },
     });
     if (!variant) {
-      throw new NotFoundException(`Product variant ${variantId} not found`);
+      throw new NotFoundException(
+        `Không tìm thấy phân loại sản phẩm ${variantId}`,
+      );
     }
 
     variant.imageUrl = imageUrl.trim();
@@ -186,7 +188,9 @@ export class ProductsService {
       where: { userId },
     });
     if (!customer) {
-      throw new ForbiddenException('No customer profile for this user');
+      throw new ForbiddenException(
+        'Không tìm thấy hồ sơ khách hàng cho người dùng này',
+      );
     }
 
     const [context, allergies] = await Promise.all([

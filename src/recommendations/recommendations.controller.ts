@@ -64,7 +64,7 @@ export class RecommendationsController {
       return { kind: 'guest', guestToken };
     }
     throw new UnauthorizedException(
-      'Not authenticated. Log in or send X-Guest-Token',
+      'Chưa xác thực. Đăng nhập hoặc gửi X-Guest-Token',
     );
   }
 }

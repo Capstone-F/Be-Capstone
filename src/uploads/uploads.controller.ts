@@ -81,11 +81,11 @@ export class UploadsController {
     file: Express.Multer.File,
   ): Promise<UploadImageResponseDto> {
     if (!file?.buffer?.length) {
-      throw new BadRequestException('file is required');
+      throw new BadRequestException('tệp là bắt buộc');
     }
     if (!ALLOWED_MIME.has(file.mimetype)) {
       throw new BadRequestException(
-        'Unsupported file type. Allowed: jpeg, png, webp, gif, heic, heif',
+        'Định dạng tệp không được hỗ trợ. Cho phép: jpeg, png, webp, gif, heic, heif',
       );
     }
 

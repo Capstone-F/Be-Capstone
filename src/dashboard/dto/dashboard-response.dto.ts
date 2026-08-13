@@ -20,8 +20,15 @@ export class AdminDashboardMetricsDto {
   @ApiProperty() activeExperts!: number;
   @ApiProperty() activeClinics!: number;
   @ApiProperty() paidOrders!: number;
-  @ApiProperty() netProductRevenueVnd!: number;
-  @ApiProperty() netConsultationFeesVnd!: number;
+  @ApiProperty() grossProductSalesVnd!: number;
+  @ApiProperty() discountsVnd!: number;
+  @ApiProperty() shippingCollectedVnd!: number;
+  @ApiProperty() productPaymentsCollectedVnd!: number;
+  @ApiProperty() productRefundsVnd!: number;
+  @ApiProperty() averageOrderValueVnd!: number;
+  @ApiProperty() consultationFeesCollectedVnd!: number;
+  @ApiProperty() consultationRefundsVnd!: number;
+  @ApiProperty() platformCommissionRevenueVnd!: number;
 }
 
 export class AdminDashboardAttentionDto {
@@ -34,8 +41,48 @@ export class AdminDashboardAttentionDto {
 export class AdminDashboardTrendPointDto {
   @ApiProperty({ example: '2026-08-13' }) date!: string;
   @ApiProperty() newCustomers!: number;
-  @ApiProperty() netProductRevenueVnd!: number;
-  @ApiProperty() netConsultationFeesVnd!: number;
+  @ApiProperty() paidOrders!: number;
+  @ApiProperty() grossProductSalesVnd!: number;
+  @ApiProperty() discountsVnd!: number;
+  @ApiProperty() shippingCollectedVnd!: number;
+  @ApiProperty() productPaymentsCollectedVnd!: number;
+  @ApiProperty() productRefundsVnd!: number;
+  @ApiProperty() consultationFeesCollectedVnd!: number;
+  @ApiProperty() consultationRefundsVnd!: number;
+  @ApiProperty() platformCommissionRevenueVnd!: number;
+}
+
+export class AdminDashboardFunnelStepDto {
+  @ApiProperty({
+    enum: [
+      'PRODUCT_VIEWED',
+      'ADDED_TO_CART',
+      'CHECKOUT_STARTED',
+      'PURCHASE_COMPLETED',
+    ],
+  })
+  eventType!: string;
+  @ApiProperty() label!: string;
+  @ApiProperty() sessions!: number;
+  @ApiProperty() conversionFromPreviousPct!: number;
+  @ApiProperty() overallConversionPct!: number;
+}
+
+export class AdminDashboardFunnelDto {
+  @ApiPropertyOptional({ nullable: true, example: '2026-08-13' })
+  availableFrom!: string | null;
+  @ApiProperty() isPartial!: boolean;
+  @ApiProperty({ type: [AdminDashboardFunnelStepDto] })
+  steps!: AdminDashboardFunnelStepDto[];
+}
+
+export class AdminDashboardTopProductDto {
+  @ApiProperty() productId!: string;
+  @ApiProperty() productVariantId!: string;
+  @ApiProperty() productName!: string;
+  @ApiProperty() sku!: string;
+  @ApiProperty() unitsSold!: number;
+  @ApiProperty() grossSalesVnd!: number;
 }
 
 export class DashboardActivityDto {
@@ -65,6 +112,10 @@ export class AdminDashboardResponseDto {
   attention!: AdminDashboardAttentionDto;
   @ApiProperty({ type: [AdminDashboardTrendPointDto] })
   trend!: AdminDashboardTrendPointDto[];
+  @ApiProperty({ type: AdminDashboardFunnelDto })
+  funnel!: AdminDashboardFunnelDto;
+  @ApiProperty({ type: [AdminDashboardTopProductDto] })
+  topProducts!: AdminDashboardTopProductDto[];
   @ApiProperty({ type: [DashboardActivityDto] })
   recentActivity!: DashboardActivityDto[];
 }

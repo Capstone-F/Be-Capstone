@@ -58,7 +58,7 @@ export class StockService {
     input: CreateBatchInput,
   ): Promise<StockBatch> {
     if (input.quantity <= 0) {
-      throw new BadRequestException('quantity must be positive');
+      throw new BadRequestException('quantity phải là số dương');
     }
 
     const variant = await manager.findOne(ProductVariant, {
@@ -66,7 +66,7 @@ export class StockService {
     });
     if (!variant) {
       throw new NotFoundException(
-        `Product variant ${input.productVariantId} not found`,
+        `Không tìm thấy phân loại sản phẩm ${input.productVariantId}`,
       );
     }
 
@@ -117,7 +117,7 @@ export class StockService {
     note?: string,
   ): Promise<{ batch: StockBatch; movement: StockMovement }> {
     if (quantity <= 0) {
-      throw new BadRequestException('quantity must be positive');
+      throw new BadRequestException('quantity phải là số dương');
     }
 
     return this.batchRepository.manager.transaction(async (manager) => {
@@ -126,7 +126,7 @@ export class StockService {
         ...this.pessimisticWriteLock(manager),
       });
       if (!batch) {
-        throw new NotFoundException(`Stock batch ${batchId} not found`);
+        throw new NotFoundException(`Không tìm thấy lô tồn kho ${batchId}`);
       }
 
       let newRemaining: number;
@@ -140,7 +140,7 @@ export class StockService {
           newRemaining = batch.remainingQuantity - quantity;
           if (newRemaining < 0) {
             throw new BadRequestException(
-              `Insufficient stock: remaining ${batch.remainingQuantity}, requested ${quantity}`,
+              `Không đủ hàng tồn kho: còn lại ${batch.remainingQuantity}, yêu cầu ${quantity}`,
             );
           }
           break;
@@ -149,7 +149,7 @@ export class StockService {
           break;
         default:
           throw new BadRequestException(
-            `Unknown movement type: ${type as string}`,
+            `Loại biến động kho không xác định: ${type as string}`,
           );
       }
 
@@ -179,7 +179,7 @@ export class StockService {
     orderItemId?: string,
   ): Promise<DeductByVariantResult> {
     if (quantity <= 0) {
-      throw new BadRequestException('quantity must be positive');
+      throw new BadRequestException('quantity phải là số dương');
     }
 
     const variant = await this.variantRepository.findOneBy({
@@ -187,7 +187,7 @@ export class StockService {
     });
     if (!variant) {
       throw new NotFoundException(
-        `Product variant ${productVariantId} not found`,
+        `Không tìm thấy phân loại sản phẩm ${productVariantId}`,
       );
     }
 
@@ -206,7 +206,7 @@ export class StockService {
       );
       if (available < quantity) {
         throw new BadRequestException(
-          `Insufficient stock for variant ${productVariantId}: available ${available}, requested ${quantity}`,
+          `Không đủ hàng tồn kho cho phân loại sản phẩm ${productVariantId}: còn ${available}, yêu cầu ${quantity}`,
         );
       }
 
@@ -309,7 +309,7 @@ export class StockService {
     const { orderItemId, goodQuantity, damagedQuantity, note } = options;
     if (goodQuantity < 0 || damagedQuantity < 0) {
       throw new BadRequestException(
-        'goodQuantity and damagedQuantity must be non-negative',
+        'goodQuantity và damagedQuantity phải là số không âm',
       );
     }
     const needed = goodQuantity + damagedQuantity;
@@ -329,8 +329,8 @@ export class StockService {
 
     if (instances.length < needed) {
       throw new BadRequestException(
-        `Not enough RETURNED instances for order item ${orderItemId}: ` +
-          `have ${instances.length}, need ${needed}`,
+        `Không đủ instance ở trạng thái RETURNED cho order item ${orderItemId}: ` +
+          `có ${instances.length}, cần ${needed}`,
       );
     }
 
@@ -358,7 +358,7 @@ export class StockService {
         ...this.pessimisticWriteLock(manager),
       });
       if (!batch) {
-        throw new NotFoundException(`Stock batch ${batchId} not found`);
+        throw new NotFoundException(`Không tìm thấy lô tồn kho ${batchId}`);
       }
       batch.remainingQuantity += qty;
       await manager.save(StockBatch, batch);
@@ -392,7 +392,7 @@ export class StockService {
         break;
       default:
         throw new BadRequestException(
-          `Unknown shelf life unit: ${unit as string}`,
+          `Đơn vị hạn sử dụng không xác định: ${unit as string}`,
         );
     }
     return result;
@@ -412,7 +412,7 @@ export class StockService {
   private toDateOnly(value: Date | string): Date {
     const d = value instanceof Date ? value : new Date(value);
     if (Number.isNaN(d.getTime())) {
-      throw new BadRequestException('Invalid manufacturingDate');
+      throw new BadRequestException('manufacturingDate không hợp lệ');
     }
     return new Date(
       Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()),

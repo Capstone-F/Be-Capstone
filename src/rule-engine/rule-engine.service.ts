@@ -77,7 +77,7 @@ export class RuleEngineService {
     });
 
     if (!customer) {
-      throw new NotFoundException(`Customer ${customerId} not found`);
+      throw new NotFoundException(`Không tìm thấy khách hàng ${customerId}`);
     }
 
     const profile = this.toProfileDto(customer);
@@ -114,7 +114,7 @@ export class RuleEngineService {
     });
 
     if (!customer) {
-      throw new NotFoundException(`Customer ${customerId} not found`);
+      throw new NotFoundException(`Không tìm thấy khách hàng ${customerId}`);
     }
 
     const profileLabelCodes = this.deriveProfileLabelCodes(customer);

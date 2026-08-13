@@ -118,13 +118,13 @@ export class StockImportFormsService {
       dto.manufacturingDate !== undefined ||
       dto.batchCode !== undefined;
     if (!hasField) {
-      throw new BadRequestException('At least one field is required to update');
+      throw new BadRequestException('Cần ít nhất một trường để cập nhật');
     }
 
     const form = await this.requireForm(id);
     if (!EDITABLE_STATUSES.has(form.status)) {
       throw new BadRequestException(
-        `Form can only be updated from DRAFT or SUBMITTED (current: ${form.status})`,
+        `Phiếu nhập kho chỉ có thể được cập nhật từ trạng thái DRAFT hoặc SUBMITTED (hiện tại: ${form.status})`,
       );
     }
 
@@ -153,7 +153,7 @@ export class StockImportFormsService {
     const form = await this.requireForm(id);
     if (form.status !== StockImportFormStatus.DRAFT) {
       throw new BadRequestException(
-        `Form can only be submitted from DRAFT (current: ${form.status})`,
+        `Phiếu nhập kho chỉ có thể được gửi từ trạng thái DRAFT (hiện tại: ${form.status})`,
       );
     }
 
@@ -172,11 +172,11 @@ export class StockImportFormsService {
     return this.formRepository.manager.transaction(async (manager) => {
       const form = await manager.findOne(StockImportForm, { where: { id } });
       if (!form) {
-        throw new NotFoundException(`Stock import form ${id} not found`);
+        throw new NotFoundException(`Không tìm thấy phiếu nhập kho ${id}`);
       }
       if (form.status !== StockImportFormStatus.SUBMITTED) {
         throw new BadRequestException(
-          `Form can only be confirmed from SUBMITTED (current: ${form.status})`,
+          `Phiếu nhập kho chỉ có thể được xác nhận từ trạng thái SUBMITTED (hiện tại: ${form.status})`,
         );
       }
 
@@ -204,7 +204,7 @@ export class StockImportFormsService {
     const form = await this.requireForm(id);
     if (!CANCELABLE_STATUSES.has(form.status)) {
       throw new BadRequestException(
-        `Form can only be cancelled from DRAFT or SUBMITTED (current: ${form.status})`,
+        `Phiếu nhập kho chỉ có thể được hủy từ trạng thái DRAFT hoặc SUBMITTED (hiện tại: ${form.status})`,
       );
     }
 
@@ -224,7 +224,7 @@ export class StockImportFormsService {
     const form = await this.requireForm(id);
     if (form.status !== StockImportFormStatus.SUBMITTED) {
       throw new BadRequestException(
-        `Form can only be rejected from SUBMITTED (current: ${form.status})`,
+        `Phiếu nhập kho chỉ có thể bị từ chối từ trạng thái SUBMITTED (hiện tại: ${form.status})`,
       );
     }
 
@@ -240,7 +240,7 @@ export class StockImportFormsService {
   private async requireForm(id: string): Promise<StockImportForm> {
     const form = await this.formRepository.findOneBy({ id });
     if (!form) {
-      throw new NotFoundException(`Stock import form ${id} not found`);
+      throw new NotFoundException(`Không tìm thấy phiếu nhập kho ${id}`);
     }
     return form;
   }
@@ -251,7 +251,7 @@ export class StockImportFormsService {
     });
     if (!variant) {
       throw new NotFoundException(
-        `Product variant ${productVariantId} not found`,
+        `Không tìm thấy phân loại sản phẩm ${productVariantId}`,
       );
     }
   }
@@ -259,7 +259,7 @@ export class StockImportFormsService {
   private toDateOnly(value: Date | string): Date {
     const d = value instanceof Date ? value : new Date(value);
     if (Number.isNaN(d.getTime())) {
-      throw new BadRequestException('Invalid manufacturingDate');
+      throw new BadRequestException('manufacturingDate không hợp lệ');
     }
     return new Date(
       Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()),

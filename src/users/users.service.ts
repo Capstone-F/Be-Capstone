@@ -140,7 +140,7 @@ export class UsersService {
       relations: ['user'],
     });
     if (!customer) {
-      throw new NotFoundException(`Customer ${customerId} not found`);
+      throw new NotFoundException(`Không tìm thấy khách hàng ${customerId}`);
     }
 
     if (dto.fullName !== undefined) {
@@ -216,7 +216,7 @@ export class UsersService {
     if (name !== undefined) {
       const trimmed = name.trim();
       if (!trimmed) {
-        throw new BadRequestException('name must not be empty');
+        throw new BadRequestException('name không được để trống');
       }
       user.name = trimmed;
       await this.syncNameToKeycloak(user.keycloakSub, trimmed);
@@ -294,14 +294,16 @@ export class UsersService {
     if (caller.roles.includes(Role.ClinicManager)) {
       clinicId = caller.clinicId ?? null;
       if (!clinicId) {
-        throw new ForbiddenException('Clinic manager is not bound to a clinic');
+        throw new ForbiddenException(
+          'Clinic manager chưa được gán vào phòng khám nào',
+        );
       }
     }
 
     if (input.role === Role.Expert || input.role === Role.ClinicManager) {
       if (!clinicId) {
         throw new BadRequestException(
-          'clinicId is required for expert and clinic_manager roles',
+          'clinicId là bắt buộc đối với vai trò expert và clinic_manager',
         );
       }
       await this.clinicsService.requireById(clinicId);
@@ -362,16 +364,16 @@ export class UsersService {
     roles: Role[],
   ): Promise<User> {
     if (!hasAnyRole(caller.roles, [Role.AppAdmin])) {
-      throw new ForbiddenException('Only app_admin can assign roles');
+      throw new ForbiddenException('Chỉ app_admin mới có thể gán vai trò');
     }
 
     const uniqueRoles = [...new Set(roles)];
     if (!uniqueRoles.length) {
-      throw new BadRequestException('At least one role is required');
+      throw new BadRequestException('Cần ít nhất một vai trò');
     }
     for (const role of uniqueRoles) {
       if (!isAppRole(role)) {
-        throw new BadRequestException(`Invalid role: ${String(role)}`);
+        throw new BadRequestException(`Vai trò không hợp lệ: ${String(role)}`);
       }
     }
 
@@ -406,7 +408,9 @@ export class UsersService {
     isActive: boolean,
   ): Promise<User> {
     if (!hasAnyRole(caller.roles, [Role.AppAdmin])) {
-      throw new ForbiddenException('Only app_admin can change user status');
+      throw new ForbiddenException(
+        'Chỉ app_admin mới có thể thay đổi trạng thái người dùng',
+      );
     }
 
     const user = await this.requireById(userId);
@@ -424,7 +428,7 @@ export class UsersService {
   private async requireById(id: string): Promise<User> {
     const user = await this.findById(id);
     if (!user) {
-      throw new NotFoundException(`User ${id} not found`);
+      throw new NotFoundException(`Không tìm thấy người dùng ${id}`);
     }
     return user;
   }
@@ -433,7 +437,9 @@ export class UsersService {
     if (
       !hasAnyRole(caller.roles, [Role.AppAdmin, Role.Staff, Role.ClinicManager])
     ) {
-      throw new ForbiddenException('Insufficient permissions to list users');
+      throw new ForbiddenException(
+        'Không đủ quyền để xem danh sách người dùng',
+      );
     }
   }
 
@@ -444,7 +450,7 @@ export class UsersService {
     if (caller.roles.includes(Role.ClinicManager)) {
       if (!caller.clinicId || target.clinicId !== caller.clinicId) {
         throw new ForbiddenException(
-          'Clinic manager can only access users in their clinic',
+          'Clinic manager chỉ có thể truy cập người dùng trong phòng khám của mình',
         );
       }
     }
@@ -463,7 +469,7 @@ export class UsersService {
   private assertCanCreateRole(caller: CallerContext, role: Role): void {
     if (!MANAGED_ROLES.includes(role)) {
       throw new BadRequestException(
-        `Role ${role} cannot be created via user management`,
+        `Vai trò ${role} không thể được tạo qua quản lý người dùng`,
       );
     }
 
@@ -475,23 +481,21 @@ export class UsersService {
       return;
     }
 
-    throw new ForbiddenException(
-      'Insufficient permissions to create this role',
-    );
+    throw new ForbiddenException('Không đủ quyền để tạo vai trò này');
   }
 
   private validateCreateInput(input: CreateManagedUserInput): void {
     if (!input.email?.trim()) {
-      throw new BadRequestException('email is required');
+      throw new BadRequestException('email là bắt buộc');
     }
     if (!input.name?.trim()) {
-      throw new BadRequestException('name is required');
+      throw new BadRequestException('name là bắt buộc');
     }
     if (!input.temporaryPassword?.trim()) {
-      throw new BadRequestException('temporaryPassword is required');
+      throw new BadRequestException('temporaryPassword là bắt buộc');
     }
     if (!isAppRole(input.role)) {
-      throw new BadRequestException('Invalid role');
+      throw new BadRequestException('Vai trò không hợp lệ');
     }
   }
 

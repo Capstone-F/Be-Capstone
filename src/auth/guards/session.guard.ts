@@ -41,7 +41,7 @@ export class SessionGuard implements CanActivate {
       return true;
     }
 
-    throw new UnauthorizedException('Not authenticated');
+    throw new UnauthorizedException('Chưa xác thực');
   }
 
   private extractBearerToken(request: Request): string | null {

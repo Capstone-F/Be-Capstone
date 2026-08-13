@@ -16,6 +16,19 @@ import { ExpertSpecialty } from '../expert-specialty.enum';
  */
 export class ListClinicExpertsQueryDto {
   @ApiPropertyOptional({
+    description:
+      'Free-text search query (matches name, email, or licenseNumber)',
+  })
+  @IsOptional()
+  search?: string;
+
+  @ApiPropertyOptional({
+    description: 'Alias for search',
+  })
+  @IsOptional()
+  q?: string;
+
+  @ApiPropertyOptional({
     enum: ExpertSpecialty,
     example: ExpertSpecialty.DERMATOLOGY,
     description: 'Filter by specialization (exact enum match)',

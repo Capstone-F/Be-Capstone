@@ -16,6 +16,19 @@ import { ConsultationStatus } from '../../consultations/enums';
  */
 export class ListClinicBookingsQueryDto {
   @ApiPropertyOptional({
+    description:
+      'Free-text search query (matches customer name, expert name, or booking ID)',
+  })
+  @IsOptional()
+  search?: string;
+
+  @ApiPropertyOptional({
+    description: 'Alias for search',
+  })
+  @IsOptional()
+  q?: string;
+
+  @ApiPropertyOptional({
     description: 'Filter to a single expert (must belong to the clinic)',
   })
   @IsOptional()

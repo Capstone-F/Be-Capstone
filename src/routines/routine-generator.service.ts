@@ -157,10 +157,14 @@ export class RoutineGeneratorService {
       relations: [...ROUTINE_DETAIL_RELATIONS],
     });
     if (!routine) {
-      throw new NotFoundException(`Routine ${routineId} not found`);
+      throw new NotFoundException(
+        `Không tìm thấy lộ trình chăm sóc ${routineId}`,
+      );
     }
     if (routine.customerId !== customer.id) {
-      throw new ForbiddenException('Routine does not belong to this customer');
+      throw new ForbiddenException(
+        'Lộ trình chăm sóc không thuộc về khách hàng này',
+      );
     }
     return this.toDto(routine);
   }
@@ -188,11 +192,11 @@ export class RoutineGeneratorService {
     });
 
     if (!order || order.customerId !== customerId) {
-      throw new NotFoundException(`Order ${orderId} not found`);
+      throw new NotFoundException(`Không tìm thấy đơn hàng ${orderId}`);
     }
     if (order.source !== OrderSource.SURVEY) {
       throw new ForbiddenException(
-        'Routine generation is only available for products purchased from a skincare survey recommendation',
+        'Việc tạo lộ trình chăm sóc chỉ khả dụng cho các sản phẩm được mua từ gợi ý khảo sát chăm sóc da',
       );
     }
     const paidStatuses: OrderStatus[] = [
@@ -203,11 +207,11 @@ export class RoutineGeneratorService {
     ];
     if (!paidStatuses.includes(order.status)) {
       throw new ForbiddenException(
-        'Order must be paid before generating a routine',
+        'Đơn hàng phải được thanh toán trước khi tạo lộ trình chăm sóc',
       );
     }
     if (!order.items?.length) {
-      throw new ForbiddenException('Order has no purchasable items');
+      throw new ForbiddenException('Đơn hàng không có sản phẩm nào có thể mua');
     }
 
     return order;
@@ -281,7 +285,9 @@ export class RoutineGeneratorService {
       relations: [...ROUTINE_DETAIL_RELATIONS],
     });
     if (!routine) {
-      throw new NotFoundException(`Routine ${routineId} not found`);
+      throw new NotFoundException(
+        `Không tìm thấy lộ trình chăm sóc ${routineId}`,
+      );
     }
     return this.toDto(routine);
   }
@@ -328,7 +334,7 @@ export class RoutineGeneratorService {
       instructions: step.instructions,
       waitMinutes: step.waitMinutes ?? null,
       dosageText: step.dosageText ?? null,
-      amountMl: Number.isFinite(amountMl as number) ? amountMl : null,
+      amountMl: Number.isFinite(amountMl) ? amountMl : null,
       protocolId: step.stepProtocols?.[0]?.protocolId ?? null,
       productVariant,
     };
@@ -340,7 +346,9 @@ export class RoutineGeneratorService {
       relations: ['skinTypeDetails', 'skinTypeDetails.skinType'],
     });
     if (!customer) {
-      throw new ForbiddenException('No customer profile for this user');
+      throw new ForbiddenException(
+        'Không có hồ sơ khách hàng cho người dùng này',
+      );
     }
     return customer;
   }

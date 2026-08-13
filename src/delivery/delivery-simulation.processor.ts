@@ -136,7 +136,7 @@ export class DeliverySimulationProcessor {
   }> {
     if (!GHN_STATUS_MAP[providerStatus]) {
       throw new BadRequestException(
-        `Unknown provider status: ${providerStatus}`,
+        `Trạng thái nhà cung cấp không xác định: ${providerStatus}`,
       );
     }
 
@@ -144,11 +144,11 @@ export class DeliverySimulationProcessor {
       where: { id: deliveryId },
     });
     if (!delivery) {
-      throw new NotFoundException(`Delivery ${deliveryId} not found`);
+      throw new NotFoundException(`Không tìm thấy đơn giao hàng ${deliveryId}`);
     }
     if (!delivery.providerOrderCode) {
       throw new BadRequestException(
-        `Delivery ${deliveryId} has no providerOrderCode — create the GHN order first`,
+        `Đơn giao hàng ${deliveryId} chưa có providerOrderCode — hãy tạo đơn GHN trước`,
       );
     }
 
