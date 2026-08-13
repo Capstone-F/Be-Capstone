@@ -201,6 +201,10 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
       creditWithManager: () => Promise.resolve({ id: 'tx-topup' }),
     };
 
+    const commerceAnalyticsService = {
+      recordPurchaseWithManager: () => Promise.resolve(),
+    };
+
     const gateway = new VnpayPaymentProvider(vnpay);
 
     service = new PaymentsService(
@@ -213,6 +217,7 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
       dataSource,
       stockService as never,
       deliveryService as never,
+      commerceAnalyticsService as never,
       walletService as never,
     );
   });
@@ -232,7 +237,7 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
   it('return verifies the signature and redirects without mutating status', async () => {
     const ref = attempts[0].vnpTxnRef;
     const { redirectUrl } = await service.handleReturn(
-      successCallback(ref, 19900000) as never,
+      successCallback(ref, 19900000),
     );
     expect(redirectUrl).toContain('http://localhost:3000/vnpay_return');
     expect(redirectUrl).toContain('paymentId=');
@@ -242,9 +247,7 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
 
   it('a successful IPN marks the attempt SUCCESS, payment PAID, and order PAID', async () => {
     const ref = attempts[0].vnpTxnRef;
-    const res = await service.handleIpn(
-      successCallback(ref, 19900000) as never,
-    );
+    const res = await service.handleIpn(successCallback(ref, 19900000));
     expect(res.RspCode).toBe('00');
     expect(attempts[0].status).toBe('SUCCESS');
     expect(payments[0].status).toBe('PAID');
@@ -254,9 +257,7 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
 
   it('a duplicate IPN is idempotent (already confirmed, no re-update)', async () => {
     const ref = attempts[0].vnpTxnRef;
-    const res = await service.handleIpn(
-      successCallback(ref, 19900000) as never,
-    );
+    const res = await service.handleIpn(successCallback(ref, 19900000));
     expect(res.RspCode).toBe('02');
   });
 
@@ -264,7 +265,7 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
     const ref = attempts[0].vnpTxnRef;
     const bad = successCallback(ref, 19900000);
     bad.vnp_Amount = '100'; // invalidates the hash
-    const res = await service.handleIpn(bad as never);
+    const res = await service.handleIpn(bad);
     expect(res.RspCode).toBe('97');
   });
 
@@ -273,7 +274,7 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
     order.status = OrderStatus.PENDING;
     await service.checkout('user-1', { orderId: 'order-1' }, '127.0.0.1');
     const ref = attempts[attempts.length - 1].vnpTxnRef;
-    const res = await service.handleIpn(successCallback(ref, 5000000) as never);
+    const res = await service.handleIpn(successCallback(ref, 5000000));
     expect(res.RspCode).toBe('04');
   });
 });
@@ -459,6 +460,10 @@ describe('Mock payment flow (in-memory repos)', () => {
       creditWithManager: () => Promise.resolve({ id: 'tx-topup' }),
     };
 
+    const commerceAnalyticsService = {
+      recordPurchaseWithManager: () => Promise.resolve(),
+    };
+
     service = new PaymentsService(
       paymentRepo,
       attemptRepo,
@@ -469,6 +474,7 @@ describe('Mock payment flow (in-memory repos)', () => {
       dataSource,
       stockService as never,
       deliveryService as never,
+      commerceAnalyticsService as never,
       walletService as never,
     );
   });
