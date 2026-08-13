@@ -20,6 +20,7 @@ import {
 } from './dto/routine-tracking-response.dto';
 import { CreateCheckInDto, SkipStepDto } from './dto/routine-tracking.dto';
 import { RoutineStepProductVariantDto } from './dto/routine-response.dto';
+import { TreatmentPhaseStatus } from '../treatments/enums';
 import {
   DayHistoryStatus,
   EmptyRoutineReason,
@@ -61,6 +62,7 @@ const ROUTINE_STEP_RELATIONS = [
   'steps.details',
   'steps.details.productVariant',
   'steps.details.productVariant.product',
+  'treatmentPhase',
 ] as const;
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -125,10 +127,18 @@ export class RoutineTrackingService {
 
     await this.completeExpiredPhaseRoutines(customer.id, now);
 
-    const routines = await this.routineRepository.find({
+    const rawRoutines = await this.routineRepository.find({
       where: { customerId: customer.id, status: RoutineStatus.ACTIVE },
       relations: [...ROUTINE_STEP_RELATIONS],
       order: { createdAt: 'DESC' },
+    });
+
+    // Exclude expert-prescribed routines whose treatment phase is not yet ACTIVE (e.g. still PENDING)
+    const routines = rawRoutines.filter((r) => {
+      if (r.treatmentPhaseId && r.treatmentPhase) {
+        return r.treatmentPhase.status === TreatmentPhaseStatus.ACTIVE;
+      }
+      return true;
     });
 
     if (routines.length === 0) {
