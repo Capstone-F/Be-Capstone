@@ -8,6 +8,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Order } from '../commerce/order.entity';
 import { OrderStatus } from '../commerce/enums';
+import { TreatmentPhaseStatus } from '../treatments/enums';
 import { Customer } from '../users/customer.entity';
 import {
   CheckInMood,
@@ -217,14 +218,20 @@ describe('RoutineTrackingService', () => {
         id: 'routine-exp',
         type: RoutineType.EXPERT_PRESCRIBED,
         treatmentPhaseId: 'phase-1',
-        treatmentPhase: { endDate: new Date('2026-07-01T00:00:00.000Z') },
+        treatmentPhase: {
+          endDate: new Date('2026-07-01T00:00:00.000Z'),
+          status: TreatmentPhaseStatus.ACTIVE,
+        },
       };
       const stillOk = {
         ...activeRoutine,
         id: 'routine-ok',
         type: RoutineType.EXPERT_PRESCRIBED,
         treatmentPhaseId: 'phase-2',
-        treatmentPhase: { endDate: new Date('2026-08-01T00:00:00.000Z') },
+        treatmentPhase: {
+          endDate: new Date('2026-08-01T00:00:00.000Z'),
+          status: TreatmentPhaseStatus.ACTIVE,
+        },
       };
       routineRepository.find
         .mockResolvedValueOnce([expired, stillOk])
