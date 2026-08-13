@@ -159,8 +159,9 @@ export class PaymentsService {
   ): Promise<CheckoutResponseDto> {
     await this.walletService.getOrCreateWallet(userId);
 
-    const clientReturnUrl: string =
-      dto.client === PaymentClient.MOBILE
+    const clientReturnUrl: string = dto.returnUrl
+      ? dto.returnUrl
+      : dto.client === PaymentClient.MOBILE
         ? this.config.mobileReturnUrl
         : this.config.clientReturnUrl;
 
