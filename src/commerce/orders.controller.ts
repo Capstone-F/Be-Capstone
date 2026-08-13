@@ -83,14 +83,18 @@ export class OrdersController {
   }
 
   @Get(':id')
-  @Roles(Role.Customer)
+  @Roles(Role.Customer, Role.Staff, Role.AppAdmin)
   @ApiOperation({ summary: 'Get an order by id' })
   @ApiOkResponse({ type: OrderResponseDto })
   getOne(
     @Req() req: Request,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<OrderResponseDto> {
-    return this.ordersService.getOrderForUser(this.requireUserId(req), id);
+    const auth = getAuthContext(req);
+    if (!auth?.userId) {
+      throw new UnauthorizedException('Not authenticated');
+    }
+    return this.ordersService.getOrderById(auth, id);
   }
 
   @Post(':id/cancel')
@@ -113,6 +117,22 @@ export class OrdersController {
       id,
       dto.reason,
     );
+  }
+
+  @Post(':id/reorder')
+  @Roles(Role.Customer)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reorder an existing order',
+    description:
+      'Pushes all product items from a previous order into the customer cart.',
+  })
+  @ApiOkResponse({ type: OrderResponseDto })
+  reorder(
+    @Req() req: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<OrderResponseDto> {
+    return this.ordersService.reorder(this.requireUserId(req), id);
   }
 
   private requireUserId(req: Request): string {
