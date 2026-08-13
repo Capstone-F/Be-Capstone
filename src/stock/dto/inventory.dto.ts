@@ -19,6 +19,16 @@ export class InventoryItemDto {
   @ApiProperty({ example: 'https://placehold.co/400' })
   imageUrl!: string | null;
 
-  @ApiProperty({ example: 50 })
+  @ApiProperty({
+    description: 'Total remaining stock across all active batches',
+    example: 150,
+  })
   stockQuantity!: number;
+
+  @ApiProperty({
+    description: 'List of active ingredients',
+    example: ['Niacinamide', 'Zinc PCA'],
+    type: [String],
+  })
+  activeIngredients!: string[];
 }

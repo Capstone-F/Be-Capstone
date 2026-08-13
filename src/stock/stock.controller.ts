@@ -42,7 +42,8 @@ export class StockController {
   @Get('inventory')
   @ApiOperation({
     summary: 'List product inventory',
-    description: 'Returns active product variants with their total remaining stock quantity for Staff.',
+    description:
+      'Returns active product variants with their total remaining stock quantity for Staff.',
   })
   @ApiOkResponse({ type: [InventoryItemDto] })
   getInventory() {
