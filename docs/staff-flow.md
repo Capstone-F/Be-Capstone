@@ -15,6 +15,7 @@ End-to-end guide for **Staff** (`staff`) and **App Admin** (`app_admin`):
 
 See also:
 
+- [Dashboard Integration Guide](dashboard-flow.md) — Staff work queues and authoritative operational trends
 - [Admin Integration Guide](admin-flow.md) — admin-only surface (users/RBAC, clinics, survey bank, commerce settings, wallet)
 - [Clinic Manager Flow Guide](clinic-manager-flow.md) — clinic-scoped expert onboarding, fees, availability
 - [User Management & RBAC](users.md) — roles and permissions
