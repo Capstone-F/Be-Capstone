@@ -836,4 +836,4 @@ Worth checking by hand: double-pay (`400 already paid`); confirm before pay (`40
 1. **Local chat transcript API** — optional sync of ZIM history into `ChatHistory` (not required for MVP launch).
 2. **Notifications** (push/email on confirm / cancel / plan paid).
 3. **Routine edit policy after phase activate** — MVP allows edit; stricter locking TBD (treatment flow).
-4. ~~Expert payout / escrow release from consultation and plan fees.~~ ✅ See [clinic-manager-flow.md](clinic-manager-flow.md) (escrow → clinic wallet → staff withdrawal).
+4. ~~Expert payout / escrow release from consultation and plan fees.~~ ✅ See [clinic-manager-flow.md](clinic-manager-flow.md) (escrow → clinic wallet → admin payout).
