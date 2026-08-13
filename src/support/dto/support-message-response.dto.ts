@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { SupportMessageSenderRole } from '../enums';
 
 export class SupportMessageResponseDto {
@@ -22,6 +22,13 @@ export class SupportMessageResponseDto {
 
   @ApiProperty({ example: 'Hello, I need help with my order.' })
   content!: string;
+
+  @ApiPropertyOptional({
+    description: 'Metadata like attached products',
+    example: { type: 'product', productId: 'uuid' },
+    nullable: true,
+  })
+  metadata?: Record<string, any> | null;
 
   @ApiProperty()
   createdAt!: Date;

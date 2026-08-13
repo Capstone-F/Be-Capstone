@@ -43,6 +43,9 @@ export class SupportMessage {
   @Column({ type: 'text' })
   content: string;
 
+  @Column({ type: 'jsonb', nullable: true })
+  metadata?: Record<string, any> | null;
+
   @CreateDateColumn()
   createdAt: Date;
 }

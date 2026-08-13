@@ -230,6 +230,7 @@ export class SupportService {
         senderUserId: userId,
         senderRole: participantRole,
         content,
+        metadata: dto.metadata,
       });
 
       session.messageCount = seq;
@@ -455,6 +456,7 @@ export class SupportService {
       senderUserId: message.senderUserId,
       senderRole: message.senderRole,
       content: message.content,
+      metadata: message.metadata ?? null,
       createdAt: message.createdAt,
     };
   }
