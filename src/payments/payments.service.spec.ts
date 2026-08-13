@@ -106,6 +106,7 @@ describe('PaymentsService', () => {
       dataSource as unknown as DataSource,
       stockService as never,
       deliveryService as never,
+      { recordPurchaseWithManager: jest.fn() } as never,
       walletService as never,
     );
   });
@@ -594,6 +595,7 @@ describe('PaymentsService', () => {
         dataSource as unknown as DataSource,
         stockService as never,
         deliveryService as never,
+        { recordPurchaseWithManager: jest.fn() } as never,
         {
           getOrCreateWallet: jest.fn(),
           creditWithManager: jest.fn(),
@@ -678,6 +680,7 @@ describe('PaymentsService', () => {
         dataSource as unknown as DataSource,
         stockService as never,
         deliveryService as never,
+        { recordPurchaseWithManager: jest.fn() } as never,
         {
           getOrCreateWallet: jest.fn(),
           creditWithManager: jest.fn(),

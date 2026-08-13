@@ -164,6 +164,7 @@ export class OrdersService {
           discountType,
           shippingFeeVnd,
           totalVnd,
+          analyticsSessionId: dto.analyticsSessionId ?? null,
         }),
       );
 

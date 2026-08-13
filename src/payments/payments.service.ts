@@ -26,6 +26,7 @@ import { StockService } from '../stock/stock.service';
 import { Customer } from '../users/customer.entity';
 import { WalletService } from '../wallet/wallet.service';
 import { WalletTopUpDto } from '../wallet/dto/wallet-top-up.dto';
+import { CommerceAnalyticsService } from '../analytics/commerce-analytics.service';
 import { CheckoutDto } from './dto/checkout.dto';
 import { CheckoutResponseDto } from './dto/checkout-response.dto';
 import { PaymentStatusDto } from './dto/payment-status.dto';
@@ -74,6 +75,7 @@ export class PaymentsService {
     private readonly dataSource: DataSource,
     private readonly stockService: StockService,
     private readonly deliveryService: DeliveryService,
+    private readonly commerceAnalyticsService: CommerceAnalyticsService,
     @Inject(forwardRef(() => WalletService))
     private readonly walletService: WalletService,
   ) {}
@@ -450,6 +452,11 @@ export class PaymentsService {
             Order,
             { id: payment.orderId, status: OrderStatus.PENDING },
             { status: OrderStatus.PAID },
+          );
+          await this.commerceAnalyticsService.recordPurchaseWithManager(
+            manager,
+            payment.orderId,
+            now,
           );
           paidOrderPaymentId = payment.id;
         }
