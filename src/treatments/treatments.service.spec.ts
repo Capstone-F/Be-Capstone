@@ -1332,8 +1332,17 @@ describe('TreatmentsService clinic oversight', () => {
 
   it('listByClinic scopes by clinicId + submitted and attaches escrow summary', async () => {
     const treatment = { id: 't-1', clinicId: 'clinic-1' };
+    const qb = {
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getManyAndCount: jest.fn().mockResolvedValue([[treatment], 1]),
+    };
     const treatmentRepo = {
-      findAndCount: jest.fn().mockResolvedValue([[treatment], 1]),
+      createQueryBuilder: jest.fn(() => qb),
     };
     const escrowService = {
       summarizeByTreatmentIds: jest
@@ -1348,9 +1357,10 @@ describe('TreatmentsService clinic oversight', () => {
 
     const result = await service.listByClinic('clinic-1', {});
 
-    const whereArg = treatmentRepo.findAndCount.mock.calls[0][0].where;
-    expect(whereArg.clinicId).toBe('clinic-1');
-    expect(whereArg.submittedAt).toBeDefined();
+    expect(qb.where).toHaveBeenCalledWith('t.clinicId = :clinicId', {
+      clinicId: 'clinic-1',
+    });
+    expect(qb.andWhere).toHaveBeenCalledWith('t.submittedAt IS NOT NULL');
     expect(result.total).toBe(1);
     expect(result.items[0].escrow).toEqual({
       heldVnd: '100000',
