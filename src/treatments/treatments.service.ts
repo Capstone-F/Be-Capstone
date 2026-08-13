@@ -5,15 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import {
-  Brackets,
-  DataSource,
-  FindOptionsWhere,
-  In,
-  IsNull,
-  Not,
-  Repository,
-} from 'typeorm';
+import { Brackets, DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import { LedgerAccount, TransactionType } from '../commerce/enums';
 import { ConsultationRequest } from '../consultations/consultation-request.entity';
 import { Feedback } from '../consultations/feedback.entity';
@@ -382,31 +374,40 @@ export class TreatmentsService {
     const limit = Math.min(100, Math.max(1, query.limit ?? 20));
     const skip = (page - 1) * limit;
 
-    const where: FindOptionsWhere<Treatment> = {
-      clinicId,
-      submittedAt: Not(IsNull()),
-    };
+    const qb = this.treatmentRepo
+      .createQueryBuilder('t')
+      .leftJoinAndSelect('t.phases', 'phases')
+      .leftJoinAndSelect('phases.phaseIngredients', 'phaseIngredients')
+      .leftJoinAndSelect('phaseIngredients.ingredient', 'ingredient')
+      .leftJoinAndSelect('phases.phaseProducts', 'phaseProducts')
+      .leftJoinAndSelect('phaseProducts.productVariant', 'productVariant')
+      .leftJoinAndSelect('phases.routines', 'routines')
+      .leftJoinAndSelect('t.expert', 'expert')
+      .leftJoinAndSelect('expert.user', 'expertUser')
+      .leftJoinAndSelect('t.customer', 'customer')
+      .leftJoinAndSelect('customer.user', 'customerUser')
+      .where('t.clinicId = :clinicId', { clinicId })
+      .andWhere('t.submittedAt IS NOT NULL');
+
     if (query.status) {
-      where.status = query.status;
+      qb.andWhere('t.status = :status', { status: query.status });
     }
     if (query.expertId) {
-      where.expertId = query.expertId;
+      qb.andWhere('t.expertId = :expertId', { expertId: query.expertId });
     }
 
-    const [rows, total] = await this.treatmentRepo.findAndCount({
-      where,
-      relations: [
-        'phases',
-        'phases.phaseIngredients',
-        'phases.phaseIngredients.ingredient',
-        'phases.phaseProducts',
-        'phases.phaseProducts.productVariant',
-        'phases.routines',
-      ],
-      order: { createdAt: 'DESC' },
-      skip,
-      take: limit,
-    });
+    const searchTerm = query.search?.trim() || query.q?.trim();
+    if (searchTerm) {
+      const searchPattern = `%${searchTerm.toLowerCase()}%`;
+      qb.andWhere(
+        '(LOWER(t.title) LIKE :searchPattern OR LOWER(customerUser.name) LIKE :searchPattern OR LOWER(expertUser.name) LIKE :searchPattern)',
+        { searchPattern },
+      );
+    }
+
+    qb.orderBy('t.createdAt', 'DESC').skip(skip).take(limit);
+
+    const [rows, total] = await qb.getManyAndCount();
 
     const escrowMap = await this.escrowService.summarizeByTreatmentIds(
       rows.map((t) => t.id),

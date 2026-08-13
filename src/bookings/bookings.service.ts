@@ -11,7 +11,6 @@ import {
   DataSource,
   FindOptionsWhere,
   In,
-  LessThanOrEqual,
   MoreThanOrEqual,
   Repository,
 } from 'typeorm';
@@ -417,38 +416,49 @@ export class BookingsService {
     const limit = Math.min(100, Math.max(1, query.limit ?? 20));
     const skip = (page - 1) * limit;
 
-    const where: FindOptionsWhere<ConsultationRequest> = {
-      expert: { clinicId },
-    };
+    const qb = this.consultationRepository
+      .createQueryBuilder('c')
+      .leftJoinAndSelect('c.expert', 'expert')
+      .leftJoinAndSelect('expert.user', 'expertUser')
+      .leftJoinAndSelect('expert.clinic', 'clinic')
+      .leftJoinAndSelect('c.customer', 'customer')
+      .leftJoinAndSelect('customer.user', 'customerUser')
+      .leftJoinAndSelect('c.feedback', 'feedback')
+      .where('expert.clinicId = :clinicId', { clinicId });
+
     if (query.expertId) {
-      where.expertId = query.expertId;
+      qb.andWhere('c.expertId = :expertId', { expertId: query.expertId });
     }
     if (query.status) {
-      where.status = query.status;
-    }
-    if (query.from && query.to) {
-      where.scheduledAt = Between(new Date(query.from), new Date(query.to));
-    } else if (query.from) {
-      where.scheduledAt = MoreThanOrEqual(new Date(query.from));
-    } else if (query.to) {
-      where.scheduledAt = LessThanOrEqual(new Date(query.to));
+      qb.andWhere('c.status = :status', { status: query.status });
     }
 
-    const [consultations, total] =
-      await this.consultationRepository.findAndCount({
-        where,
-        relations: [
-          'expert',
-          'expert.user',
-          'expert.clinic',
-          'customer',
-          'customer.user',
-          'feedback',
-        ],
-        order: { scheduledAt: 'DESC', createdAt: 'DESC' },
-        skip,
-        take: limit,
+    const searchTerm = query.search?.trim() || query.q?.trim();
+    if (searchTerm) {
+      const searchPattern = `%${searchTerm.toLowerCase()}%`;
+      qb.andWhere(
+        '(LOWER(customerUser.name) LIKE :searchPattern OR LOWER(expertUser.name) LIKE :searchPattern OR LOWER(c.id) LIKE :searchPattern)',
+        { searchPattern },
+      );
+    }
+
+    if (query.from && query.to) {
+      qb.andWhere('c.scheduledAt BETWEEN :from AND :to', {
+        from: new Date(query.from),
+        to: new Date(query.to),
       });
+    } else if (query.from) {
+      qb.andWhere('c.scheduledAt >= :from', { from: new Date(query.from) });
+    } else if (query.to) {
+      qb.andWhere('c.scheduledAt <= :to', { to: new Date(query.to) });
+    }
+
+    qb.orderBy('c.scheduledAt', 'DESC')
+      .addOrderBy('c.createdAt', 'DESC')
+      .skip(skip)
+      .take(limit);
+
+    const [consultations, total] = await qb.getManyAndCount();
 
     const statusMap = await this.escrowService.getStatusByConsultationIds(
       consultations.map((c) => c.id),
