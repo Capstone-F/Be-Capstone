@@ -396,12 +396,38 @@ describe('Order cancellation refund restock (e2e)', () => {
       .expect(400);
   });
 
-  it('rejects customer cancel once the order is PROCESSING', async () => {
+  it('allows customer cancel while PROCESSING and refunds without the shipping fee', async () => {
     const { customerUser, customer } = await seedActors();
     const customerSid = await loginAs(customerUser, [Role.Customer]);
     const { order } = await seedOrder({
       customerId: customer.id,
       status: OrderStatus.PROCESSING,
+      quantity: 1,
+    });
+
+    const { body: created } = await request(app.getHttpServer())
+      .post(`/orders/${order.id}/cancel`)
+      .set('Cookie', customerSid)
+      .send({ reason: 'Changed my mind' })
+      .expect(200);
+
+    expect(created.status).toBe(OrderCancellationStatus.REQUESTED);
+    // GHN flips PAID -> PROCESSING at order creation, before pickup, so the
+    // customer keeps their cancel window — but the shipping fee is not refunded.
+    expect(created.refundAmountVnd).toBe(
+      String(order.subtotalVnd - order.discountVnd),
+    );
+    expect(created.refundAmountVnd).toBe(
+      String(order.totalVnd - order.shippingFeeVnd),
+    );
+  });
+
+  it('rejects customer cancel once the order is SHIPPED', async () => {
+    const { customerUser, customer } = await seedActors();
+    const customerSid = await loginAs(customerUser, [Role.Customer]);
+    const { order } = await seedOrder({
+      customerId: customer.id,
+      status: OrderStatus.SHIPPED,
       quantity: 1,
     });
 

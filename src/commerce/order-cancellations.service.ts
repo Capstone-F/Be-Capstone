@@ -33,9 +33,14 @@ import { OrderCancellation } from './order-cancellation.entity';
 import { OrderItem } from './order-item.entity';
 import { Order } from './order.entity';
 
+// PROCESSING is included because GHN flips PAID -> PROCESSING the instant the
+// shipping order is created, before the courier picks up the parcel. Excluding
+// it would erase the customer's cancel window the moment they pay. SHIPPED (the
+// parcel is picked up and in transit) stays staff-only.
 const CUSTOMER_CANCELLABLE_STATUSES = new Set([
   OrderStatus.PENDING,
   OrderStatus.PAID,
+  OrderStatus.PROCESSING,
 ]);
 
 const STAFF_BLOCKED_STATUSES = new Set([
@@ -72,7 +77,7 @@ export class OrderCancellationsService {
     }
     if (!CUSTOMER_CANCELLABLE_STATUSES.has(order.status)) {
       throw new BadRequestException(
-        `Customers can only cancel PENDING or PAID orders (current: ${order.status})`,
+        `Customers can only cancel PENDING, PAID, or PROCESSING orders (current: ${order.status})`,
       );
     }
     return this.createCancellation(
