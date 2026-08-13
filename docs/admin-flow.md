@@ -9,6 +9,7 @@ End-to-end guide for integrating **App Admin** (`app_admin`) features with this 
 
 See also:
 
+- [Dashboard Integration Guide](dashboard-flow.md) — authoritative Admin, Expert, and Staff dashboard aggregates
 - [Staff Flow Guide](staff-flow.md) — customer support chat queue (`staff` / `app_admin`); stock import forms detail (shared with `app_admin`, see [§7.5](#75-stock-import-forms-approval-workflow) here too); order cancellations & returns (see [§14](#14-flow-k--order-cancellations-refunds--restock) here and [staff-flow.md §E](staff-flow.md#e-order-cancellations--returns)); delivery simulation (see [§15](#15-flow-l--delivery-status-simulation))
 - [Clinic Manager Flow Guide](clinic-manager-flow.md) — clinic-scoped expert onboarding, fees, availability
 - [User Management & RBAC](users.md) — roles, clinic scoping, user model

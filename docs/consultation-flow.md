@@ -13,6 +13,7 @@ During an active booking, customer and expert talk via **ZegoCloud** (video room
 
 See also:
 
+- [Dashboard Integration Guide](dashboard-flow.md) — Expert appointment, fee, and rating aggregates
 - [Real-time Communication Flow](realtime-communication-flow.md) — video + chat token APIs for FE / Mobile
 - [User Management & RBAC](users.md) — experts, clinics, roles
 - [Treatment Plan Flow](treatment-plan-flow.md) — multi-phase plan created during live `IN_PROGRESS` session

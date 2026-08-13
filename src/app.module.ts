@@ -33,6 +33,7 @@ import { CartModule } from './cart/cart.module';
 import { LlmModule } from './llm/llm.module';
 import { WalletModule } from './wallet/wallet.module';
 import { UploadsModule } from './uploads/uploads.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -75,6 +76,7 @@ import { UploadsModule } from './uploads/uploads.module';
     WalletModule,
     PaymentsModule,
     UploadsModule,
+    DashboardModule,
     AuthModule,
     RedisModule,
     TypeOrmModule.forRootAsync({
