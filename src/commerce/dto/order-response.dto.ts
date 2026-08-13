@@ -19,6 +19,15 @@ export class OrderItemResponseDto {
   lineTotalVnd!: number;
 
   @ApiPropertyOptional({ nullable: true })
+  productName?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  sku?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  imageUrl?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
   surveyRecommendationItemId!: string | null;
 }
 

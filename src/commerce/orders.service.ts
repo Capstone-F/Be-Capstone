@@ -14,6 +14,7 @@ import { DeliveryStatus, DeliveryType } from '../delivery/enums';
 import { GHN_PROVIDER_CODE } from '../delivery/ghn.constants';
 import { ProductVariant } from '../products/product-variant.entity';
 import { RecommendationService } from '../recommendations/recommendation.service';
+import { Role } from '../auth/roles.enum';
 import { Customer } from '../users/customer.entity';
 import { CommerceSetting } from './commerce-setting.entity';
 import {
@@ -206,18 +207,81 @@ export class OrdersService {
     return this.getOrderForUser(userId, order.id);
   }
 
+  async getOrderById(
+    auth: { userId: string; roles: string[] },
+    orderId: string,
+  ): Promise<OrderResponseDto> {
+    const isStaffOrAdmin = (auth.roles ?? []).some((r) =>
+      [Role.Staff, Role.AppAdmin].includes(r as Role),
+    );
+    let order: Order | null = null;
+
+    if (isStaffOrAdmin) {
+      order = await this.orderRepository.findOne({
+        where: { id: orderId },
+        relations: [
+          'items',
+          'items.productVariant',
+          'items.productVariant.product',
+          'delivery',
+          'cancellation',
+        ],
+      });
+    } else {
+      const customer = await this.requireCustomer(auth.userId);
+      order = await this.orderRepository.findOne({
+        where: { id: orderId, customerId: customer.id },
+        relations: [
+          'items',
+          'items.productVariant',
+          'items.productVariant.product',
+          'delivery',
+          'cancellation',
+        ],
+      });
+    }
+
+    if (!order) {
+      throw new NotFoundException(`Order ${orderId} not found`);
+    }
+    return this.toDto(order);
+  }
+
   async getOrderForUser(
     userId: string,
     orderId: string,
   ): Promise<OrderResponseDto> {
+    return this.getOrderById({ userId, roles: [Role.Customer] }, orderId);
+  }
+
+  async reorder(userId: string, orderId: string): Promise<OrderResponseDto> {
     const customer = await this.requireCustomer(userId);
     const order = await this.orderRepository.findOne({
       where: { id: orderId, customerId: customer.id },
-      relations: ['items', 'delivery', 'cancellation'],
+      relations: [
+        'items',
+        'items.productVariant',
+        'items.productVariant.product',
+        'delivery',
+        'cancellation',
+      ],
     });
     if (!order) {
       throw new NotFoundException(`Order ${orderId} not found`);
     }
+
+    for (const item of order.items ?? []) {
+      try {
+        await this.cartService.addItem(userId, {
+          productVariantId: item.productVariantId,
+          quantity: item.quantity,
+          source: OrderSource.CATALOG,
+        });
+      } catch {
+        // Skip any variant that is inactive or conflicting
+      }
+    }
+
     return this.toDto(order);
   }
 
@@ -351,6 +415,12 @@ export class OrdersService {
       items: (order.items ?? []).map((item) => ({
         id: item.id,
         productVariantId: item.productVariantId,
+        productName:
+          item.productVariant?.product?.name ||
+          item.productVariant?.sku ||
+          'Sản phẩm',
+        sku: item.productVariant?.sku || null,
+        imageUrl: item.productVariant?.imageUrl || null,
         quantity: item.quantity,
         unitPriceVnd: item.unitPriceVnd,
         lineTotalVnd: item.lineTotalVnd,
