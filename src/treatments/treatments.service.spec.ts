@@ -377,7 +377,7 @@ describe('TreatmentsService submit / cancel / chart', () => {
     ).loadTreatment = async () => treatment;
 
     await expect(service.payTreatment('u-c', 't-1')).rejects.toThrow(
-      /not been submitted/,
+      /chưa được chuyên gia gửi/,
     );
   });
 
@@ -526,7 +526,7 @@ describe('TreatmentsService submit / cancel / chart', () => {
 
     await expect(
       service.updatePhase('u-e', 'p-1', { priceVnd: 999999 }),
-    ).rejects.toThrow(/Only unpaid DRAFT/);
+    ).rejects.toThrow(/Chỉ liệu trình DRAFT chưa thanh toán/);
   });
 
   it('refunds only PENDING phase fees on mid-plan cancel', async () => {
@@ -1110,7 +1110,7 @@ describe('TreatmentsService cross-expert read access', () => {
 
     await expect(
       service.getChart('u-b', { isExpert: true, isCustomer: false }, 't-a'),
-    ).rejects.toThrow(/do not have access/);
+    ).rejects.toThrow(/không có quyền truy cập liệu trình/);
   });
 
   it('forbids Expert B from creating events on Expert A treatment', async () => {
@@ -1126,7 +1126,7 @@ describe('TreatmentsService cross-expert read access', () => {
         title: 'Hack',
         photoUrl: 'https://cdn.example/x.jpg',
       }),
-    ).rejects.toThrow(/do not have permission to modify events/);
+    ).rejects.toThrow(/không có quyền chỉnh sửa sự kiện/);
   });
 
   it('forbids Expert B from activating a phase on Expert A treatment', async () => {

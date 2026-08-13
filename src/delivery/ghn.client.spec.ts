@@ -71,7 +71,7 @@ describe('GhnClient', () => {
 
     await expect(
       new GhnClient(makeConfig()).calculateFee(FEE_REQUEST),
-    ).rejects.toThrow(/code 400.*Invalid ward/);
+    ).rejects.toThrow(/mã 400.*Invalid ward/);
   });
 
   it('wraps network/timeout failures in BadGatewayException', async () => {

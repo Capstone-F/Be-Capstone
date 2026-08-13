@@ -444,7 +444,7 @@ describe('DeliveryService', () => {
       });
 
       await expect(service.quoteFeeForCart('user-1', ADDRESS)).rejects.toThrow(
-        'Cart is empty',
+        'Giỏ hàng trống',
       );
     });
   });
