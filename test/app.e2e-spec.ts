@@ -3102,7 +3102,7 @@ describe('BE Capstone API (e2e)', () => {
           .set('Cookie', expertSid)
           .expect(400);
 
-        expect(body.message).toMatch(/paid|follow-up/i);
+        expect(body.message).toMatch(/thanh toán|tái khám/i);
       });
 
       it('should return 403 when another expert confirms the booking', async () => {
