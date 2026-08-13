@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, DataSource, In, Repository } from 'typeorm';
+import { Brackets, DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import { TransactionType } from '../commerce/enums';
 import { ConsultationRequest } from '../consultations/consultation-request.entity';
 import { Feedback } from '../consultations/feedback.entity';
@@ -261,7 +261,7 @@ export class TreatmentsService {
     const customer = await this.customerRepo.findOne({ where: { userId } });
     if (!customer) return [];
     const rows = await this.treatmentRepo.find({
-      where: { customerId: customer.id },
+      where: { customerId: customer.id, submittedAt: Not(IsNull()) },
       relations: [
         'phases',
         'phases.phaseIngredients',
@@ -821,34 +821,116 @@ export class TreatmentsService {
 
     await this.routineRepo.save(routine);
 
-    if (dto.steps?.length) {
-      const steps = await this.stepRepo.find({
+    if (dto.steps !== undefined) {
+      const existingSteps = await this.stepRepo.find({
         where: { routineId },
         order: { stepOrder: 'ASC' },
       });
-      for (let i = 0; i < Math.min(steps.length, dto.steps.length); i++) {
-        const step = steps[i];
+
+      const existingStepMap = new Map(existingSteps.map((s) => [s.id, s]));
+      const requestedIds = new Set(
+        dto.steps.map((s) => s.id).filter((id): id is string => Boolean(id)),
+      );
+
+      // 1. Delete steps that are omitted in dto.steps
+      // Always use ID-based deletion when at least one step sends an id;
+      // fall back to positional truncation only when NO id is sent at all.
+      if (requestedIds.size > 0) {
+        const stepsToDelete = existingSteps.filter(
+          (s) => !requestedIds.has(s.id),
+        );
+        if (stepsToDelete.length > 0) {
+          try {
+            await this.stepRepo.remove(stepsToDelete);
+          } catch (err) {
+            console.error(
+              `[updateRoutine] Failed to delete steps for routine ${routineId}:`,
+              err,
+            );
+            throw err;
+          }
+        }
+      } else if (existingSteps.length > dto.steps.length) {
+        // Fallback positional deletion if frontend did not send IDs
+        const toRemove = existingSteps.slice(dto.steps.length);
+        try {
+          await this.stepRepo.remove(toRemove);
+        } catch (err) {
+          console.error(
+            `[updateRoutine] Failed positional-delete steps for routine ${routineId}:`,
+            err,
+          );
+          throw err;
+        }
+      }
+
+      // 2. Update existing steps or insert newly added steps
+      for (let i = 0; i < dto.steps.length; i++) {
         const patch = dto.steps[i];
-        if (patch.name !== undefined) step.name = patch.name;
-        if (patch.period !== undefined) {
-          step.period = patch.period as RoutinePeriod;
+        const step = patch.id
+          ? existingStepMap.get(patch.id)
+          : i < existingSteps.length
+            ? existingSteps[i]
+            : undefined;
+
+        if (step) {
+          if (patch.name !== undefined) step.name = patch.name;
+          if (patch.period !== undefined) {
+            step.period = patch.period as RoutinePeriod;
+          }
+          if (patch.stepOrder !== undefined) step.stepOrder = patch.stepOrder;
+          else step.stepOrder = i;
+          if (patch.instructions !== undefined) {
+            step.instructions = patch.instructions;
+          }
+          if (patch.waitMinutes !== undefined) {
+            step.waitMinutes = patch.waitMinutes;
+          }
+          if (patch.dosageText !== undefined) {
+            step.dosageText = patch.dosageText;
+          }
+          try {
+            await this.stepRepo.save(step);
+          } catch (err) {
+            console.error(
+              `[updateRoutine] Failed to save step ${step.id} for routine ${routineId}:`,
+              err,
+            );
+            throw err;
+          }
+        } else {
+          // Insert new step
+          const newStep = this.stepRepo.create({
+            routineId,
+            name: patch.name || `Bước ${i + 1}`,
+            period: (patch.period as RoutinePeriod) || RoutinePeriod.MORNING,
+            stepOrder: patch.stepOrder ?? i,
+            instructions: patch.instructions ?? null,
+            waitMinutes: patch.waitMinutes ?? null,
+            dosageText: patch.dosageText ?? null,
+          });
+          try {
+            await this.stepRepo.save(newStep);
+          } catch (err) {
+            console.error(
+              `[updateRoutine] Failed to insert new step for routine ${routineId}:`,
+              err,
+            );
+            throw err;
+          }
         }
-        if (patch.stepOrder !== undefined) step.stepOrder = patch.stepOrder;
-        if (patch.instructions !== undefined) {
-          step.instructions = patch.instructions;
-        }
-        if (patch.waitMinutes !== undefined) {
-          step.waitMinutes = patch.waitMinutes;
-        }
-        if (patch.dosageText !== undefined) {
-          step.dosageText = patch.dosageText;
-        }
-        await this.stepRepo.save(step);
       }
     }
 
-    // Promote draft to saved state when expert edits/saves
-    if (routine.status === RoutineStatus.DRAFT) {
+    // Promote draft to saved state only when the expert intentionally saves
+    // (i.e. steps or metadata were included in the request).
+    // An empty PATCH {} is used by the FE just to fetch the latest routine state
+    // without triggering a status transition.
+    const hasContent =
+      dto.steps !== undefined ||
+      dto.title !== undefined ||
+      dto.description !== undefined;
+    if (hasContent && routine.status === RoutineStatus.DRAFT) {
       routine.status = RoutineStatus.ACTIVE;
       await this.routineRepo.save(routine);
     }
@@ -1423,7 +1505,17 @@ export class TreatmentsService {
     }
     if (roles.isCustomer) {
       const customer = await this.customerRepo.findOne({ where: { userId } });
-      if (customer && treatment.customerId === customer.id) return;
+      if (customer && treatment.customerId === customer.id) {
+        if (
+          !treatment.submittedAt &&
+          treatment.status === TreatmentStatus.DRAFT
+        ) {
+          throw new ForbiddenException(
+            'Treatment plan has not been submitted by the expert yet',
+          );
+        }
+        return;
+      }
     }
     throw new ForbiddenException('You do not have access to this treatment');
   }

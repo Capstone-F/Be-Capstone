@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  IsArray,
   IsDateString,
   IsEnum,
   IsInt,
@@ -13,6 +14,7 @@ import {
   Min,
   MinLength,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import { TreatmentEventType, TreatmentPhaseType } from '../enums';
 
@@ -176,6 +178,11 @@ export class SetPhaseProductsDto {
 export class UpdateRoutineStepDto {
   @ApiPropertyOptional()
   @IsOptional()
+  @IsUUID('4')
+  id?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
   name?: string;
 
@@ -222,6 +229,9 @@ export class UpdateExpertRoutineDto {
 
   @ApiPropertyOptional({ type: [UpdateRoutineStepDto] })
   @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UpdateRoutineStepDto)
   steps?: UpdateRoutineStepDto[];
 }
 
