@@ -5,12 +5,23 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, DataSource, In, IsNull, Not, Repository } from 'typeorm';
+import {
+  Brackets,
+  DataSource,
+  FindOptionsWhere,
+  In,
+  IsNull,
+  Not,
+  Repository,
+} from 'typeorm';
 import { LedgerAccount, TransactionType } from '../commerce/enums';
 import { ConsultationRequest } from '../consultations/consultation-request.entity';
 import { Feedback } from '../consultations/feedback.entity';
 import { ConsultationStatus } from '../consultations/enums';
-import { EscrowService } from '../finance/escrow.service';
+import {
+  EscrowService,
+  EscrowTreatmentSummary,
+} from '../finance/escrow.service';
 import { Ingredient } from '../ingredients/ingredient.entity';
 import { TimeOfUse } from '../ingredients/enums';
 import { ProductIngredient } from '../products/product-ingredient.entity';
@@ -43,6 +54,11 @@ import {
   DateSortOrder,
   ListMyTreatmentsQueryDto,
 } from './dto/list-my-treatments.dto';
+import { ListClinicTreatmentsQueryDto } from './dto/list-clinic-treatments-query.dto';
+import {
+  ClinicTreatmentResponseDto,
+  PaginatedClinicTreatmentsDto,
+} from './dto/clinic-treatment-response.dto';
 import {
   CancelTreatmentDto,
   CreateTreatmentDto,
@@ -348,6 +364,90 @@ export class TreatmentsService {
     const treatment = await this.loadTreatment(treatmentId);
     await this.assertCanView(userId, treatment, roles);
     return this.toTreatmentDto(treatment);
+  }
+
+  /**
+   * List treatment plans in a clinic (clinic manager oversight). Scoped by
+   * {@link Treatment.clinicId} (set to the expert's clinic at creation).
+   * Only submitted plans are shown (drafts still being edited are excluded).
+   * Each row carries an escrow summary so managers can track released funds.
+   */
+  async listByClinic(
+    clinicId: string,
+    query: ListClinicTreatmentsQueryDto = {},
+  ): Promise<PaginatedClinicTreatmentsDto> {
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 20));
+    const skip = (page - 1) * limit;
+
+    const where: FindOptionsWhere<Treatment> = {
+      clinicId,
+      submittedAt: Not(IsNull()),
+    };
+    if (query.status) {
+      where.status = query.status;
+    }
+    if (query.expertId) {
+      where.expertId = query.expertId;
+    }
+
+    const [rows, total] = await this.treatmentRepo.findAndCount({
+      where,
+      relations: [
+        'phases',
+        'phases.phaseIngredients',
+        'phases.phaseIngredients.ingredient',
+        'phases.phaseProducts',
+        'phases.phaseProducts.productVariant',
+        'phases.routines',
+      ],
+      order: { createdAt: 'DESC' },
+      skip,
+      take: limit,
+    });
+
+    const escrowMap = await this.escrowService.summarizeByTreatmentIds(
+      rows.map((t) => t.id),
+    );
+
+    const items = rows.map((t) => this.toClinicTreatmentDto(t, escrowMap));
+    return { items, total, page, limit };
+  }
+
+  /** Single treatment detail for a clinic manager, scoped to their clinic. */
+  async getByClinic(
+    clinicId: string,
+    treatmentId: string,
+  ): Promise<ClinicTreatmentResponseDto> {
+    const treatment = await this.loadTreatment(treatmentId);
+    if (treatment.clinicId !== clinicId) {
+      throw new ForbiddenException(
+        'This treatment does not belong to your clinic',
+      );
+    }
+    const escrowMap = await this.escrowService.summarizeByTreatmentIds([
+      treatment.id,
+    ]);
+    return this.toClinicTreatmentDto(treatment, escrowMap);
+  }
+
+  private toClinicTreatmentDto(
+    treatment: Treatment,
+    escrowMap: Map<string, EscrowTreatmentSummary>,
+  ): ClinicTreatmentResponseDto {
+    const summary = escrowMap.get(treatment.id) ?? {
+      heldVnd: '0',
+      releasedVnd: '0',
+      refundedVnd: '0',
+    };
+    return {
+      ...this.toTreatmentDto(treatment),
+      escrow: {
+        heldVnd: summary.heldVnd,
+        releasedVnd: summary.releasedVnd,
+        refundedVnd: summary.refundedVnd,
+      },
+    };
   }
 
   async submitForPayment(

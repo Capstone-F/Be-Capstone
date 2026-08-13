@@ -1295,3 +1295,102 @@ describe('TreatmentsService listMyTreatments (expert filters)', () => {
     expect(qb.orderBy).toHaveBeenCalledWith('treatment.createdAt', 'DESC');
   });
 });
+
+describe('TreatmentsService clinic oversight', () => {
+  const buildService = (
+    treatmentRepo: Record<string, unknown>,
+    escrowService: Record<string, unknown>,
+  ) => {
+    const service = new TreatmentsService(
+      treatmentRepo as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      escrowService as never,
+      {} as never,
+    );
+    // Focus these tests on scoping + escrow enrichment, not DTO mapping.
+    (
+      service as unknown as { toTreatmentDto: (t: { id: string }) => unknown }
+    ).toTreatmentDto = (t) => ({ id: t.id, phases: [] });
+    return service;
+  };
+
+  it('listByClinic scopes by clinicId + submitted and attaches escrow summary', async () => {
+    const treatment = { id: 't-1', clinicId: 'clinic-1' };
+    const treatmentRepo = {
+      findAndCount: jest.fn().mockResolvedValue([[treatment], 1]),
+    };
+    const escrowService = {
+      summarizeByTreatmentIds: jest
+        .fn()
+        .mockResolvedValue(
+          new Map([
+            ['t-1', { heldVnd: '100000', releasedVnd: '0', refundedVnd: '0' }],
+          ]),
+        ),
+    };
+    const service = buildService(treatmentRepo, escrowService);
+
+    const result = await service.listByClinic('clinic-1', {});
+
+    const whereArg = treatmentRepo.findAndCount.mock.calls[0][0].where;
+    expect(whereArg.clinicId).toBe('clinic-1');
+    expect(whereArg.submittedAt).toBeDefined();
+    expect(result.total).toBe(1);
+    expect(result.items[0].escrow).toEqual({
+      heldVnd: '100000',
+      releasedVnd: '0',
+      refundedVnd: '0',
+    });
+  });
+
+  it('getByClinic forbids a treatment from another clinic', async () => {
+    const treatment = { id: 't-1', clinicId: 'other-clinic', phases: [] };
+    const treatmentRepo = {
+      findOne: jest.fn().mockResolvedValue(treatment),
+    };
+    const escrowService = {
+      summarizeByTreatmentIds: jest.fn().mockResolvedValue(new Map()),
+    };
+    const service = buildService(treatmentRepo, escrowService);
+
+    await expect(service.getByClinic('clinic-1', 't-1')).rejects.toThrow(
+      ForbiddenException,
+    );
+  });
+
+  it('getByClinic returns a treatment that belongs to the clinic', async () => {
+    const treatment = { id: 't-1', clinicId: 'clinic-1', phases: [] };
+    const treatmentRepo = {
+      findOne: jest.fn().mockResolvedValue(treatment),
+    };
+    const escrowService = {
+      summarizeByTreatmentIds: jest.fn().mockResolvedValue(new Map()),
+    };
+    const service = buildService(treatmentRepo, escrowService);
+
+    const result = await service.getByClinic('clinic-1', 't-1');
+
+    expect(result.id).toBe('t-1');
+    expect(result.escrow).toEqual({
+      heldVnd: '0',
+      releasedVnd: '0',
+      refundedVnd: '0',
+    });
+  });
+});

@@ -12,6 +12,7 @@ import { WalletModule } from '../wallet/wallet.module';
 import { FinanceModule } from '../finance/finance.module';
 import { BookingsController } from './bookings.controller';
 import { BookingsService } from './bookings.service';
+import { ClinicBookingsController } from './clinic-bookings.controller';
 import { ExpertAvailabilityController } from './expert-availability.controller';
 import { ExpertAvailability } from './expert-availability.entity';
 import { ExpertAvailabilityService } from './expert-availability.service';
@@ -30,7 +31,11 @@ import { ExpertAvailabilityService } from './expert-availability.service';
     WalletModule,
     FinanceModule,
   ],
-  controllers: [BookingsController, ExpertAvailabilityController],
+  controllers: [
+    BookingsController,
+    ClinicBookingsController,
+    ExpertAvailabilityController,
+  ],
   providers: [
     BookingsService,
     ExpertAvailabilityService,

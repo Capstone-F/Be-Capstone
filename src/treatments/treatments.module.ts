@@ -26,6 +26,7 @@ import { TreatmentPhaseIngredient } from './treatment-phase-ingredient.entity';
 import { TreatmentPhaseProduct } from './treatment-phase-product.entity';
 import { TreatmentPhase } from './treatment-phase.entity';
 import { Treatment } from './treatment.entity';
+import { ClinicTreatmentsController } from './clinic-treatments.controller';
 import { TreatmentsController } from './treatments.controller';
 import { TreatmentsService } from './treatments.service';
 
@@ -58,7 +59,7 @@ import { TreatmentsService } from './treatments.service';
     WalletModule,
     FinanceModule,
   ],
-  controllers: [TreatmentsController],
+  controllers: [TreatmentsController, ClinicTreatmentsController],
   providers: [TreatmentsService, SessionGuard, RolesGuard],
   exports: [TypeOrmModule, TreatmentsService],
 })

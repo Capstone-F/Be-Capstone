@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import {
   CommerceSettingKey,
   LedgerAccount,
@@ -34,6 +34,13 @@ export type HoldTreatmentPhaseOptions = {
   customerUserId: string;
   amountVnd: number | string;
   holdTransactionId: string;
+};
+
+/** Gross escrow amounts (VND bigint strings) per state for one treatment. */
+export type EscrowTreatmentSummary = {
+  heldVnd: string;
+  releasedVnd: string;
+  refundedVnd: string;
 };
 
 @Injectable()
@@ -325,6 +332,72 @@ export class EscrowService {
       .andWhere('h.status = :status', { status: EscrowHoldStatus.HELD })
       .getRawOne<{ total: string }>();
     return result?.total ?? '0';
+  }
+
+  /**
+   * Map each consultationId to its escrow hold status (if any hold exists).
+   * Read-only helper for clinic oversight views; consultations without a hold
+   * are simply absent from the map.
+   */
+  async getStatusByConsultationIds(
+    consultationIds: string[],
+  ): Promise<Map<string, EscrowHoldStatus>> {
+    const map = new Map<string, EscrowHoldStatus>();
+    if (consultationIds.length === 0) {
+      return map;
+    }
+    const holds = await this.escrowHoldRepo.find({
+      where: { consultationId: In(consultationIds) },
+      select: { id: true, consultationId: true, status: true },
+    });
+    for (const hold of holds) {
+      if (hold.consultationId) {
+        map.set(hold.consultationId, hold.status);
+      }
+    }
+    return map;
+  }
+
+  /**
+   * Summarize gross escrow amounts per treatment, grouped by hold status.
+   * Read-only helper for clinic oversight views.
+   */
+  async summarizeByTreatmentIds(
+    treatmentIds: string[],
+  ): Promise<Map<string, EscrowTreatmentSummary>> {
+    const map = new Map<string, EscrowTreatmentSummary>();
+    if (treatmentIds.length === 0) {
+      return map;
+    }
+    const rows = await this.escrowHoldRepo
+      .createQueryBuilder('h')
+      .select('h.treatmentId', 'treatmentId')
+      .addSelect('h.status', 'status')
+      .addSelect('COALESCE(SUM(h.amountVnd), 0)', 'total')
+      .where('h.treatmentId IN (:...treatmentIds)', { treatmentIds })
+      .groupBy('h.treatmentId')
+      .addGroupBy('h.status')
+      .getRawMany<{
+        treatmentId: string;
+        status: EscrowHoldStatus;
+        total: string;
+      }>();
+    for (const row of rows) {
+      const current = map.get(row.treatmentId) ?? {
+        heldVnd: '0',
+        releasedVnd: '0',
+        refundedVnd: '0',
+      };
+      if (row.status === EscrowHoldStatus.HELD) {
+        current.heldVnd = row.total;
+      } else if (row.status === EscrowHoldStatus.RELEASED) {
+        current.releasedVnd = row.total;
+      } else if (row.status === EscrowHoldStatus.REFUNDED) {
+        current.refundedVnd = row.total;
+      }
+      map.set(row.treatmentId, current);
+    }
+    return map;
   }
 
   private async lockHold(

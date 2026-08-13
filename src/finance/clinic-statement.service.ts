@@ -23,6 +23,17 @@ export type ClinicStatementQuery = {
   limit?: number;
 };
 
+/** Max rows a single CSV export returns. */
+const CSV_EXPORT_CAP = 10000;
+
+/** RFC-4180 style CSV field escaping. */
+function csvEscape(value: string): string {
+  if (/[",\r\n]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
 @Injectable()
 export class ClinicStatementService {
   constructor(
@@ -97,6 +108,79 @@ export class ClinicStatementService {
       page,
       limit,
     };
+  }
+
+  /**
+   * Build a CSV of the clinic ledger for the given filters (no pagination;
+   * capped at {@link CSV_EXPORT_CAP} rows, oldest first for a readable statement).
+   */
+  async exportTransactionsCsv(
+    clinicId: string,
+    query: ClinicStatementQuery,
+  ): Promise<string> {
+    const qb = this.transactionRepo
+      .createQueryBuilder('t')
+      .where('t.clinicId = :clinicId', { clinicId })
+      .orderBy('t.createdAt', 'ASC')
+      .take(CSV_EXPORT_CAP);
+
+    if (query.type) {
+      qb.andWhere('t.type = :type', { type: query.type });
+    }
+    if (query.expertId) {
+      qb.andWhere('t.expertId = :expertId', { expertId: query.expertId });
+    }
+    if (query.from) {
+      qb.andWhere('t.createdAt >= :from', { from: new Date(query.from) });
+    }
+    if (query.to) {
+      qb.andWhere('t.createdAt <= :to', { to: new Date(query.to) });
+    }
+
+    const rows = await qb.getMany();
+
+    const header = [
+      'Date',
+      'Type',
+      'Status',
+      'Amount (VND)',
+      'From',
+      'To',
+      'Expert ID',
+      'Consultation ID',
+      'Treatment ID',
+      'Treatment Phase ID',
+      'Withdrawal ID',
+      'External Ref',
+      'Note',
+    ];
+
+    const lines = [header.map(csvEscape).join(',')];
+    for (const t of rows) {
+      lines.push(
+        [
+          t.createdAt.toISOString(),
+          t.type,
+          t.status,
+          t.amountVnd,
+          t.fromAccount ?? '',
+          t.toAccount ?? '',
+          t.expertId ?? '',
+          t.consultationId ?? '',
+          t.treatmentId ?? '',
+          t.treatmentPhaseId ?? '',
+          t.withdrawalId ?? '',
+          t.externalRef ?? '',
+          t.note ?? '',
+        ]
+          .map(csvEscape)
+          .join(','),
+      );
+    }
+
+    // Prepend a UTF-8 BOM so Excel opens Vietnamese notes correctly.
+    const bom = '\uFEFF';
+    return `${bom}${lines.join('\r\n')}\r\n`;
   }
 
   private toDto(t: Transaction): ClinicTransactionResponseDto {

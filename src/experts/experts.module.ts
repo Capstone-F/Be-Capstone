@@ -6,6 +6,7 @@ import { Feedback } from '../consultations/feedback.entity';
 import { Expert } from '../users/expert.entity';
 import { User } from '../users/user.entity';
 import { ClinicExpertsController } from './clinic-experts.controller';
+import { ClinicManagerExpertsController } from './clinic-manager-experts.controller';
 import { ExpertsController } from './experts.controller';
 import { ExpertsService } from './experts.service';
 
@@ -15,7 +16,11 @@ import { ExpertsService } from './experts.service';
     forwardRef(() => AuthModule),
     forwardRef(() => ClinicsModule),
   ],
-  controllers: [ExpertsController, ClinicExpertsController],
+  controllers: [
+    ExpertsController,
+    ClinicExpertsController,
+    ClinicManagerExpertsController,
+  ],
   providers: [ExpertsService],
   exports: [ExpertsService],
 })

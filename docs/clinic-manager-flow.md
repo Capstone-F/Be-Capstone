@@ -43,9 +43,10 @@ See also:
 9. [Withdrawals](#9-withdrawals)
 10. [Admin payout workflow](#10-admin-payout-workflow)
 11. [Platform commission setting](#11-platform-commission-setting)
-12. [Scoping rules & error matrix](#12-scoping-rules--error-matrix)
-13. [Endpoint checklist](#13-endpoint-checklist)
-14. [Remaining gaps](#14-remaining-gaps)
+12. [Operational oversight (experts, bookings, treatments)](#12-operational-oversight-experts-bookings-treatments)
+13. [Scoping rules & error matrix](#13-scoping-rules--error-matrix)
+14. [Endpoint checklist](#14-endpoint-checklist)
+15. [Remaining gaps](#15-remaining-gaps)
 
 ---
 
@@ -121,12 +122,14 @@ A manager with `clinicId: null` gets **403** `Clinic manager is not bound to a c
 
 Clinic managers can create expert users and profiles for **their clinic only**:
 
-| Step           | Method | Path                                                                  |
-| -------------- | ------ | --------------------------------------------------------------------- |
-| Create user    | `POST` | `/users` `{ role: "expert" }` (clinicId overridden)                   |
-| Create profile | `POST` | `/experts` `{ userId, clinicId, specialization, consultationFee, … }` |
-| Availability   | `POST` | `/experts/:expertId/availability`                                     |
-| Fee            | `PUT`  | `/experts/:id/consultation-fee`                                       |
+| Step                | Method  | Path                                                                               |
+| ------------------- | ------- | ---------------------------------------------------------------------------------- |
+| Create user         | `POST`  | `/users` `{ role: "expert" }` (clinicId overridden)                                |
+| Create profile      | `POST`  | `/experts` `{ userId, clinicId, specialization, consultationFee, … }`              |
+| List roster         | `GET`   | `/clinic/experts?specialization=&isActive=` (own clinic, **includes deactivated**) |
+| Update / deactivate | `PATCH` | `/experts/:id` (set `isActive: false` to deactivate)                               |
+| Availability        | `POST`  | `/experts/:expertId/availability`                                                  |
+| Fee                 | `PUT`   | `/experts/:id/consultation-fee`                                                    |
 
 Full RBAC / directory detail: [users.md](users.md). Customer booking path: [consultation-flow.md](consultation-flow.md).
 
@@ -209,6 +212,14 @@ Shows **all** transactions with `clinicId = yours`, including:
 
 Ecommerce product orders and customer wallet top-ups are **not** on this statement.
 
+### 8.3 CSV export ✅ Ready
+
+```http
+GET /clinic/transactions/export?type=&expertId=&from=&to=
+```
+
+Returns `text/csv` (`Content-Disposition: attachment; filename="clinic-transactions.csv"`) with the same filters as §8.2 (pagination is ignored; up to 10,000 rows, oldest-first, UTF-8 BOM for Excel). Columns: `Date, Type, Status, Amount (VND), From, To, Expert ID, Consultation ID, Treatment ID, Treatment Phase ID, Withdrawal ID, External Ref, Note`. Use this to reconcile revenue and compute expert payroll outside the app.
+
 ---
 
 ## 9. Withdrawals
@@ -232,7 +243,7 @@ Content-Type: application/json
 GET /clinic/withdrawals?page=1&limit=20
 ```
 
-Statuses: `REQUESTED` → staff `PAID` or `REJECTED`.
+Statuses: `REQUESTED` → admin `PAID` or `REJECTED` (see [§10](#10-admin-payout-workflow)).
 
 ---
 
@@ -273,29 +284,84 @@ Changing the rate affects **new** holds only (existing holds keep their snapshot
 
 ---
 
-## 12. Scoping rules & error matrix
+## 12. Operational oversight (experts, bookings, treatments)
 
-| Call                      | Scope rule                            | Typical error                            |
-| ------------------------- | ------------------------------------- | ---------------------------------------- |
-| All `/clinic/*`           | `auth.clinicId` required              | `403` unbound                            |
-| Expert fee / availability | `expert.clinicId === caller.clinicId` | `403` cross-clinic                       |
-| Withdraw without bank     | Bank fields required                  | `400` bank account must be set           |
-| Withdraw over balance     | `amount ≤ balanceVnd`                 | `400` Insufficient clinic wallet balance |
-| Double release / refund   | Hold status gate + row lock           | Idempotent return or `400`               |
+Read-only visibility for a clinic manager over everything happening in **their** clinic. All endpoints are `@Roles(clinic_manager)`, scoped to the bound `clinicId`, and return **403** if the manager is unbound or the resource belongs to another clinic.
+
+### 12.1 Expert roster ✅ Ready
+
+```http
+GET /clinic/experts?specialization=&isActive=&page=1&limit=20
+```
+
+Lists experts in the clinic **including deactivated** ones (unlike the public `GET /experts` directory, which is active-only). Sorted active-first, then by name. Omit `isActive` to see both; pass `isActive=false` to audit deactivated experts.
+
+### 12.2 Bookings oversight ✅ Ready
+
+```http
+GET /clinic/bookings?expertId=&status=&from=&to=&page=1&limit=20
+GET /clinic/bookings/:id
+```
+
+All consultation bookings for the clinic's experts (scoped via `booking → expert → clinicId`). Each row is the standard booking shape plus an `escrowStatus` (`HELD` | `RELEASED` | `REFUNDED` | `null`) so a manager can see which sessions still owe money and which have released. `from`/`to` bound `scheduledAt`. Read-only — managers cannot cancel or modify bookings.
+
+### 12.3 Treatment oversight ✅ Ready
+
+```http
+GET /clinic/treatments?status=&expertId=&page=1&limit=20
+GET /clinic/treatments/:id
+```
+
+Submitted treatment plans for the clinic (drafts still being edited are excluded), each with its phases and an `escrow` summary:
+
+```json
+{
+  "id": "…",
+  "status": "ACTIVE",
+  "phases": [{ "phaseOrder": 0, "status": "COMPLETED", "priceVnd": "500000" }],
+  "escrow": { "heldVnd": "500000", "releasedVnd": "500000", "refundedVnd": "0" }
+}
+```
+
+`escrow.releasedVnd` is the gross escrow that has flowed to the clinic wallet (the net after commission is reflected in `GET /clinic/wallet`). Read-only.
 
 ---
 
-## 13. Endpoint checklist
+## 13. Scoping rules & error matrix
+
+| Call                                                                          | Scope rule                                                                  | Typical error                            |
+| ----------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------- |
+| All `/clinic/*`                                                               | `auth.clinicId` required                                                    | `403` unbound                            |
+| Expert fee / availability                                                     | `expert.clinicId === caller.clinicId`                                       | `403` cross-clinic                       |
+| Oversight reads (`/clinic/bookings`, `/clinic/treatments`, `/clinic/experts`) | booking→expert→clinic / `treatment.clinicId` / `expert.clinicId` = caller's | `403` cross-clinic, `404` missing        |
+| Withdraw without bank                                                         | Bank fields required                                                        | `400` bank account must be set           |
+| Withdraw over balance                                                         | `amount ≤ balanceVnd`                                                       | `400` Insufficient clinic wallet balance |
+| Double release / refund                                                       | Hold status gate + row lock                                                 | Idempotent return or `400`               |
+
+---
+
+## 14. Endpoint checklist
 
 ### Clinic manager finance
 
-| Method | Path                   | Status   |
-| ------ | ---------------------- | -------- |
-| `GET`  | `/clinic/wallet`       | ✅ Ready |
-| `PUT`  | `/clinic/bank-account` | ✅ Ready |
-| `GET`  | `/clinic/transactions` | ✅ Ready |
-| `POST` | `/clinic/withdrawals`  | ✅ Ready |
-| `GET`  | `/clinic/withdrawals`  | ✅ Ready |
+| Method | Path                          | Status   |
+| ------ | ----------------------------- | -------- |
+| `GET`  | `/clinic/wallet`              | ✅ Ready |
+| `PUT`  | `/clinic/bank-account`        | ✅ Ready |
+| `GET`  | `/clinic/transactions`        | ✅ Ready |
+| `GET`  | `/clinic/transactions/export` | ✅ Ready |
+| `POST` | `/clinic/withdrawals`         | ✅ Ready |
+| `GET`  | `/clinic/withdrawals`         | ✅ Ready |
+
+### Clinic manager oversight
+
+| Method | Path                     | Status   |
+| ------ | ------------------------ | -------- |
+| `GET`  | `/clinic/experts`        | ✅ Ready |
+| `GET`  | `/clinic/bookings`       | ✅ Ready |
+| `GET`  | `/clinic/bookings/:id`   | ✅ Ready |
+| `GET`  | `/clinic/treatments`     | ✅ Ready |
+| `GET`  | `/clinic/treatments/:id` | ✅ Ready |
 
 ### Staff / admin finance
 
@@ -307,18 +373,19 @@ Changing the rate affects **new** holds only (existing holds keep their snapshot
 | `GET`   | `/admin/commerce-settings/platform-commission` | ✅ Ready |
 | `PATCH` | `/admin/commerce-settings/platform-commission` | ✅ Ready |
 
-### Experts / fees (unchanged)
+### Experts / fees
 
 | Method            | Path                              | Status   |
 | ----------------- | --------------------------------- | -------- |
 | `POST`            | `/users`                          | ✅ Ready |
 | `POST`            | `/experts`                        | ✅ Ready |
+| `PATCH`           | `/experts/:id`                    | ✅ Ready |
 | `PUT`             | `/experts/:id/consultation-fee`   | ✅ Ready |
 | `*/availability*` | `/experts/:expertId/availability` | ✅ Ready |
 
 ---
 
-## 14. Remaining gaps
+## 15. Remaining gaps
 
 | Gap                                            | Status | Notes                                                                           |
 | ---------------------------------------------- | ------ | ------------------------------------------------------------------------------- |
@@ -326,8 +393,9 @@ Changing the rate affects **new** holds only (existing holds keep their snapshot
 | Treatment `COMPLETED` / `PAUSED` never written | 🔶     | Phase activate still releases; plan-level COMPLETED not required for money      |
 | Phases added after payment                     | ❌     | No escrow hold for post-pay phases                                              |
 | Clawback after clinic withdrew                 | ❌     | No negative clinic balance / clawback workflow                                  |
-| Clinic-scoped booking list                     | ❌     | Still missing for pure clinic_manager (see prior gaps)                          |
 | Notifications on release / withdraw            | ❌     |                                                                                 |
+
+> ✅ Resolved: clinic-scoped **booking list**, **treatment list**, and **expert roster (incl. inactive)** are now live — see [§12 Operational oversight](#12-operational-oversight-experts-bookings-treatments).
 
 ---
 
