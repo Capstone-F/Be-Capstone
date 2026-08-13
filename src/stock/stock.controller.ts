@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Param,
@@ -24,6 +25,7 @@ import { Role } from '../auth/roles.enum';
 import { StockMovementType } from './enums';
 import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { ImportBatchDto } from './dto/import-batch.dto';
+import { InventoryItemDto } from './dto/inventory.dto';
 import { StockService } from './stock.service';
 
 @ApiTags('Stock')
@@ -36,6 +38,16 @@ import { StockService } from './stock.service';
 @ApiForbiddenResponse({ description: 'Insufficient permissions' })
 export class StockController {
   constructor(private readonly stockService: StockService) {}
+
+  @Get('inventory')
+  @ApiOperation({
+    summary: 'List product inventory',
+    description: 'Returns active product variants with their total remaining stock quantity for Staff.',
+  })
+  @ApiOkResponse({ type: [InventoryItemDto] })
+  getInventory() {
+    return this.stockService.listInventory();
+  }
 
   @Post('batches')
   @HttpCode(HttpStatus.CREATED)

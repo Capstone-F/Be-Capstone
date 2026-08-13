@@ -418,4 +418,36 @@ export class StockService {
       Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()),
     );
   }
+
+  async listInventory(): Promise<any[]> {
+    const variants = await this.variantRepository
+      .createQueryBuilder('variant')
+      .leftJoinAndSelect('variant.product', 'product')
+      .where('variant.isActive = :isActive', { isActive: true })
+      .andWhere('product.isActive = :isActive', { isActive: true })
+      .getMany();
+
+    const batches = await this.batchRepository
+      .createQueryBuilder('batch')
+      .select('batch.productVariantId', 'productVariantId')
+      .addSelect('SUM(batch.remainingQuantity)', 'stockQuantity')
+      .where('batch.expirationDate > :now', { now: new Date() })
+      .groupBy('batch.productVariantId')
+      .getRawMany<{ productVariantId: string; stockQuantity: string }>();
+
+    const stockMap = new Map<string, number>();
+    for (const b of batches) {
+      stockMap.set(b.productVariantId, parseInt(b.stockQuantity, 10));
+    }
+
+    return variants.map((v) => ({
+      productVariantId: v.id,
+      productId: v.productId,
+      productName: v.product.name,
+      sku: v.sku,
+      priceVnd: v.priceVnd,
+      imageUrl: v.imageUrl,
+      stockQuantity: stockMap.get(v.id) ?? 0,
+    }));
+  }
 }
