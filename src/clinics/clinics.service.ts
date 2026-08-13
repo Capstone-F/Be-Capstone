@@ -100,6 +100,22 @@ export class ClinicsService {
     return this.toResponse(clinic);
   }
 
+  async updateBankAccount(
+    clinicId: string,
+    dto: {
+      bankName: string;
+      bankAccountNumber: string;
+      bankAccountHolder: string;
+    },
+  ): Promise<ClinicResponseDto> {
+    const clinic = await this.requireById(clinicId);
+    clinic.bankName = dto.bankName.trim();
+    clinic.bankAccountNumber = dto.bankAccountNumber.trim();
+    clinic.bankAccountHolder = dto.bankAccountHolder.trim();
+    const saved = await this.clinicRepository.save(clinic);
+    return this.toResponse(saved);
+  }
+
   async update(id: string, dto: UpdateClinicDto): Promise<ClinicResponseDto> {
     const clinic = await this.requireById(id);
 
@@ -163,6 +179,9 @@ export class ClinicsService {
           ? null
           : Number(clinic.longitude),
       isActive: clinic.isActive,
+      bankName: clinic.bankName ?? null,
+      bankAccountNumber: clinic.bankAccountNumber ?? null,
+      bankAccountHolder: clinic.bankAccountHolder ?? null,
       createdAt: clinic.createdAt,
       updatedAt: clinic.updatedAt,
     };

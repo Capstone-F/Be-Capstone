@@ -9,6 +9,7 @@ import { Treatment } from '../treatments/treatment.entity';
 import { Customer } from '../users/customer.entity';
 import { Expert } from '../users/expert.entity';
 import { WalletModule } from '../wallet/wallet.module';
+import { FinanceModule } from '../finance/finance.module';
 import { BookingsController } from './bookings.controller';
 import { BookingsService } from './bookings.service';
 import { ExpertAvailabilityController } from './expert-availability.controller';
@@ -27,6 +28,7 @@ import { ExpertAvailabilityService } from './expert-availability.service';
     ]),
     AuthModule,
     WalletModule,
+    FinanceModule,
   ],
   controllers: [BookingsController, ExpertAvailabilityController],
   providers: [

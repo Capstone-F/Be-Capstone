@@ -5,7 +5,11 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
-import { TransactionStatus, TransactionType } from '../commerce/enums';
+import {
+  TransactionStatus,
+  TransactionType,
+  LedgerAccount,
+} from '../commerce/enums';
 import { Transaction } from '../commerce/transaction.entity';
 import { User } from '../users/user.entity';
 import { Wallet } from '../users/wallet.entity';
@@ -18,7 +22,14 @@ export type WalletDebitOptions = {
   userId: string;
   consultationId?: string | null;
   treatmentId?: string | null;
+  treatmentPhaseId?: string | null;
   orderId?: string | null;
+  clinicId?: string | null;
+  expertId?: string | null;
+  escrowHoldId?: string | null;
+  withdrawalId?: string | null;
+  fromAccount?: LedgerAccount | null;
+  toAccount?: LedgerAccount | null;
   note?: string | null;
   externalRef?: string | null;
 };
@@ -29,7 +40,14 @@ export type WalletCreditOptions = {
   userId: string;
   consultationId?: string | null;
   treatmentId?: string | null;
+  treatmentPhaseId?: string | null;
   orderId?: string | null;
+  clinicId?: string | null;
+  expertId?: string | null;
+  escrowHoldId?: string | null;
+  withdrawalId?: string | null;
+  fromAccount?: LedgerAccount | null;
+  toAccount?: LedgerAccount | null;
   note?: string | null;
   externalRef?: string | null;
 };
@@ -93,7 +111,9 @@ export class WalletService {
       amountVnd,
       userId,
       note: creditNote,
-      externalRef: `admin-topup:${userId}`,
+      externalRef: `admin-topup:${userId}:${Date.now()}`,
+      fromAccount: LedgerAccount.EXTERNAL_GATEWAY,
+      toAccount: LedgerAccount.CUSTOMER_WALLET,
     });
 
     const wallet = await this.getOrCreateWallet(userId);
@@ -142,7 +162,14 @@ export class WalletService {
       userId: options.userId,
       consultationId: options.consultationId ?? null,
       treatmentId: options.treatmentId ?? null,
+      treatmentPhaseId: options.treatmentPhaseId ?? null,
       orderId: options.orderId ?? null,
+      clinicId: options.clinicId ?? null,
+      expertId: options.expertId ?? null,
+      escrowHoldId: options.escrowHoldId ?? null,
+      withdrawalId: options.withdrawalId ?? null,
+      fromAccount: options.fromAccount ?? null,
+      toAccount: options.toAccount ?? null,
       note: options.note ?? null,
       externalRef: options.externalRef ?? null,
     });
@@ -167,7 +194,14 @@ export class WalletService {
       userId: options.userId,
       consultationId: options.consultationId ?? null,
       treatmentId: options.treatmentId ?? null,
+      treatmentPhaseId: options.treatmentPhaseId ?? null,
       orderId: options.orderId ?? null,
+      clinicId: options.clinicId ?? null,
+      expertId: options.expertId ?? null,
+      escrowHoldId: options.escrowHoldId ?? null,
+      withdrawalId: options.withdrawalId ?? null,
+      fromAccount: options.fromAccount ?? null,
+      toAccount: options.toAccount ?? null,
       note: options.note ?? null,
       externalRef: options.externalRef ?? null,
     });
