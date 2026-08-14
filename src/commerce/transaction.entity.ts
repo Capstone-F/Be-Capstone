@@ -76,6 +76,7 @@ export class Transaction {
   @JoinColumn({ name: 'consultationId' })
   consultation: ConsultationRequest | null;
 
+  @Index('IDX_transactions_userId')
   @Column({ nullable: true, type: 'uuid' })
   userId: string | null;
 

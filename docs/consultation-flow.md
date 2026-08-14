@@ -324,6 +324,45 @@ Content-Type: application/json
 
 `client`: `web` \| `mobile` (selects return URL).
 
+#### Transaction history
+
+| Method | Path                      | Auth     | Status   |
+| ------ | ------------------------- | -------- | -------- |
+| GET    | `/wallet/me/transactions` | Customer | ✅ Ready |
+
+```http
+GET /wallet/me/transactions?type=REFUND&direction=CREDIT&from=2026-08-01T00:00:00Z&to=2026-08-31T23:59:59Z&page=1&limit=20
+```
+
+```json
+{
+  "items": [
+    {
+      "id": "...",
+      "type": "CONSULTATION_PAYMENT",
+      "status": "COMPLETED",
+      "direction": "DEBIT",
+      "amountVnd": "300000",
+      "orderId": null,
+      "consultationId": "...",
+      "treatmentId": null,
+      "treatmentPhaseId": null,
+      "clinicId": "...",
+      "expertId": "...",
+      "note": "Consultation fee for booking ...",
+      "createdAt": "2026-08-14T10:00:00.000Z"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "limit": 20
+}
+```
+
+Newest first. Only rows that actually moved money in or out of the wallet — platform-side rows tagged with the customer for traceability (`ESCROW_RELEASE`, `COMMISSION`) are excluded.
+
+`direction`: `CREDIT` (top-up, refund) \| `DEBIT` (booking, treatment, order payment). All filters optional; `limit` max **100** (default 20).
+
 ---
 
 ### 5.5 Pay booking with wallet ✅ Ready
@@ -572,6 +611,7 @@ Full FE / Mobile guide (auth headers, sample responses, SDK steps, errors): **[r
 | Method | Path                            | Auth      | Behavior                                                                             |
 | ------ | ------------------------------- | --------- | ------------------------------------------------------------------------------------ |
 | GET    | `/wallet/me`                    | Customer  | Balance + active flag                                                                |
+| GET    | `/wallet/me/transactions`       | Customer  | Paginated wallet statement (`type`, `direction`, `from`, `to`)                       |
 | POST   | `/wallet/top-up`                | Customer  | Gateway payment (`PAYMENT_PROVIDER`), purpose `WALLET_TOPUP`                         |
 | POST   | `/admin/wallets/:userId/top-up` | App admin | Direct credit (min 1000 VND), no gateway                                             |
 | POST   | `/bookings/:id/pay`             | Customer  | Debit `consultationFee`; create `CONSULTATION_PAYMENT`; skip debit when `isFollowUp` |
@@ -734,6 +774,7 @@ After feedback: `feedback: { "rating": 5, "comment": "..." }`.
 | Method                 | Path                            | Actor     | Status |
 | ---------------------- | ------------------------------- | --------- | ------ |
 | GET                    | `/wallet/me`                    | Customer  | ✅     |
+| GET                    | `/wallet/me/transactions`       | Customer  | ✅     |
 | POST                   | `/wallet/top-up`                | Customer  | ✅     |
 | POST                   | `/admin/wallets/:userId/top-up` | App admin | ✅     |
 | POST                   | `/bookings/:id/pay`             | Customer  | ✅     |
