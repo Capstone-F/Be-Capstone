@@ -8,6 +8,9 @@ export class ClinicWithdrawalResponseDto {
   @ApiProperty()
   clinicId!: string;
 
+  @ApiPropertyOptional({ nullable: true })
+  clinicName?: string | null;
+
   @ApiProperty({ example: '500000' })
   amountVnd!: string;
 
