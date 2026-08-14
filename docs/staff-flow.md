@@ -989,6 +989,22 @@ One processor pass over every due row. `ignoreDelay` defaults to `true`.
 
 Set `ORDER_CANCELLATION_CRON_ENABLED=false` to drive the pipeline **only** through these endpoints.
 
+### Booking expiry sweep
+
+Consultations have their own cron sweep that cancels + refunds bookings the expert never confirmed (`CONFIRM_TIMEOUT`) or never started (`EXPERT_NO_SHOW`). Same idea, separate endpoint:
+
+```http
+POST /admin/bookings/expiry/tick
+Content-Type: application/json
+
+{
+  "bookingId": "<uuid>",
+  "ignoreDeadline": true
+}
+```
+
+Both fields are optional — with no body it runs exactly the sweep the cron would. `ignoreDeadline` only applies together with `bookingId`. Env: `BOOKING_EXPIRY_CRON_ENABLED`, `BOOKING_CONFIRM_TIMEOUT_MIN` (default 1440), `BOOKING_NO_SHOW_GRACE_MIN` (default 15). Full rules: [consultation-flow.md](consultation-flow.md).
+
 ---
 
 ## 37. Cancellation endpoint checklist

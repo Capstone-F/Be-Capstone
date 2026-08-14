@@ -17,7 +17,11 @@ import {
 import { Role } from '../auth/roles.enum';
 import { LedgerAccount, TransactionType } from '../commerce/enums';
 import { ConsultationRequest } from '../consultations/consultation-request.entity';
-import { BookingCancelledBy, ConsultationStatus } from '../consultations/enums';
+import {
+  BookingAutoCancelReason,
+  BookingCancelledBy,
+  ConsultationStatus,
+} from '../consultations/enums';
 import { Feedback } from '../consultations/feedback.entity';
 import { EscrowService } from '../finance/escrow.service';
 import { TreatmentStatus } from '../treatments/enums';
@@ -73,6 +77,23 @@ const CANCELLABLE_STATUSES = [
   ConsultationStatus.PENDING,
   ConsultationStatus.CONFIRMED,
 ];
+
+/** Cancel copy written by the expiry sweep, keyed by auto-cancel reason. */
+const AUTO_CANCEL_REASON_TEXT: Record<BookingAutoCancelReason, string> = {
+  [BookingAutoCancelReason.CONFIRM_TIMEOUT]:
+    'Tự động hủy: chuyên gia không xác nhận lịch hẹn trong thời gian quy định',
+  [BookingAutoCancelReason.EXPERT_NO_SHOW]:
+    'Tự động hủy: chuyên gia không bắt đầu buổi tư vấn đúng giờ',
+};
+
+/** Status an auto-cancel may transition from, per reason. */
+const AUTO_CANCEL_FROM_STATUS: Record<
+  BookingAutoCancelReason,
+  ConsultationStatus
+> = {
+  [BookingAutoCancelReason.CONFIRM_TIMEOUT]: ConsultationStatus.PENDING,
+  [BookingAutoCancelReason.EXPERT_NO_SHOW]: ConsultationStatus.CONFIRMED,
+};
 
 const BOOKING_DETAIL_RELATIONS = [
   'customer',
@@ -273,11 +294,50 @@ export class BookingsService {
       consultation.cancelledAt = new Date();
       consultation.cancelReason = dto.reason?.trim() || null;
       consultation.cancelledBy = cancelledBy;
+      consultation.autoCancelReason = null;
       await manager.save(ConsultationRequest, consultation);
     });
 
     const saved = await this.requireBooking(bookingId);
     return this.toBookingResponseFromSaved(saved, saved);
+  }
+
+  /**
+   * Cron-driven cancel: refunds any escrow hold and stamps SYSTEM cancel
+   * metadata. The status transition is a conditional UPDATE, so a racing manual
+   * cancel / confirm / start wins and this returns false without refunding.
+   */
+  async autoCancelBooking(
+    bookingId: string,
+    reason: BookingAutoCancelReason,
+  ): Promise<boolean> {
+    const fromStatus = AUTO_CANCEL_FROM_STATUS[reason];
+
+    return this.dataSource.transaction(async (manager) => {
+      const claimed = await manager.update(
+        ConsultationRequest,
+        { id: bookingId, status: fromStatus },
+        {
+          status: ConsultationStatus.CANCELLED,
+          cancelledAt: new Date(),
+          cancelReason: AUTO_CANCEL_REASON_TEXT[reason],
+          cancelledBy: BookingCancelledBy.SYSTEM,
+          autoCancelReason: reason,
+        },
+      );
+      if (!claimed.affected) {
+        return false;
+      }
+
+      const hold = await this.escrowService.findHeldByConsultation(
+        manager,
+        bookingId,
+      );
+      if (hold) {
+        await this.escrowService.refundWithManager(manager, hold.id);
+      }
+      return true;
+    });
   }
 
   async startBooking(
@@ -352,9 +412,9 @@ export class BookingsService {
       );
     }
 
-    if (consultation.status !== ConsultationStatus.COMPLETED) {
+    if (!this.isFeedbackAllowed(consultation)) {
       throw new BadRequestException(
-        `Phản hồi chỉ có thể được gửi cho lịch hẹn đã COMPLETED (hiện tại: ${consultation.status})`,
+        `Phản hồi chỉ có thể được gửi cho lịch hẹn đã COMPLETED hoặc bị hủy do chuyên gia không bắt đầu buổi tư vấn (hiện tại: ${consultation.status})`,
       );
     }
 
@@ -1012,6 +1072,9 @@ export class BookingsService {
       cancelledAt: consultation.cancelledAt ?? null,
       cancelReason: consultation.cancelReason ?? null,
       cancelledBy: consultation.cancelledBy ?? null,
+      autoCancelReason: consultation.autoCancelReason ?? null,
+      canSubmitFeedback:
+        this.isFeedbackAllowed(consultation) && !consultation.feedback,
       treatmentId: consultation.treatmentId ?? null,
       feeChargedVnd: consultation.feeChargedVnd ?? null,
       paidTransactionId: consultation.paidTransactionId ?? null,
@@ -1026,6 +1089,20 @@ export class BookingsService {
       createdAt: consultation.createdAt,
       updatedAt: consultation.updatedAt,
     };
+  }
+
+  /**
+   * Feedback is normally post-COMPLETED, but an expert no-show is also
+   * rateable — the customer lost the slot and the expert rating should reflect it.
+   */
+  private isFeedbackAllowed(consultation: ConsultationRequest): boolean {
+    if (consultation.status === ConsultationStatus.COMPLETED) {
+      return true;
+    }
+    return (
+      consultation.status === ConsultationStatus.CANCELLED &&
+      consultation.autoCancelReason === BookingAutoCancelReason.EXPERT_NO_SHOW
+    );
   }
 
   private isBookingPaid(consultation: ConsultationRequest): boolean {

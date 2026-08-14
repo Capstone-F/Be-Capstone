@@ -76,6 +76,11 @@ During CONFIRMED / IN_PROGRESS (and as product UX allows):
 
 Optional branch (before start):
   PENDING | CONFIRMED ──▶ CANCELLED  (+ wallet refund when feeChargedVnd > 0)
+
+Auto branch (cron sweep, no client action):
+  PENDING   ──▶ CANCELLED  autoCancelReason=CONFIRM_TIMEOUT  (expert never confirmed)
+  CONFIRMED ──▶ CANCELLED  autoCancelReason=EXPERT_NO_SHOW   (expert never started)
+                           ↳ still rateable: POST /bookings/:id/feedback
 ```
 
 **Happy path:**
@@ -84,7 +89,7 @@ Optional branch (before start):
 2. Customer loads available slots and creates a `PENDING` booking.
 3. Customer tops up wallet if needed (`POST /wallet/top-up`), then pays with `POST /bookings/:id/pay` (ledger `CONSULTATION_PAYMENT`). Follow-up bookings during an ACTIVE paid treatment date window skip the fee (`isFollowUp`).
 4. Assigned expert confirms → `CONFIRMED` (requires paid or free follow-up).
-5. Optional: customer or expert cancels from `PENDING` / `CONFIRMED` → `CANCELLED`; if `feeChargedVnd > 0`, wallet is refunded (`REFUND`).
+5. Optional: customer or expert cancels from `PENDING` / `CONFIRMED` → `CANCELLED`; if `feeChargedVnd > 0`, wallet is refunded (`REFUND`). A cron sweep does the same automatically when the expert never confirms or never starts — see [Auto-cancel & refund](#auto-cancel--refund-timeouts).
 6. Customer and expert open **video** and/or **in-app chat** via consultation token APIs (ZegoCloud). Expert starts → `IN_PROGRESS`.
 7. During the live session, expert may create a multi-phase **treatment plan**, customer pays the plan, and expert activates the first phase — see [treatment-plan-flow.md](treatment-plan-flow.md).
 8. Expert completes → `COMPLETED`; customer submits feedback; expert aggregate `rating` is recalculated.
@@ -590,6 +595,38 @@ Full FE / Mobile guide (auth headers, sample responses, SDK steps, errors): **[r
 
 On successful cancel of a paid booking, wallet is credited with `TransactionType.REFUND` linked to `consultationId`.
 
+### Auto-cancel & refund (timeouts)
+
+A cron sweep (`BookingExpiryProcessor`, default every minute) cancels bookings that stall in a waiting state and refunds the escrow hold. Auto-cancelled rows carry `cancelledBy: "SYSTEM"` plus an `autoCancelReason`:
+
+| `autoCancelReason` | Fires when                                                                     | From        | Wallet | Feedback allowed after? |
+| ------------------ | ------------------------------------------------------------------------------ | ----------- | ------ | ----------------------- |
+| `CONFIRM_TIMEOUT`  | `createdAt + BOOKING_CONFIRM_TIMEOUT_MIN` passed, **or** `scheduledAt` passed  | `PENDING`   | Refund | no                      |
+| `EXPERT_NO_SHOW`   | `scheduledAt + BOOKING_NO_SHOW_GRACE_MIN` passed and `startedAt` is still null | `CONFIRMED` | Refund | **yes**                 |
+
+The status transition is a conditional `UPDATE`: a manual cancel / confirm / start that lands first wins and the sweep skips the row without refunding twice.
+
+**Expert no-show → feedback.** Normally feedback requires `COMPLETED`. An `EXPERT_NO_SHOW` cancel also unlocks `POST /bookings/:id/feedback` for the owning customer, so a missed session still counts toward `Expert.rating`. `BookingResponseDto.canSubmitFeedback` tells the client whether to show the rating CTA.
+
+**Env knobs** (all optional, defaults shown):
+
+| Env                           | Default       | Meaning                                                    |
+| ----------------------------- | ------------- | ---------------------------------------------------------- |
+| `BOOKING_EXPIRY_CRON_ENABLED` | `true`        | Set `false` to disable the sweep (e2e / manual-tick demos) |
+| `BOOKING_EXPIRY_TICK_CRON`    | `0 * * * * *` | Sweep schedule (every minute)                              |
+| `BOOKING_CONFIRM_TIMEOUT_MIN` | `1440`        | Minutes a `PENDING` booking waits for expert confirm (24h) |
+| `BOOKING_NO_SHOW_GRACE_MIN`   | `15`          | Minutes after `scheduledAt` before a no-show cancel        |
+| `BOOKING_EXPIRY_BATCH_SIZE`   | `20`          | Max bookings cancelled per tick                            |
+
+**Manual tick (staff / app admin)** — run one sweep now instead of waiting out the window:
+
+```
+POST /admin/bookings/expiry/tick
+{ "bookingId": "<uuid>", "ignoreDeadline": true }
+```
+
+`ignoreDeadline` is honoured only together with `bookingId`, so a demo cannot wipe every pending booking. Response: `{ confirmTimedOut: string[], expertNoShow: string[], skipped: number }`.
+
 Treatment package payment: see [treatment-plan-flow.md](treatment-plan-flow.md).
 
 ---
@@ -615,9 +652,16 @@ Treatment package payment: see [treatment-plan-flow.md](treatment-plan-flow.md).
            ┌───────────┐     POST /bookings/:id/feedback
            │ COMPLETED │──────────────────────────────▶ Feedback (1:1)
            └───────────┘
+
+Cron sweep (BookingExpiryProcessor), cancelledBy = SYSTEM:
+  PENDING   ──(confirm window elapsed / scheduledAt passed)──▶ CANCELLED + refund
+  CONFIRMED ──(scheduledAt + grace, never started)──────────▶ CANCELLED + refund
+                                                              └─▶ POST /bookings/:id/feedback
 ```
 
 `ConsultationStatus`: `PENDING` \| `CONFIRMED` \| `IN_PROGRESS` \| `COMPLETED` \| `CANCELLED`.
+
+`BookingCancelledBy`: `CUSTOMER` \| `EXPERT` \| `SYSTEM`. `BookingAutoCancelReason` (set only with `SYSTEM`): `CONFIRM_TIMEOUT` \| `EXPERT_NO_SHOW`.
 
 Pay (`POST /bookings/:id/pay`) happens while **`PENDING`** and is required (or follow-up waiver) before confirm.
 
@@ -648,6 +692,8 @@ Pay (`POST /bookings/:id/pay`) happens while **`PENDING`** and is required (or f
   "cancelledAt": null,
   "cancelReason": null,
   "cancelledBy": null,
+  "autoCancelReason": null,
+  "canSubmitFeedback": false,
   "treatmentId": null,
   "feeChargedVnd": null,
   "paidTransactionId": null,
@@ -677,26 +723,26 @@ After feedback: `feedback: { "rating": 5, "comment": "..." }`.
 
 ## 11. Error map
 
-| Situation                                         | HTTP      | Typical message                                           |
-| ------------------------------------------------- | --------- | --------------------------------------------------------- |
-| Expert missing / inactive                         | 404       | `Expert … not found`                                      |
-| Expert has no clinic                              | 400       | `Expert is not linked to a clinic and cannot be booked`   |
-| `scheduledAt` not ISO / not future / not top-hour | 400       | `scheduledAt must be…`                                    |
-| Slot outside availability                         | 400       | `scheduledAt is outside the expert availability window`   |
-| Slot already taken                                | 409       | `The requested slot is already booked`                    |
-| Pay not owner                                     | 403       | `Only the owning customer can pay`                        |
-| Pay not PENDING / already paid                    | 400       | `Booking can only be paid while PENDING` / `already paid` |
-| Insufficient wallet                               | 400       | (from wallet debit)                                       |
-| Confirm unpaid                                    | 400       | `Booking must be paid (or free follow-up) before confirm` |
-| Confirm / start / complete wrong status           | 400       | `Booking can only be … from …`                            |
-| Wrong expert                                      | 403       | Assigned-expert checks                                    |
-| Cancel from IN_PROGRESS                           | 400       | `Booking can only be cancelled from PENDING or CONFIRMED` |
-| Feedback not COMPLETED / not owner                | 400 / 403 | Feedback ownership / status messages                      |
-| Duplicate feedback                                | 409       | `Feedback has already been submitted for this booking`    |
-| List as wrong perspective                         | 403       | `Insufficient permissions to list bookings as …`          |
-| Video/chat token — not on booking                 | 403       | Only assigned customer/expert may join call / open chat   |
-| Chat token — no peer (e.g. no expert)             | 409       | `No expert assigned to this booking yet`                  |
-| Zego not configured on server                     | 503       | `ZegoCloud is not configured …`                           |
+| Situation                                         | HTTP      | Typical message                                                                    |
+| ------------------------------------------------- | --------- | ---------------------------------------------------------------------------------- |
+| Expert missing / inactive                         | 404       | `Expert … not found`                                                               |
+| Expert has no clinic                              | 400       | `Expert is not linked to a clinic and cannot be booked`                            |
+| `scheduledAt` not ISO / not future / not top-hour | 400       | `scheduledAt must be…`                                                             |
+| Slot outside availability                         | 400       | `scheduledAt is outside the expert availability window`                            |
+| Slot already taken                                | 409       | `The requested slot is already booked`                                             |
+| Pay not owner                                     | 403       | `Only the owning customer can pay`                                                 |
+| Pay not PENDING / already paid                    | 400       | `Booking can only be paid while PENDING` / `already paid`                          |
+| Insufficient wallet                               | 400       | (from wallet debit)                                                                |
+| Confirm unpaid                                    | 400       | `Booking must be paid (or free follow-up) before confirm`                          |
+| Confirm / start / complete wrong status           | 400       | `Booking can only be … from …`                                                     |
+| Wrong expert                                      | 403       | Assigned-expert checks                                                             |
+| Cancel from IN_PROGRESS                           | 400       | `Booking can only be cancelled from PENDING or CONFIRMED`                          |
+| Feedback not COMPLETED / not owner                | 400 / 403 | Feedback ownership / status messages (an `EXPERT_NO_SHOW` cancel is also accepted) |
+| Duplicate feedback                                | 409       | `Feedback has already been submitted for this booking`                             |
+| List as wrong perspective                         | 403       | `Insufficient permissions to list bookings as …`                                   |
+| Video/chat token — not on booking                 | 403       | Only assigned customer/expert may join call / open chat                            |
+| Chat token — no peer (e.g. no expert)             | 409       | `No expert assigned to this booking yet`                                           |
+| Zego not configured on server                     | 503       | `ZegoCloud is not configured …`                                                    |
 
 ---
 
@@ -729,6 +775,10 @@ After feedback: `feedback: { "rating": 5, "comment": "..." }`.
 | PATCH  | `/bookings/:id/complete` | Assigned expert   | ✅       |
 | POST   | `/bookings/:id/feedback` | Owning customer   | ✅       |
 
+| Method | Path                          | Actor             | Status |
+| ------ | ----------------------------- | ----------------- | ------ |
+| POST   | `/admin/bookings/expiry/tick` | Staff / app admin | ✅     |
+
 ### Wallet / ledger
 
 | Method                 | Path                            | Actor     | Status |
@@ -738,6 +788,7 @@ After feedback: `feedback: { "rating": 5, "comment": "..." }`.
 | POST                   | `/admin/wallets/:userId/top-up` | App admin | ✅     |
 | POST                   | `/bookings/:id/pay`             | Customer  | ✅     |
 | Cancel → wallet refund | —                               | System    | ✅     |
+| Auto-cancel → refund   | cron sweep (timeout / no-show)  | System    | ✅     |
 
 ### Realtime (ZegoCloud)
 
@@ -826,6 +877,8 @@ npm run start:dev
 9. Expert: `PATCH .../start` → `.../complete`.
 10. As customer: `POST .../feedback` with `{ "rating": 5 }`.
 11. Optional: cancel path — create another booking, pay, then `PATCH .../cancel` and verify wallet refund.
+12. Optional: auto-cancel path — create + pay a booking, leave it `PENDING`, then as staff/admin `POST /admin/bookings/expiry/tick` with `{ "bookingId": "<id>", "ignoreDeadline": true }`. Expect `confirmTimedOut: ["<id>"]`, booking `CANCELLED` with `cancelledBy: "SYSTEM"`, `autoCancelReason: "CONFIRM_TIMEOUT"`, and a wallet `REFUND`.
+13. Optional: no-show path — same but have the expert **confirm** first, then tick. Expect `expertNoShow: ["<id>"]`, `autoCancelReason: "EXPERT_NO_SHOW"`, `canSubmitFeedback: true`, and `POST .../feedback` succeeding on the cancelled booking.
 
 Worth checking by hand: double-pay (`400 already paid`); confirm before pay (`400`); complete without start (`400`); duplicate feedback (`409`); book an unavailable slot (`409` / `400`); chat/video token as outsider (`403`).
 

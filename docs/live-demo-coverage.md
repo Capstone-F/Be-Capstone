@@ -3,12 +3,13 @@
 ## 0. Pre-flight
 
 - [ ] `docker compose up -d`
-- [ ] `npm run migration:run` (incl. `1786000000000-ClinicEscrowLedger`)
+- [ ] `npm run migration:run` (incl. `1786000000000-ClinicEscrowLedger`, `1786300000000-BookingAutoCancel`)
 - [ ] `npm run seed` **before** first login of clinic-bound accounts
 - [ ] `npm run start:dev`
 - [ ] `.env`: `PAYMENT_PROVIDER=mock`, `LLM_PROVIDER=mock`, `DELIVERY_SIMULATION_ENABLED=true`, `ORDER_CANCELLATION_CRON_ENABLED=false`, `ZEGO_APP_ID`+`ZEGO_SERVER_SECRET`
   - ⚠️ If your local `.env` still has `LLM_PROVIDER=ollama`, either start Ollama or switch to `mock` (see `docs/llm-routine-mock-vs-ollama.md`).
   - ⚠️ If `ORDER_CANCELLATION_CRON_ENABLED=true`, the cron auto-advances cancellations — set `false` to step them manually in §VII.
+  - ⚠️ `BOOKING_EXPIRY_CRON_ENABLED` (default `true`) auto-cancels + refunds a `PENDING` booking once its `scheduledAt` passes, and a `CONFIRMED` one 15 min after `scheduledAt` if the expert never starts. Either book a slot comfortably in the future, or set it `false` and drive it by hand with `POST /admin/bookings/expiry/tick`.
 - [ ] Resolve seeded UUIDs: `GET /clinics`, `GET /experts`
 
 ## Seeded accounts (all password `P@ssw0rd`)

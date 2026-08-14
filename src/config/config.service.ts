@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { BookingExpiryConfig } from './booking-expiry.config';
 import { AppEnv, getMissingRequiredEnv, resolveAppEnv } from './env.config';
 import { LlmConfig } from './llm.config';
 import { PaymentConfig, PayosConfig } from './payment.config';
@@ -234,6 +235,17 @@ export class AppConfigService {
       tickCron: this.env.DELIVERY_SIMULATION_TICK_CRON,
       stepDelaySec: this.env.DELIVERY_SIMULATION_STEP_DELAY_SEC,
       batchSize: this.env.DELIVERY_SIMULATION_BATCH_SIZE,
+    };
+  }
+
+  /** Cron sweep that auto-cancels unconfirmed bookings and expert no-shows. */
+  get bookingExpiryConfig(): BookingExpiryConfig {
+    return {
+      cronEnabled: this.env.BOOKING_EXPIRY_CRON_ENABLED,
+      tickCron: this.env.BOOKING_EXPIRY_TICK_CRON,
+      confirmTimeoutMin: this.env.BOOKING_CONFIRM_TIMEOUT_MIN,
+      noShowGraceMin: this.env.BOOKING_NO_SHOW_GRACE_MIN,
+      batchSize: this.env.BOOKING_EXPIRY_BATCH_SIZE,
     };
   }
 

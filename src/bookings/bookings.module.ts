@@ -10,6 +10,8 @@ import { Customer } from '../users/customer.entity';
 import { Expert } from '../users/expert.entity';
 import { WalletModule } from '../wallet/wallet.module';
 import { FinanceModule } from '../finance/finance.module';
+import { AdminBookingsController } from './admin-bookings.controller';
+import { BookingExpiryProcessor } from './booking-expiry.processor';
 import { BookingsController } from './bookings.controller';
 import { BookingsService } from './bookings.service';
 import { ClinicBookingsController } from './clinic-bookings.controller';
@@ -35,10 +37,12 @@ import { ExpertAvailabilityService } from './expert-availability.service';
     BookingsController,
     ClinicBookingsController,
     ExpertAvailabilityController,
+    AdminBookingsController,
   ],
   providers: [
     BookingsService,
     ExpertAvailabilityService,
+    BookingExpiryProcessor,
     SessionGuard,
     RolesGuard,
   ],

@@ -7,7 +7,11 @@ import {
 import { Repository } from 'typeorm';
 import { Role } from '../auth/roles.enum';
 import { ConsultationRequest } from '../consultations/consultation-request.entity';
-import { ConsultationStatus, BookingCancelledBy } from '../consultations/enums';
+import {
+  BookingAutoCancelReason,
+  BookingCancelledBy,
+  ConsultationStatus,
+} from '../consultations/enums';
 import { Feedback } from '../consultations/feedback.entity';
 import { Customer } from '../users/customer.entity';
 import { Expert } from '../users/expert.entity';
@@ -67,6 +71,7 @@ const makeConsultation = (
   cancelledAt: null,
   cancelReason: null,
   cancelledBy: null,
+  autoCancelReason: null,
   treatmentId: null,
   feeChargedVnd: null,
   paidTransactionId: null,
@@ -89,6 +94,8 @@ describe('BookingsService', () => {
     consultations?: ConsultationRequest[];
     customer?: Customer | null;
     findAndCountResult?: [ConsultationRequest[], number];
+    /** Rows affected by the conditional status UPDATE in autoCancelBooking. */
+    updateAffected?: number;
   }) {
     const expertRepo = {
       findOne: jest.fn().mockResolvedValue(options.expert ?? null),
@@ -193,11 +200,16 @@ describe('BookingsService', () => {
       getStatusByConsultationIds: jest.fn().mockResolvedValue(new Map()),
     };
 
+    const managerUpdate = jest
+      .fn()
+      .mockResolvedValue({ affected: options.updateAffected ?? 1 });
+
     const dataSource = {
       transaction: jest.fn(
         async (cb: (manager: unknown) => Promise<unknown>) => {
           const manager = {
             save: jest.fn(async (_entity: unknown, row: unknown) => row),
+            update: managerUpdate,
           };
           return cb(manager);
         },
@@ -228,6 +240,7 @@ describe('BookingsService', () => {
       walletService,
       escrowService,
       dataSource,
+      managerUpdate,
     };
   }
 
@@ -808,6 +821,65 @@ describe('BookingsService', () => {
     });
   });
 
+  describe('autoCancelBooking', () => {
+    it('should cancel a stale PENDING booking and refund the escrow hold', async () => {
+      const { service, escrowService, managerUpdate } = makeService({});
+      escrowService.findHeldByConsultation.mockResolvedValue({
+        id: 'hold-1',
+      });
+
+      const cancelled = await service.autoCancelBooking(
+        'c-1',
+        BookingAutoCancelReason.CONFIRM_TIMEOUT,
+      );
+
+      expect(cancelled).toBe(true);
+      expect(managerUpdate).toHaveBeenCalledWith(
+        ConsultationRequest,
+        { id: 'c-1', status: ConsultationStatus.PENDING },
+        expect.objectContaining({
+          status: ConsultationStatus.CANCELLED,
+          cancelledBy: BookingCancelledBy.SYSTEM,
+          autoCancelReason: BookingAutoCancelReason.CONFIRM_TIMEOUT,
+        }),
+      );
+      expect(escrowService.refundWithManager).toHaveBeenCalledWith(
+        expect.anything(),
+        'hold-1',
+      );
+    });
+
+    it('should only claim CONFIRMED rows for an expert no-show', async () => {
+      const { service, managerUpdate } = makeService({});
+
+      await service.autoCancelBooking(
+        'c-1',
+        BookingAutoCancelReason.EXPERT_NO_SHOW,
+      );
+
+      expect(managerUpdate).toHaveBeenCalledWith(
+        ConsultationRequest,
+        { id: 'c-1', status: ConsultationStatus.CONFIRMED },
+        expect.objectContaining({
+          autoCancelReason: BookingAutoCancelReason.EXPERT_NO_SHOW,
+        }),
+      );
+    });
+
+    it('should not refund when a racing manual action already moved the booking', async () => {
+      const { service, escrowService } = makeService({ updateAffected: 0 });
+
+      const cancelled = await service.autoCancelBooking(
+        'c-1',
+        BookingAutoCancelReason.EXPERT_NO_SHOW,
+      );
+
+      expect(cancelled).toBe(false);
+      expect(escrowService.findHeldByConsultation).not.toHaveBeenCalled();
+      expect(escrowService.refundWithManager).not.toHaveBeenCalled();
+    });
+  });
+
   describe('cancelBooking', () => {
     it('should cancel PENDING booking for owning customer', async () => {
       const customer = makeCustomer();
@@ -1019,6 +1091,52 @@ describe('BookingsService', () => {
         { rating: 5 },
       );
       expect(result.feedback).toEqual({ rating: 5, comment: 'Great' });
+    });
+
+    it('should allow feedback on a booking cancelled as an expert no-show', async () => {
+      const customer = makeCustomer();
+      const expert = makeExpert({ rating: 0 });
+      const consultation = makeConsultation({
+        status: ConsultationStatus.CANCELLED,
+        cancelledBy: BookingCancelledBy.SYSTEM,
+        autoCancelReason: BookingAutoCancelReason.EXPERT_NO_SHOW,
+        customerId: customer.id,
+        customer,
+        expertId: expert.id,
+        expert,
+        feedback: undefined as never,
+      });
+      const { service, consultationRepo, feedbackRepo } = makeService({
+        customer,
+        expert,
+      });
+      (consultationRepo.findOne as jest.Mock)
+        .mockResolvedValueOnce(consultation)
+        .mockResolvedValueOnce(consultation);
+
+      await service.submitFeedback(customer.userId, consultation.id, {
+        rating: 1,
+        comment: 'Expert never showed up',
+      });
+
+      expect(feedbackRepo.save).toHaveBeenCalled();
+    });
+
+    it('should reject feedback on a booking cancelled for any other reason', async () => {
+      const customer = makeCustomer();
+      const consultation = makeConsultation({
+        status: ConsultationStatus.CANCELLED,
+        cancelledBy: BookingCancelledBy.CUSTOMER,
+        autoCancelReason: null,
+        customerId: customer.id,
+        customer,
+      });
+      const { service, consultationRepo } = makeService({ customer });
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+
+      await expect(
+        service.submitFeedback(customer.userId, consultation.id, { rating: 1 }),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('should throw ConflictException on duplicate feedback', async () => {
