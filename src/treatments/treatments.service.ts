@@ -14,6 +14,7 @@ import {
   EscrowService,
   EscrowTreatmentSummary,
 } from '../finance/escrow.service';
+import { IngredientConflict } from '../ingredients/ingredient-conflict.entity';
 import { Ingredient } from '../ingredients/ingredient.entity';
 import { TimeOfUse } from '../ingredients/enums';
 import { ProductIngredient } from '../products/product-ingredient.entity';
@@ -69,8 +70,10 @@ import {
   TreatmentEventResponseDto,
 } from './dto/treatment-chart-response.dto';
 import {
+  CandidateConflictWarningDto,
   ProductCandidateDto,
   TreatmentPhaseResponseDto,
+  TreatmentProductConflictDto,
   TreatmentResponseDto,
 } from './dto/treatment-response.dto';
 import { TreatmentEvent } from './treatment-event.entity';
@@ -119,6 +122,8 @@ export class TreatmentsService {
     private readonly walletService: WalletService,
     private readonly escrowService: EscrowService,
     private readonly dataSource: DataSource,
+    @InjectRepository(IngredientConflict)
+    private readonly ingredientConflictRepo: Repository<IngredientConflict>,
   ) {}
 
   async createTreatment(
@@ -701,6 +706,7 @@ export class TreatmentsService {
         matchScore: entry.matched.size,
         matchedIngredientIds: [...entry.matched],
         stockQuantity: stock,
+        conflictWarnings: [],
       });
     }
 
@@ -709,6 +715,10 @@ export class TreatmentsService {
         b.matchScore - a.matchScore ||
         a.priceVnd - b.priceVnd ||
         a.sku.localeCompare(b.sku),
+    );
+    await this.attachConflictWarnings(
+      results,
+      (phase.phaseProducts ?? []).map((r) => r.productVariantId),
     );
     return results;
   }
@@ -760,7 +770,195 @@ export class TreatmentsService {
       }
     });
 
-    return this.toPhaseDto(await this.loadPhase(phaseId));
+    const phaseDto = this.toPhaseDto(await this.loadPhase(phaseId));
+    phaseDto.conflicts = await this.resolvePhaseProductConflicts(uniqueIds);
+    return phaseDto;
+  }
+
+  /**
+   * Map product variants to their ingredient-protocol ids (via product_protocols),
+   * mirroring the cart conflict resolution.
+   */
+  private async mapVariantsToProtocols(variantIds: string[]): Promise<{
+    variantIdsByProtocolId: Map<string, string[]>;
+    protocolIdsByVariantId: Map<string, Set<string>>;
+  }> {
+    const variantIdsByProtocolId = new Map<string, string[]>();
+    const protocolIdsByVariantId = new Map<string, Set<string>>();
+    if (variantIds.length === 0) {
+      return { variantIdsByProtocolId, protocolIdsByVariantId };
+    }
+
+    const variants = await this.variantRepo.find({
+      where: { id: In(variantIds) },
+    });
+    const variantIdsByProductId = new Map<string, string[]>();
+    for (const variant of variants) {
+      const list = variantIdsByProductId.get(variant.productId) ?? [];
+      list.push(variant.id);
+      variantIdsByProductId.set(variant.productId, list);
+    }
+    const productIds = [...variantIdsByProductId.keys()];
+    if (productIds.length === 0) {
+      return { variantIdsByProtocolId, protocolIdsByVariantId };
+    }
+
+    const mappings = await this.productProtocolRepo.find({
+      where: { productId: In(productIds) },
+    });
+    for (const mapping of mappings) {
+      const mappedVariantIds =
+        variantIdsByProductId.get(mapping.productId) ?? [];
+      const existing = variantIdsByProtocolId.get(mapping.protocolId) ?? [];
+      for (const variantId of mappedVariantIds) {
+        if (!existing.includes(variantId)) {
+          existing.push(variantId);
+        }
+        const set = protocolIdsByVariantId.get(variantId) ?? new Set<string>();
+        set.add(mapping.protocolId);
+        protocolIdsByVariantId.set(variantId, set);
+      }
+      variantIdsByProtocolId.set(mapping.protocolId, existing);
+    }
+    return { variantIdsByProtocolId, protocolIdsByVariantId };
+  }
+
+  /** Conflicts among the phase's selected product variants. */
+  private async resolvePhaseProductConflicts(
+    variantIds: string[],
+  ): Promise<TreatmentProductConflictDto[]> {
+    if (variantIds.length < 2) {
+      return [];
+    }
+    const { variantIdsByProtocolId } =
+      await this.mapVariantsToProtocols(variantIds);
+    const protocolIds = [...variantIdsByProtocolId.keys()];
+    if (protocolIds.length === 0) {
+      return [];
+    }
+
+    const conflicts = await this.ingredientConflictRepo.find({
+      where: {
+        protocolId: In(protocolIds),
+        conflictingProtocolId: In(protocolIds),
+      },
+      relations: ['protocol', 'conflictingProtocol'],
+    });
+
+    const resolved: TreatmentProductConflictDto[] = [];
+    for (const conflict of conflicts) {
+      const productVariantIds =
+        variantIdsByProtocolId.get(conflict.protocolId) ?? [];
+      const conflictingProductVariantIds =
+        variantIdsByProtocolId.get(conflict.conflictingProtocolId) ?? [];
+      if (
+        productVariantIds.length === 0 ||
+        conflictingProductVariantIds.length === 0
+      ) {
+        continue;
+      }
+      resolved.push({
+        protocolCode: conflict.protocol?.code ?? conflict.protocolId,
+        conflictingProtocolCode:
+          conflict.conflictingProtocol?.code ?? conflict.conflictingProtocolId,
+        severity: conflict.severity,
+        description: conflict.description ?? conflict.reason ?? '',
+        reason: conflict.reason,
+        productVariantIds,
+        conflictingProductVariantIds,
+      });
+    }
+    return resolved;
+  }
+
+  /**
+   * Flag candidates that conflict with products already selected in the phase,
+   * so the expert is warned at selection time.
+   */
+  private async attachConflictWarnings(
+    candidates: ProductCandidateDto[],
+    selectedVariantIds: string[],
+  ): Promise<void> {
+    if (candidates.length === 0 || selectedVariantIds.length === 0) {
+      return;
+    }
+    const unionIds = [
+      ...new Set([
+        ...candidates.map((c) => c.productVariantId),
+        ...selectedVariantIds,
+      ]),
+    ];
+    const { protocolIdsByVariantId } =
+      await this.mapVariantsToProtocols(unionIds);
+    const allProtocolIds = [
+      ...new Set(
+        [...protocolIdsByVariantId.values()].flatMap((set) => [...set]),
+      ),
+    ];
+    if (allProtocolIds.length === 0) {
+      return;
+    }
+
+    const conflicts = await this.ingredientConflictRepo.find({
+      where: {
+        protocolId: In(allProtocolIds),
+        conflictingProtocolId: In(allProtocolIds),
+      },
+      relations: ['protocol', 'conflictingProtocol'],
+    });
+    if (conflicts.length === 0) {
+      return;
+    }
+
+    for (const candidate of candidates) {
+      const candidateProtocols = protocolIdsByVariantId.get(
+        candidate.productVariantId,
+      );
+      if (!candidateProtocols || candidateProtocols.size === 0) {
+        continue;
+      }
+      const warnings: CandidateConflictWarningDto[] = [];
+      for (const selectedId of selectedVariantIds) {
+        if (selectedId === candidate.productVariantId) {
+          continue;
+        }
+        const selectedProtocols = protocolIdsByVariantId.get(selectedId);
+        if (!selectedProtocols || selectedProtocols.size === 0) {
+          continue;
+        }
+        for (const conflict of conflicts) {
+          if (
+            candidateProtocols.has(conflict.protocolId) &&
+            selectedProtocols.has(conflict.conflictingProtocolId)
+          ) {
+            warnings.push({
+              selectedProductVariantId: selectedId,
+              protocolCode: conflict.protocol?.code ?? conflict.protocolId,
+              conflictingProtocolCode:
+                conflict.conflictingProtocol?.code ??
+                conflict.conflictingProtocolId,
+              severity: conflict.severity,
+              description: conflict.description ?? conflict.reason ?? '',
+            });
+          } else if (
+            candidateProtocols.has(conflict.conflictingProtocolId) &&
+            selectedProtocols.has(conflict.protocolId)
+          ) {
+            warnings.push({
+              selectedProductVariantId: selectedId,
+              protocolCode:
+                conflict.conflictingProtocol?.code ??
+                conflict.conflictingProtocolId,
+              conflictingProtocolCode:
+                conflict.protocol?.code ?? conflict.protocolId,
+              severity: conflict.severity,
+              description: conflict.description ?? conflict.reason ?? '',
+            });
+          }
+        }
+      }
+      candidate.conflictWarnings = warnings;
+    }
   }
 
   async generateRoutine(

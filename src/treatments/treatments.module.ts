@@ -4,6 +4,7 @@ import { AuthModule } from '../auth/auth.module';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
 import { ConsultationRequest } from '../consultations/consultation-request.entity';
+import { IngredientConflict } from '../ingredients/ingredient-conflict.entity';
 import { Ingredient } from '../ingredients/ingredient.entity';
 import { ProductIngredient } from '../products/product-ingredient.entity';
 import { ProductProtocol } from '../products/product-protocol.entity';
@@ -44,6 +45,7 @@ import { TreatmentsService } from './treatments.service';
       Customer,
       ConsultationRequest,
       Ingredient,
+      IngredientConflict,
       ProductVariant,
       ProductIngredient,
       ProductProtocol,
