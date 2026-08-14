@@ -594,6 +594,21 @@ export class TreatmentsService {
       reloaded.status = TreatmentStatus.ACTIVE;
       reloaded.totalPriceVnd = String(total);
       await manager.save(Treatment, reloaded);
+
+      // Tự động kích hoạt giai đoạn đầu tiên của phác đồ khi thanh toán hoàn tất
+      if (payablePhases.length > 0) {
+        const sortedPhases = [...payablePhases].sort(
+          (a, b) => a.phaseOrder - b.phaseOrder,
+        );
+        const firstPhase = sortedPhases[0];
+        if (firstPhase.status === TreatmentPhaseStatus.PENDING) {
+          firstPhase.status = TreatmentPhaseStatus.ACTIVE;
+          if (!firstPhase.startDate) {
+            firstPhase.startDate = new Date();
+          }
+          await manager.save(TreatmentPhase, firstPhase);
+        }
+      }
     });
 
     return this.getTreatmentDetail(treatmentId);
@@ -1331,6 +1346,20 @@ export class TreatmentsService {
     if (hasContent && routine.status === RoutineStatus.DRAFT) {
       routine.status = RoutineStatus.ACTIVE;
       await this.routineRepo.save(routine);
+
+      // Tự động đồng bộ trạng thái ACTIVE cho Giai đoạn cha nếu đang PENDING
+      if (routine.treatmentPhaseId) {
+        const phase = await this.phaseRepo.findOne({
+          where: { id: routine.treatmentPhaseId },
+        });
+        if (phase && phase.status === TreatmentPhaseStatus.PENDING) {
+          phase.status = TreatmentPhaseStatus.ACTIVE;
+          if (!phase.startDate) {
+            phase.startDate = new Date();
+          }
+          await this.phaseRepo.save(phase);
+        }
+      }
     }
 
     return this.routineRepo.findOneOrFail({
