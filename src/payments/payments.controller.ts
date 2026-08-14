@@ -12,6 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiBearerAuth,
   ApiCookieAuth,
   ApiExcludeEndpoint,
@@ -27,6 +28,8 @@ import { SessionGuard } from '../auth/guards/session.guard';
 import { CheckoutDto } from './dto/checkout.dto';
 import { CheckoutResponseDto } from './dto/checkout-response.dto';
 import { PaymentStatusDto } from './dto/payment-status.dto';
+import { WalletCheckoutDto } from './dto/wallet-checkout.dto';
+import { WalletCheckoutResponseDto } from './dto/wallet-checkout-response.dto';
 import { PaymentsService } from './payments.service';
 
 @ApiTags('Payments')
@@ -53,6 +56,31 @@ export class PaymentsController {
       this.requireUserId(req),
       dto,
       req.ip ?? '127.0.0.1',
+    );
+  }
+
+  @Post('checkout/wallet')
+  @UseGuards(SessionGuard)
+  @ApiCookieAuth()
+  @ApiBearerAuth()
+  @ApiUnauthorizedResponse({ description: 'Not authenticated' })
+  @ApiOperation({
+    summary: 'Pay a pending order from the customer wallet',
+    description:
+      'Debits the wallet and marks payment + order PAID in one transaction — no gateway redirect. Fails with 400 when the balance is insufficient.',
+  })
+  @ApiOkResponse({ type: WalletCheckoutResponseDto })
+  @ApiBadRequestResponse({
+    description:
+      'Insufficient wallet balance, order not payable, or order has no shipping selection',
+  })
+  checkoutWithWallet(
+    @Req() req: Request,
+    @Body() dto: WalletCheckoutDto,
+  ): Promise<WalletCheckoutResponseDto> {
+    return this.paymentsService.checkoutWithWallet(
+      this.requireUserId(req),
+      dto,
     );
   }
 

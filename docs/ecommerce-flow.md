@@ -362,12 +362,13 @@ Admin combo-discount settings (not customer-facing) — `percent` and `minSubtot
 
 Full VNPay details: [payments.md](payments.md).
 
-| Method | Path                     | Auth                      | Status   |
-| ------ | ------------------------ | ------------------------- | -------- |
-| POST   | `/payments/checkout`     | Session / Bearer          | ✅ Ready |
-| GET    | `/payments/:id`          | Session / Bearer          | ✅ Ready |
-| GET    | `/payments/vnpay/return` | Public (browser redirect) | ✅ Ready |
-| GET    | `/payments/vnpay/ipn`    | Public (VNPay → server)   | ✅ Ready |
+| Method | Path                        | Auth                      | Status   |
+| ------ | --------------------------- | ------------------------- | -------- |
+| POST   | `/payments/checkout`        | Session / Bearer          | ✅ Ready |
+| POST   | `/payments/checkout/wallet` | Session / Bearer          | ✅ Ready |
+| GET    | `/payments/:id`             | Session / Bearer          | ✅ Ready |
+| GET    | `/payments/vnpay/return`    | Public (browser redirect) | ✅ Ready |
+| GET    | `/payments/vnpay/ipn`       | Public (VNPay → server)   | ✅ Ready |
 
 **Checkout:**
 
@@ -411,6 +412,29 @@ On successful IPN the backend:
 Checkout charges `order.totalVnd` (products − discount + shipping). Missing delivery → `400 Order has no shipping selection`.
 
 Customer prepays shipping via VNPay; GHN orders use shop-pay / `cod_amount: 0` (see [shipping.md](shipping.md)).
+
+**Pay from the wallet instead (no redirect, no polling):**
+
+```http
+POST /payments/checkout/wallet
+Content-Type: application/json
+
+{ "orderId": "<pending-order-uuid>" }
+```
+
+```json
+{
+  "paymentId": "...",
+  "orderId": "...",
+  "status": "PAID",
+  "amountVnd": "210000",
+  "transactionId": "...",
+  "walletBalanceVnd": "90000",
+  "paidAt": "2026-08-14T09:00:00.000Z"
+}
+```
+
+Same guards and same post-payment side effects (stock + GHN) as gateway checkout, settled in one transaction. Insufficient balance → `400` with the order left `PENDING`. Top up first via `POST /wallet/top-up`. Details: [payments.md](payments.md#wallet-checkout-no-gateway).
 
 ---
 

@@ -16,6 +16,8 @@ export enum PaymentProvider {
   VNPAY = 'VNPAY',
   MOCK = 'MOCK',
   PAYOS = 'PAYOS',
+  /** Internal customer wallet — settled in-process, no gateway redirect. */
+  WALLET = 'WALLET',
 }
 
 /** Which client initiated checkout — selects the landing URL the return endpoint redirects to. */

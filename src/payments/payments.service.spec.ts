@@ -71,6 +71,12 @@ describe('PaymentsService', () => {
   let dataSource: { transaction: jest.Mock };
   let stockService: { deductByVariantId: jest.Mock };
   let deliveryService: { createGhnOrderForPaidOrder: jest.Mock };
+  let walletService: {
+    getOrCreateWallet: jest.Mock;
+    creditWithManager: jest.Mock;
+    debitWithManager: jest.Mock;
+  };
+  let commerceAnalyticsService: { recordPurchaseWithManager: jest.Mock };
   let service: PaymentsService;
 
   beforeEach(() => {
@@ -91,10 +97,14 @@ describe('PaymentsService', () => {
       createGhnOrderForPaidOrder: jest.fn().mockResolvedValue(undefined),
     };
 
-    const walletService = {
-      getOrCreateWallet: jest.fn().mockResolvedValue({ id: 'w-1' }),
+    walletService = {
+      getOrCreateWallet: jest
+        .fn()
+        .mockResolvedValue({ id: 'w-1', balanceVnd: '0' }),
       creditWithManager: jest.fn().mockResolvedValue({ id: 'tx-topup' }),
+      debitWithManager: jest.fn().mockResolvedValue({ id: 'tx-order' }),
     };
+    commerceAnalyticsService = { recordPurchaseWithManager: jest.fn() };
 
     service = new PaymentsService(
       paymentRepo as unknown as Repository<Payment>,
@@ -106,9 +116,201 @@ describe('PaymentsService', () => {
       dataSource as unknown as DataSource,
       stockService as never,
       deliveryService as never,
-      { recordPurchaseWithManager: jest.fn() } as never,
+      commerceAnalyticsService as never,
       walletService as never,
     );
+  });
+
+  describe('checkoutWithWallet', () => {
+    type WalletManagerMock = {
+      manager: {
+        getRepository: jest.Mock;
+        find: jest.Mock;
+        create: jest.Mock;
+        save: jest.Mock;
+        update: jest.Mock;
+      };
+      lockedOrder: jest.Mock;
+    };
+
+    const mockWalletTransaction = (
+      lockedOrder: Record<string, unknown> | null,
+      openPayments: Array<Record<string, unknown>> = [],
+    ): WalletManagerMock => {
+      const getOne = jest.fn().mockResolvedValue(lockedOrder);
+      const manager = {
+        getRepository: jest.fn().mockReturnValue({
+          createQueryBuilder: jest.fn().mockReturnValue({
+            setLock: jest.fn().mockReturnThis(),
+            where: jest.fn().mockReturnThis(),
+            getOne,
+          }),
+        }),
+        find: jest.fn().mockResolvedValue(openPayments),
+        create: jest.fn().mockImplementation((_entity, v) => v),
+        save: jest
+          .fn()
+          .mockImplementation((_entity, v) =>
+            Promise.resolve({ ...(v as object), id: 'pay-w-1' }),
+          ),
+        update: jest.fn().mockResolvedValue({ affected: 1 }),
+      };
+      dataSource.transaction.mockImplementation(
+        async (cb: (m: unknown) => Promise<unknown>) => cb(manager),
+      );
+      return { manager, lockedOrder: getOne };
+    };
+
+    const pendingOrder = {
+      id: 'order-1',
+      customerId: 'cust-1',
+      status: OrderStatus.PENDING,
+      totalVnd: 210000,
+      delivery: { id: 'del-1' },
+    };
+
+    beforeEach(() => {
+      customerRepo.findOne.mockResolvedValue({
+        id: 'cust-1',
+        userId: 'user-1',
+      });
+      orderRepo.findOne.mockResolvedValue(pendingOrder);
+      paymentRepo.findOne.mockResolvedValue({
+        id: 'pay-w-1',
+        orderId: 'order-1',
+      });
+    });
+
+    it('debits the wallet, marks payment + order PAID, and runs side effects', async () => {
+      const { manager } = mockWalletTransaction(pendingOrder);
+      walletService.getOrCreateWallet.mockResolvedValue({
+        id: 'w-1',
+        balanceVnd: '90000',
+      });
+      orderRepo.findOne.mockResolvedValueOnce(pendingOrder).mockResolvedValue({
+        ...pendingOrder,
+        items: [{ id: 'oi-1', productVariantId: 'var-1', quantity: 2 }],
+      });
+
+      const result = await service.checkoutWithWallet('user-1', {
+        orderId: 'order-1',
+      });
+
+      expect(result).toEqual({
+        paymentId: 'pay-w-1',
+        orderId: 'order-1',
+        status: PaymentStatus.PAID,
+        amountVnd: '210000',
+        transactionId: 'tx-order',
+        walletBalanceVnd: '90000',
+        paidAt: expect.any(Date),
+      });
+
+      const createdPayment = manager.create.mock.calls[0][1];
+      expect(createdPayment).toMatchObject({
+        orderId: 'order-1',
+        provider: PaymentProvider.WALLET,
+        status: PaymentStatus.PAID,
+        amountVnd: '210000',
+      });
+
+      expect(walletService.debitWithManager).toHaveBeenCalledWith(
+        manager,
+        expect.objectContaining({
+          amountVnd: 210000,
+          userId: 'user-1',
+          orderId: 'order-1',
+        }),
+      );
+      expect(manager.update).toHaveBeenCalledWith(
+        Order,
+        { id: 'order-1', status: OrderStatus.PENDING },
+        { status: OrderStatus.PAID },
+      );
+      expect(
+        commerceAnalyticsService.recordPurchaseWithManager,
+      ).toHaveBeenCalled();
+      expect(stockService.deductByVariantId).toHaveBeenCalledWith(
+        'var-1',
+        2,
+        expect.any(String),
+        'oi-1',
+      );
+      expect(deliveryService.createGhnOrderForPaidOrder).toHaveBeenCalledWith(
+        'order-1',
+      );
+    });
+
+    it('cancels open gateway payments so a late IPN cannot fulfil twice', async () => {
+      const { manager } = mockWalletTransaction(pendingOrder, [
+        { id: 'pay-gw-1' },
+      ]);
+
+      await service.checkoutWithWallet('user-1', { orderId: 'order-1' });
+
+      expect(manager.update).toHaveBeenCalledWith(
+        PaymentAttempt,
+        expect.objectContaining({ status: PaymentAttemptStatus.PENDING }),
+        expect.objectContaining({ status: PaymentAttemptStatus.FAILED }),
+      );
+      expect(manager.update).toHaveBeenCalledWith(Payment, expect.anything(), {
+        status: PaymentStatus.CANCELLED,
+      });
+    });
+
+    it('propagates insufficient balance and leaves the order unpaid', async () => {
+      const { manager } = mockWalletTransaction(pendingOrder);
+      walletService.debitWithManager.mockRejectedValue(
+        new BadRequestException('Số dư ví không đủ'),
+      );
+
+      await expect(
+        service.checkoutWithWallet('user-1', { orderId: 'order-1' }),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(manager.update).not.toHaveBeenCalledWith(
+        Order,
+        expect.anything(),
+        { status: OrderStatus.PAID },
+      );
+      expect(deliveryService.createGhnOrderForPaidOrder).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the order was paid between the guard and the lock', async () => {
+      mockWalletTransaction({ ...pendingOrder, status: OrderStatus.PAID });
+
+      await expect(
+        service.checkoutWithWallet('user-1', { orderId: 'order-1' }),
+      ).rejects.toThrow(BadRequestException);
+      expect(walletService.debitWithManager).not.toHaveBeenCalled();
+    });
+
+    it('rejects an order that does not belong to the caller', async () => {
+      orderRepo.findOne.mockResolvedValue({
+        ...pendingOrder,
+        customerId: 'other',
+      });
+
+      await expect(
+        service.checkoutWithWallet('user-1', { orderId: 'order-1' }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects an order without shipping selection', async () => {
+      orderRepo.findOne.mockResolvedValue({ ...pendingOrder, delivery: null });
+
+      await expect(
+        service.checkoutWithWallet('user-1', { orderId: 'order-1' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws NotFound when the order is missing', async () => {
+      orderRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.checkoutWithWallet('user-1', { orderId: 'missing' }),
+      ).rejects.toThrow(NotFoundException);
+    });
   });
 
   describe('checkout', () => {
@@ -281,7 +483,7 @@ describe('PaymentsService', () => {
         payment: { clientReturnUrl: 'http://web/return' },
       });
 
-      const { redirectUrl } = await service.handleReturn({} as never);
+      const { redirectUrl } = await service.handleReturn({});
 
       expect(redirectUrl).toContain('http://web/return');
       expect(redirectUrl).toContain('paymentId=pay-1');
@@ -298,7 +500,7 @@ describe('PaymentsService', () => {
       });
       attemptRepo.findOne.mockResolvedValue(null);
 
-      const { redirectUrl } = await service.handleReturn({} as never);
+      const { redirectUrl } = await service.handleReturn({});
 
       expect(redirectUrl).toContain(CLIENT_RETURN_URL);
       expect(redirectUrl).toContain('status=invalid');
@@ -424,7 +626,7 @@ describe('PaymentsService', () => {
         txnRef: '',
       });
 
-      const res = await service.handleIpn({} as never);
+      const res = await service.handleIpn({});
 
       expect(res).toBe(IpnFailChecksum);
       expect(attemptRepo.findOne).not.toHaveBeenCalled();
@@ -439,7 +641,7 @@ describe('PaymentsService', () => {
       });
       attemptRepo.findOne.mockResolvedValue(null);
 
-      const res = await service.handleIpn({} as never);
+      const res = await service.handleIpn({});
       expect(res).toBe(IpnOrderNotFound);
     });
 
@@ -455,7 +657,7 @@ describe('PaymentsService', () => {
         amountVnd: '199000',
       });
 
-      const res = await service.handleIpn({} as never);
+      const res = await service.handleIpn({});
       expect(res).toBe(IpnInvalidAmount);
       expect(dataSource.transaction).not.toHaveBeenCalled();
     });
@@ -481,7 +683,7 @@ describe('PaymentsService', () => {
         .mockResolvedValueOnce({ affected: 1 })
         .mockResolvedValueOnce({ affected: 1 });
 
-      const res = await service.handleIpn({} as never);
+      const res = await service.handleIpn({});
 
       expect(res).toBe(IpnSuccess);
       const attemptValues = managerUpdate.mock.calls[0][2];
@@ -508,7 +710,7 @@ describe('PaymentsService', () => {
       runTransaction();
       managerUpdate.mockResolvedValueOnce({ affected: 0 });
 
-      const res = await service.handleIpn({} as never);
+      const res = await service.handleIpn({});
 
       expect(res).toBe(InpOrderAlreadyConfirmed);
       expect(managerUpdate).toHaveBeenCalledTimes(1);
@@ -538,7 +740,7 @@ describe('PaymentsService', () => {
       runTransaction();
       managerUpdate.mockResolvedValue({ affected: 1 });
 
-      const res = await service.handleIpn({} as never);
+      const res = await service.handleIpn({});
 
       expect(res).toBe(IpnSuccess);
       expect(deliveryService.createGhnOrderForPaidOrder).toHaveBeenCalledWith(
@@ -572,7 +774,7 @@ describe('PaymentsService', () => {
 
       // A GHN outage must not turn a confirmed payment into IpnUnknownError,
       // which would make VNPay retry an already-settled payment.
-      await expect(service.handleIpn({} as never)).resolves.toBe(IpnSuccess);
+      await expect(service.handleIpn({})).resolves.toBe(IpnSuccess);
     });
   });
 
