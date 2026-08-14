@@ -8,7 +8,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import {
   InpOrderAlreadyConfirmed,
   IpnFailChecksum,
@@ -30,6 +30,8 @@ import { CommerceAnalyticsService } from '../analytics/commerce-analytics.servic
 import { CheckoutDto } from './dto/checkout.dto';
 import { CheckoutResponseDto } from './dto/checkout-response.dto';
 import { PaymentStatusDto } from './dto/payment-status.dto';
+import { WalletCheckoutDto } from './dto/wallet-checkout.dto';
+import { WalletCheckoutResponseDto } from './dto/wallet-checkout-response.dto';
 import { PaymentAttempt } from './payment-attempt.entity';
 import { Payment } from './payment.entity';
 import {
@@ -86,33 +88,7 @@ export class PaymentsService {
     dto: CheckoutDto,
     ipAddr: string,
   ): Promise<CheckoutResponseDto> {
-    const customer = await this.customerRepo.findOne({ where: { userId } });
-    if (!customer) {
-      throw new ForbiddenException(
-        'Không có hồ sơ khách hàng cho người dùng này',
-      );
-    }
-
-    const order = await this.orderRepo.findOne({
-      where: { id: dto.orderId },
-      relations: ['delivery'],
-    });
-    if (!order) {
-      throw new NotFoundException('Không tìm thấy đơn hàng');
-    }
-    if (order.customerId !== customer.id) {
-      throw new ForbiddenException('Đơn hàng không thuộc về khách hàng này');
-    }
-    if (order.status !== OrderStatus.PENDING) {
-      throw new BadRequestException(
-        `Đơn hàng không thể thanh toán (trạng thái: ${order.status})`,
-      );
-    }
-    if (!order.delivery) {
-      throw new BadRequestException(
-        'Đơn hàng chưa chọn phương thức vận chuyển',
-      );
-    }
+    const order = await this.requirePayableOrder(userId, dto.orderId);
 
     const clientReturnUrl: string =
       dto.client === PaymentClient.MOBILE
@@ -155,6 +131,108 @@ export class PaymentsService {
       orderInfo: `Payment for order ${order.id}`,
       gatewayOrderId: order.id,
     });
+  }
+
+  /**
+   * Pay a PENDING order from the customer wallet — no gateway, no redirect.
+   * Debit + order transition happen in one transaction, so an insufficient
+   * balance leaves neither a Payment row nor a paid order behind.
+   */
+  async checkoutWithWallet(
+    userId: string,
+    dto: WalletCheckoutDto,
+  ): Promise<WalletCheckoutResponseDto> {
+    const order = await this.requirePayableOrder(userId, dto.orderId);
+    if (order.totalVnd <= 0) {
+      throw new BadRequestException('Giá trị đơn hàng không hợp lệ');
+    }
+
+    const now = new Date();
+
+    const { payment, transactionId, amountVnd } =
+      await this.dataSource.transaction(async (manager) => {
+        // Lock the order so two concurrent wallet checkouts cannot both debit.
+        const locked = await manager
+          .getRepository(Order)
+          .createQueryBuilder('o')
+          .setLock('pessimistic_write')
+          .where('o.id = :id', { id: order.id })
+          .getOne();
+        if (!locked) {
+          throw new NotFoundException('Không tìm thấy đơn hàng');
+        }
+        if (locked.status !== OrderStatus.PENDING) {
+          throw new BadRequestException(
+            `Đơn hàng không thể thanh toán (trạng thái: ${locked.status})`,
+          );
+        }
+
+        await this.cancelOpenGatewayPayments(manager, locked.id);
+
+        const chargedVnd = String(locked.totalVnd);
+        const created = await manager.save(
+          Payment,
+          manager.create(Payment, {
+            orderId: locked.id,
+            purpose: PaymentPurpose.ORDER,
+            userId,
+            provider: PaymentProvider.WALLET,
+            status: PaymentStatus.PAID,
+            amountVnd: chargedVnd,
+            clientReturnUrl: this.config.clientReturnUrl,
+            paidAt: now,
+          }),
+        );
+
+        const tx = await this.walletService.debitWithManager(manager, {
+          type: TransactionType.PRODUCT_PURCHASE,
+          amountVnd: locked.totalVnd,
+          userId,
+          orderId: locked.id,
+          fromAccount: LedgerAccount.CUSTOMER_WALLET,
+          toAccount: LedgerAccount.PLATFORM_REVENUE,
+          externalRef: `order-wallet-pay:${created.id}`,
+          note: `Wallet payment for order ${locked.id}`,
+        });
+
+        const updated = await manager.update(
+          Order,
+          { id: locked.id, status: OrderStatus.PENDING },
+          { status: OrderStatus.PAID },
+        );
+        if (!updated.affected) {
+          throw new BadRequestException('Đơn hàng đã được thanh toán');
+        }
+
+        await this.commerceAnalyticsService.recordPurchaseWithManager(
+          manager,
+          locked.id,
+          now,
+        );
+
+        return {
+          payment: created,
+          transactionId: tx.id,
+          amountVnd: chargedVnd,
+        };
+      });
+
+    this.logger.log(
+      `Wallet checkout settled payment=${payment.id} order=${order.id} amount=${amountVnd}`,
+    );
+
+    await this.runPostPaymentSideEffects(payment.id);
+
+    const wallet = await this.walletService.getOrCreateWallet(userId);
+    return {
+      paymentId: payment.id,
+      orderId: order.id,
+      status: PaymentStatus.PAID,
+      amountVnd,
+      transactionId,
+      walletBalanceVnd: wallet.balanceVnd,
+      paidAt: now,
+    };
   }
 
   /** Create a wallet top-up Payment and return a gateway payment URL. */
@@ -589,6 +667,80 @@ export class PaymentsService {
       amountVnd: payment.amountVnd,
       paidAt: payment.paidAt,
     };
+  }
+
+  /** Shared guard for every order payment path: ownership, status, shipping. */
+  private async requirePayableOrder(
+    userId: string,
+    orderId: string,
+  ): Promise<Order> {
+    const customer = await this.customerRepo.findOne({ where: { userId } });
+    if (!customer) {
+      throw new ForbiddenException(
+        'Không có hồ sơ khách hàng cho người dùng này',
+      );
+    }
+
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId },
+      relations: ['delivery'],
+    });
+    if (!order) {
+      throw new NotFoundException('Không tìm thấy đơn hàng');
+    }
+    if (order.customerId !== customer.id) {
+      throw new ForbiddenException('Đơn hàng không thuộc về khách hàng này');
+    }
+    if (order.status !== OrderStatus.PENDING) {
+      throw new BadRequestException(
+        `Đơn hàng không thể thanh toán (trạng thái: ${order.status})`,
+      );
+    }
+    if (!order.delivery) {
+      throw new BadRequestException(
+        'Đơn hàng chưa chọn phương thức vận chuyển',
+      );
+    }
+    return order;
+  }
+
+  /**
+   * Void gateway payments left open for this order (abandoned redirects) so a
+   * late IPN/webhook cannot finalize them and fulfil the order a second time.
+   */
+  private async cancelOpenGatewayPayments(
+    manager: EntityManager,
+    orderId: string,
+  ): Promise<void> {
+    const open = await manager.find(Payment, {
+      where: {
+        orderId,
+        purpose: PaymentPurpose.ORDER,
+        status: In([PaymentStatus.PENDING, PaymentStatus.PROCESSING]),
+      },
+    });
+    if (!open.length) {
+      return;
+    }
+
+    const paymentIds = open.map((p) => p.id);
+    await manager.update(
+      PaymentAttempt,
+      { paymentId: In(paymentIds), status: PaymentAttemptStatus.PENDING },
+      {
+        status: PaymentAttemptStatus.FAILED,
+        responseCode: 'WALLET_SUPERSEDED',
+      },
+    );
+    await manager.update(
+      Payment,
+      { id: In(paymentIds) },
+      { status: PaymentStatus.CANCELLED },
+    );
+
+    this.logger.log(
+      `Cancelled ${paymentIds.length} open gateway payment(s) for order=${orderId} superseded by wallet checkout`,
+    );
   }
 
   private async createAttemptAndCheckoutUrl(params: {

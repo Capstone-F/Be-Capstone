@@ -4,12 +4,39 @@ Order checkout uses a **payment gateway abstraction**. Clients always call the s
 
 **Consultations are not paid here.** Expert booking fees use the customer **Wallet** ledger — see [Consultation Flow](consultation-flow.md).
 
-**Client contract (unchanged):**
+**Client contract:**
 
-| Method | Path                 | Auth    | Response                    |
-| ------ | -------------------- | ------- | --------------------------- |
-| `POST` | `/payments/checkout` | Session | `{ paymentId, paymentUrl }` |
-| `GET`  | `/payments/:id`      | Session | Authoritative status        |
+| Method | Path                        | Auth    | Response                      |
+| ------ | --------------------------- | ------- | ----------------------------- |
+| `POST` | `/payments/checkout`        | Session | `{ paymentId, paymentUrl }`   |
+| `POST` | `/payments/checkout/wallet` | Session | Settled payment (no redirect) |
+| `GET`  | `/payments/:id`             | Session | Authoritative status          |
+
+---
+
+## Wallet checkout (no gateway)
+
+An order can also be paid straight from the customer **Wallet** — same guards as gateway checkout (owned, `PENDING`, has shipping), but it settles in-process with no redirect and no polling.
+
+```
+POST /payments/checkout/wallet   { "orderId": "..." }
+        │  one transaction: order locked → wallet debited → payment PAID → order PAID
+        ▼
+{ paymentId, orderId, status: "PAID", amountVnd, transactionId, walletBalanceVnd, paidAt }
+        │
+        ▼  stock deducted + GHN order created (same side effects as gateway)
+```
+
+| Aspect                | Behaviour                                                                                                                                                                               |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Provider              | `Payment.provider = WALLET`, `purpose = ORDER`                                                                                                                                          |
+| Ledger                | `PRODUCT_PURCHASE` debit, `CUSTOMER_WALLET` → `PLATFORM_REVENUE`, `externalRef = order-wallet-pay:<paymentId>`                                                                          |
+| Insufficient          | `400 Số dư ví không đủ` — transaction rolls back, no Payment row, order stays `PENDING`                                                                                                 |
+| Concurrency           | Order row is locked `FOR UPDATE`; the `PENDING → PAID` transition is conditional                                                                                                        |
+| Open gateway attempts | Any `PENDING`/`PROCESSING` gateway payment for the order is `CANCELLED` (its attempts `FAILED`, `responseCode = WALLET_SUPERSEDED`) so a late IPN/webhook cannot fulfil the order twice |
+| Refunds               | Unchanged — order cancellation credits the wallet regardless of how the order was paid                                                                                                  |
+
+Top up the wallet first with `POST /wallet/top-up` (gateway) — see [Consultation Flow](consultation-flow.md) for the wallet ledger.
 
 ---
 

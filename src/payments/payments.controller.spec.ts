@@ -5,6 +5,7 @@ import { PaymentsService } from './payments.service';
 describe('PaymentsController', () => {
   const paymentsService = {
     checkout: jest.fn(),
+    checkoutWithWallet: jest.fn(),
     getStatus: jest.fn(),
     handleReturn: jest.fn(),
     handleIpn: jest.fn(),
@@ -27,12 +28,30 @@ describe('PaymentsController', () => {
     } as any;
     const dto = { orderId: 'o1' };
 
-    await controller.checkout(req, dto as any);
+    await controller.checkout(req, dto);
 
     expect(paymentsService.checkout).toHaveBeenCalledWith(
       'u-bearer',
       dto,
       '127.0.0.1',
+    );
+  });
+
+  it('wallet checkout should use Bearer authContext userId', async () => {
+    paymentsService.checkoutWithWallet.mockResolvedValue({
+      paymentId: 'p1',
+    } as any);
+    const req = {
+      authContext: { userId: 'u-bearer', roles: ['customer'] },
+      session: {},
+    } as any;
+    const dto = { orderId: 'o1' };
+
+    await controller.checkoutWithWallet(req, dto);
+
+    expect(paymentsService.checkoutWithWallet).toHaveBeenCalledWith(
+      'u-bearer',
+      dto,
     );
   });
 
