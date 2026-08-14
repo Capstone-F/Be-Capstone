@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ConsultationStatus } from '../consultations/enums';
+import { ConflictSeverity } from '../products/enums/conflict-severity.enum';
 import { RoutineStatus, StepCompletionStatus } from '../routines/enums';
 import { Routine } from '../routines/routine.entity';
 import {
@@ -111,6 +112,7 @@ describe('TreatmentsService phase activation rules', () => {
       {} as never,
       escrowService as never,
       dataSource as never,
+      {} as never,
     );
 
     (
@@ -256,6 +258,7 @@ describe('TreatmentsService submit / cancel / chart', () => {
       }) as never,
       (deps.escrowService ?? defaultEscrow) as never,
       (deps.dataSource ?? defaultDataSource) as never,
+      {} as never,
     );
   }
 
@@ -883,6 +886,7 @@ describe('TreatmentsService updateEventPhoto', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
   }
 
@@ -1034,6 +1038,7 @@ describe('TreatmentsService cross-expert read access', () => {
       (deps.completionRepo ?? {
         find: jest.fn().mockResolvedValue([]),
       }) as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1243,6 +1248,7 @@ describe('TreatmentsService listMyTreatments (expert filters)', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     const result = await service.listMyTreatments('u-e', true, {
@@ -1272,6 +1278,7 @@ describe('TreatmentsService listMyTreatments (expert filters)', () => {
       {
         findOne: jest.fn().mockResolvedValue({ id: 'expert-1', userId: 'u-e' }),
       } as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1321,6 +1328,7 @@ describe('TreatmentsService clinic oversight', () => {
       {} as never,
       {} as never,
       escrowService as never,
+      {} as never,
       {} as never,
     );
     // Focus these tests on scoping + escrow enrichment, not DTO mapping.
@@ -1402,5 +1410,132 @@ describe('TreatmentsService clinic oversight', () => {
       releasedVnd: '0',
       refundedVnd: '0',
     });
+  });
+});
+
+describe('TreatmentsService phase product conflict warnings', () => {
+  const retinolAhaConflict = {
+    protocolId: 'prot-ret',
+    conflictingProtocolId: 'prot-aha',
+    severity: ConflictSeverity.HIGH,
+    reason: 'Retinol kết hợp AHA có thể gây kích ứng quá mức',
+    description: 'Retinol kết hợp AHA có thể gây kích ứng mạnh',
+    protocol: { code: 'retinol_0.3_anti_aging' },
+    conflictingProtocol: { code: 'glycolic_exfoliation' },
+  };
+
+  const buildService = () => {
+    const variantRepo = {
+      find: jest.fn().mockResolvedValue([
+        { id: 'v-ret', productId: 'p-ret' },
+        { id: 'v-aha', productId: 'p-aha' },
+      ]),
+    };
+    const productProtocolRepo = {
+      find: jest.fn().mockResolvedValue([
+        { productId: 'p-ret', protocolId: 'prot-ret' },
+        { productId: 'p-aha', protocolId: 'prot-aha' },
+      ]),
+    };
+    const conflictRepo = {
+      find: jest.fn().mockResolvedValue([retinolAhaConflict]),
+    };
+    const service = new TreatmentsService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      variantRepo as never,
+      {} as never,
+      productProtocolRepo as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      conflictRepo as never,
+    );
+    return { service, conflictRepo };
+  };
+
+  it('resolves conflicts among selected phase products', async () => {
+    const { service } = buildService();
+
+    const conflicts = await (
+      service as unknown as {
+        resolvePhaseProductConflicts: (
+          ids: string[],
+        ) => Promise<Array<Record<string, unknown>>>;
+      }
+    ).resolvePhaseProductConflicts(['v-ret', 'v-aha']);
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({
+      protocolCode: 'retinol_0.3_anti_aging',
+      conflictingProtocolCode: 'glycolic_exfoliation',
+      severity: ConflictSeverity.HIGH,
+      description: 'Retinol kết hợp AHA có thể gây kích ứng mạnh',
+      productVariantIds: ['v-ret'],
+      conflictingProductVariantIds: ['v-aha'],
+    });
+  });
+
+  it('returns no conflicts for a single selected product', async () => {
+    const { service, conflictRepo } = buildService();
+
+    const conflicts = await (
+      service as unknown as {
+        resolvePhaseProductConflicts: (
+          ids: string[],
+        ) => Promise<Array<Record<string, unknown>>>;
+      }
+    ).resolvePhaseProductConflicts(['v-ret']);
+
+    expect(conflicts).toEqual([]);
+    expect(conflictRepo.find).not.toHaveBeenCalled();
+  });
+
+  it('warns candidates that conflict with already-selected products', async () => {
+    const { service } = buildService();
+    const candidates = [
+      {
+        productVariantId: 'v-aha',
+        productId: 'p-aha',
+        productName: 'AHA Toner',
+        sku: 'AHA-1',
+        priceVnd: 200000,
+        matchScore: 1,
+        matchedIngredientIds: [],
+        stockQuantity: 5,
+        conflictWarnings: [],
+      },
+    ];
+
+    await (
+      service as unknown as {
+        attachConflictWarnings: (
+          candidates: Array<Record<string, unknown>>,
+          selected: string[],
+        ) => Promise<void>;
+      }
+    ).attachConflictWarnings(candidates, ['v-ret']);
+
+    expect(candidates[0].conflictWarnings).toEqual([
+      {
+        selectedProductVariantId: 'v-ret',
+        protocolCode: 'glycolic_exfoliation',
+        conflictingProtocolCode: 'retinol_0.3_anti_aging',
+        severity: ConflictSeverity.HIGH,
+        description: 'Retinol kết hợp AHA có thể gây kích ứng mạnh',
+      },
+    ]);
   });
 });
