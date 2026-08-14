@@ -14,7 +14,13 @@ import { Transaction } from '../commerce/transaction.entity';
 import { User } from '../users/user.entity';
 import { Wallet } from '../users/wallet.entity';
 import { AdminWalletTopUpResponseDto } from './dto/admin-wallet-top-up-response.dto';
+import { ListWalletTransactionsQueryDto } from './dto/list-wallet-transactions-query.dto';
 import { WalletBalanceDto } from './dto/wallet-balance.dto';
+import {
+  PaginatedWalletTransactionsDto,
+  WalletTransactionResponseDto,
+} from './dto/wallet-transaction-response.dto';
+import { WalletTransactionDirection } from './enums';
 
 export type WalletDebitOptions = {
   type: TransactionType;
@@ -33,6 +39,12 @@ export type WalletDebitOptions = {
   note?: string | null;
   externalRef?: string | null;
 };
+
+/** Types that always move money *into* the customer wallet. */
+const WALLET_CREDIT_TYPES = [
+  TransactionType.WALLET_TOPUP,
+  TransactionType.REFUND,
+];
 
 export type WalletCreditOptions = {
   type: TransactionType;
@@ -84,6 +96,74 @@ export class WalletService {
       userId: wallet.userId,
       balanceVnd: wallet.balanceVnd,
       isActive: wallet.isActive,
+    };
+  }
+
+  /**
+   * Wallet statement for a customer, newest first.
+   *
+   * A ledger row carries the customer's `userId` even when it never touched
+   * their wallet — escrow release and commission rows are tagged with the
+   * customer for traceability but move money between platform and clinic
+   * accounts — so rows must also have a CUSTOMER_WALLET leg. Refunds written
+   * before the ledger accounts existed carry neither leg; those are always
+   * wallet movements, so they are kept as well.
+   */
+  async listTransactions(
+    userId: string,
+    query: ListWalletTransactionsQueryDto,
+  ): Promise<PaginatedWalletTransactionsDto> {
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 20));
+
+    const qb = this.transactionRepo
+      .createQueryBuilder('t')
+      .where('t.userId = :userId', { userId })
+      .andWhere(
+        '(t.fromAccount = :wallet OR t.toAccount = :wallet OR (t.fromAccount IS NULL AND t.toAccount IS NULL))',
+        { wallet: LedgerAccount.CUSTOMER_WALLET },
+      )
+      .orderBy('t.createdAt', 'DESC')
+      .addOrderBy('t.id', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    if (query.type) {
+      qb.andWhere('t.type = :type', { type: query.type });
+    }
+    // Mirrors resolveDirection() — spelled out per direction rather than
+    // negated, because NOT over a NULL comparison drops rows instead of
+    // keeping them.
+    if (query.direction === WalletTransactionDirection.CREDIT) {
+      qb.andWhere(
+        '(t.toAccount = :wallet OR (t.fromAccount IS NULL AND t.toAccount IS NULL AND t.type IN (:...creditTypes)))',
+        {
+          wallet: LedgerAccount.CUSTOMER_WALLET,
+          creditTypes: WALLET_CREDIT_TYPES,
+        },
+      );
+    } else if (query.direction === WalletTransactionDirection.DEBIT) {
+      qb.andWhere(
+        '(t.fromAccount = :wallet OR (t.fromAccount IS NULL AND t.toAccount IS NULL AND t.type NOT IN (:...creditTypes)))',
+        {
+          wallet: LedgerAccount.CUSTOMER_WALLET,
+          creditTypes: WALLET_CREDIT_TYPES,
+        },
+      );
+    }
+    if (query.from) {
+      qb.andWhere('t.createdAt >= :from', { from: new Date(query.from) });
+    }
+    if (query.to) {
+      qb.andWhere('t.createdAt <= :to', { to: new Date(query.to) });
+    }
+
+    const [items, total] = await qb.getManyAndCount();
+    return {
+      items: items.map((t) => this.toTransactionDto(t)),
+      total,
+      page,
+      limit,
     };
   }
 
@@ -206,6 +286,36 @@ export class WalletService {
       externalRef: options.externalRef ?? null,
     });
     return manager.save(Transaction, tx);
+  }
+
+  private toTransactionDto(tx: Transaction): WalletTransactionResponseDto {
+    return {
+      id: tx.id,
+      type: tx.type,
+      status: tx.status,
+      direction: this.resolveDirection(tx),
+      amountVnd: tx.amountVnd,
+      orderId: tx.orderId,
+      consultationId: tx.consultationId,
+      treatmentId: tx.treatmentId,
+      treatmentPhaseId: tx.treatmentPhaseId,
+      clinicId: tx.clinicId,
+      expertId: tx.expertId,
+      note: tx.note,
+      createdAt: tx.createdAt,
+    };
+  }
+
+  private resolveDirection(tx: Transaction): WalletTransactionDirection {
+    if (tx.toAccount === LedgerAccount.CUSTOMER_WALLET) {
+      return WalletTransactionDirection.CREDIT;
+    }
+    if (tx.fromAccount === LedgerAccount.CUSTOMER_WALLET) {
+      return WalletTransactionDirection.DEBIT;
+    }
+    return WALLET_CREDIT_TYPES.includes(tx.type)
+      ? WalletTransactionDirection.CREDIT
+      : WalletTransactionDirection.DEBIT;
   }
 
   private async requireUser(userId: string): Promise<User> {
