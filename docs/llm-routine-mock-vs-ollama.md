@@ -27,14 +27,15 @@ Product input now includes: `categoryCode`, `protocolCode/name`, `timeOfUse`, se
 
 After `npm run seed` (and `LLM_PROVIDER=mock`, the default for local/tests):
 
-| Capability          | Behavior                                                                                       |
-| ------------------- | ---------------------------------------------------------------------------------------------- |
-| Period split        | From protocol `timeOfUse` (`AM` / `PM` / `AM_PM`)                                              |
-| Step order          | Category rank: CLEANSER → TONER → SERUM → TREATMENT → MOISTURIZER → SUNSCREEN                  |
-| Instructions        | **Seeded** `IngredientProtocol.instructions` when present; else category fallback copy         |
-| Dosage / wait       | Deterministic by category/protocol role (e.g. sunscreen → two finger-lengths; cleanser wait 0) |
-| Title / description | Template + skin type + first matching concern label                                            |
-| Product set         | Only purchased variants (same as Ollama)                                                       |
+| Capability          | Behavior                                                                                                                                                                   |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Period split        | From protocol `timeOfUse` (`AM` / `PM` / `AM_PM`)                                                                                                                          |
+| Step order          | Category rank: CLEANSER → TONER → SERUM → TREATMENT → MOISTURIZER → SUNSCREEN                                                                                              |
+| Instructions        | **Seeded** `IngredientProtocol.instructions` when present; else category fallback copy                                                                                     |
+| Dosage / wait       | Deterministic by category/protocol role (e.g. sunscreen → two finger-lengths; cleanser wait 0)                                                                             |
+| Shared with expert  | Role/rank/dosage/wait live in `src/routines/routine-step-defaults.ts`, also used by the expert rule-engine template (`POST /treatments/phases/:phaseId/routines/generate`) |
+| Title / description | Template + skin type + first matching concern label                                                                                                                        |
+| Product set         | Only purchased variants (same as Ollama)                                                                                                                                   |
 
 **Step-role protocols in seed** (mapped onto catalog SKUs):
 

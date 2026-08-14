@@ -300,6 +300,23 @@ All require treatment `ACTIVE` + paid, assigned expert.
 { "productVariantIds": ["<uuid>", "<uuid>"] }
 ```
 
+**Generated routine defaults (step 4):** the rule engine returns a ready-to-edit template, not blanks.
+
+- Steps are ordered within each period by role: **CLEANSER → TONER → SERUM → TREATMENT → MOISTURIZER → SUNSCREEN** (role from product category, else protocol code, else name).
+- Each step is pre-filled with `dosageText` + `waitMinutes` (step) and `amountMl` (step details), e.g. cleanser `bằng hạt đậu` / wait 0, serum `2-3 giọt` / wait 5, sunscreen `hai đốt ngón tay`.
+- The **first step of a period never waits** (`waitMinutes = 0`).
+- Same table the AI (customer) routine uses — `src/routines/routine-step-defaults.ts`.
+
+**Editing the defaults (step 6):** `PATCH /treatments/routines/:routineId` accepts per-step `waitMinutes`, `dosageText`, and `amountMl`. Omitted fields keep their generated value; `amountMl` is what drives the customer’s “sắp hết sản phẩm” forecast, so keep it in sync when changing the dosage text. Steps added by hand (no linked product) get role defaults inferred from the step name and cannot carry `amountMl`.
+
+```json
+{
+  "steps": [
+    { "id": "<uuid>", "dosageText": "1 giọt", "amountMl": 1, "waitMinutes": 10 }
+  ]
+}
+```
+
 **Activate rules:**
 
 - Only one phase `ACTIVE` at a time (previous ACTIVE → `COMPLETED`).

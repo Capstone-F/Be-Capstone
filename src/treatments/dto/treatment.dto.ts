@@ -6,6 +6,7 @@ import {
   IsEnum,
   IsInt,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   IsUrl,
@@ -214,6 +215,16 @@ export class UpdateRoutineStepDto {
   @IsOptional()
   @IsString()
   dosageText?: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'Liều lượng mỗi lần dùng (ml). Dùng cho dự báo hết sản phẩm của khách hàng.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  amountMl?: number | null;
 }
 
 export class UpdateExpertRoutineDto {
