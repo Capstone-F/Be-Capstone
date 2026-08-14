@@ -200,7 +200,12 @@ _(Trường `subject` là tùy chọn, tối đa 255 ký tự)._
 ### 4.5. Gửi tin nhắn (Văn bản & Đính kèm sản phẩm)
 
 - **Endpoint:** `POST /support/sessions/:id/messages`
-- **Role:** Customer (khi status = `OPEN` / `ACTIVE`), Staff (khi status = `ACTIVE`).
+- **Endpoint:** `POST /support/sessions/:id/messages`
+- **Role:** `customer`, `staff` (đã là `assignedStaffUserId`), `app_admin`
+- **Quy tắc gửi tin nhắn từ BE:**
+  - **Customer** (owner phiên): Có thể gửi khi status = `OPEN` hoặc `ACTIVE`.
+  - **Staff/AppAdmin**: Chỉ có thể gửi sau khi đã `claim` phiên (tức là `assignedStaffUserId` phải bằng `userId` của Staff). Nếu Staff chưa claim mà gửi → `403 Forbidden`.
+  - Mọi người: Không thể gửi khi status = `CLOSED` → `409 Conflict`.
 
 **Trường hợp 1: Tin nhắn văn bản thông thường**
 
@@ -279,7 +284,6 @@ export enum SupportSessionStatus {
 export enum SupportMessageSenderRole {
   CUSTOMER = 'CUSTOMER',
   STAFF = 'STAFF',
-  SYSTEM = 'SYSTEM',
 }
 
 export interface ProductMessageMetadata {
@@ -320,6 +324,7 @@ export interface SupportSession {
   closedAt: string | null;
   closeReason: string | null;
   createdAt: string;
+  updatedAt: string;
 }
 ```
 
