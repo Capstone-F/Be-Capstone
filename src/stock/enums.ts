@@ -19,6 +19,11 @@ export enum ProductInstanceStatus {
   DAMAGED = 'DAMAGED',
 }
 
+export enum InventoryStockWarning {
+  LOW = 'LOW',
+  OUT_OF_STOCK = 'OUT_OF_STOCK',
+}
+
 export enum StockImportFormStatus {
   DRAFT = 'DRAFT',
   SUBMITTED = 'SUBMITTED',
