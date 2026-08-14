@@ -27,6 +27,12 @@ import {
   RoutineType,
   StepCompletionStatus,
 } from '../routines/enums';
+import {
+  resolveDefaultDosage,
+  resolveDefaultWaitMinutes,
+  resolveRoutineStepRank,
+  RoutineStepRoleInput,
+} from '../routines/routine-step-defaults';
 import { RoutineStepCompletion } from '../routines/routine-step-completion.entity';
 import { RoutineStepDetails } from '../routines/routine-step-details.entity';
 import { RoutineStepProtocol } from '../routines/routine-step-protocol.entity';
@@ -124,6 +130,8 @@ export class TreatmentsService {
     private readonly dataSource: DataSource,
     @InjectRepository(IngredientConflict)
     private readonly ingredientConflictRepo: Repository<IngredientConflict>,
+    @InjectRepository(RoutineStepDetails)
+    private readonly stepDetailsRepo: Repository<RoutineStepDetails>,
   ) {}
 
   async createTreatment(
@@ -982,7 +990,7 @@ export class TreatmentsService {
     const variantIds = products.map((p) => p.productVariantId);
     const variants = await this.variantRepo.find({
       where: { id: In(variantIds) },
-      relations: ['product'],
+      relations: ['product', 'product.category'],
     });
     const variantById = new Map(variants.map((v) => [v.id, v]));
 
@@ -998,11 +1006,13 @@ export class TreatmentsService {
       instructions: string | null;
       productVariantId: string;
       protocolId: string | null;
+      role: RoutineStepRoleInput;
+      waitMinutes: number;
+      dosageText: string;
+      amountMl: number;
     };
 
     const drafts: StepDraft[] = [];
-    let morningOrder = 0;
-    let eveningOrder = 0;
 
     for (const productRow of products) {
       const variant = variantById.get(productRow.productVariantId);
@@ -1016,10 +1026,17 @@ export class TreatmentsService {
         drafts.push({
           name: variant.product?.name ?? variant.sku,
           period: RoutinePeriod.EVENING,
-          stepOrder: eveningOrder++,
+          stepOrder: 0,
           instructions: null,
           productVariantId: variant.id,
           protocolId: null,
+          role: {
+            productName: variant.product?.name ?? variant.sku,
+            categoryCode: variant.product?.category?.code ?? null,
+          },
+          waitMinutes: 0,
+          dosageText: '',
+          amountMl: 0,
         });
         continue;
       }
@@ -1028,18 +1045,45 @@ export class TreatmentsService {
         const protocol = pp.protocol;
         const periods = this.periodsFromTimeOfUse(protocol?.timeOfUse ?? null);
         for (const period of periods) {
-          const stepOrder =
-            period === RoutinePeriod.MORNING ? morningOrder++ : eveningOrder++;
           drafts.push({
             name: protocol?.name ?? variant.product?.name ?? variant.sku,
             period,
-            stepOrder,
+            stepOrder: 0,
             instructions: protocol?.instructions ?? null,
             productVariantId: variant.id,
             protocolId: protocol?.id ?? null,
+            role: {
+              productName: variant.product?.name ?? variant.sku,
+              categoryCode: variant.product?.category?.code ?? null,
+              protocolCode: protocol?.code ?? null,
+              protocolName: protocol?.name ?? null,
+            },
+            waitMinutes: 0,
+            dosageText: '',
+            amountMl: 0,
           });
         }
       }
+    }
+
+    // Order each period by step role (CLEANSER → … → SUNSCREEN), then fill the
+    // default dosage / wait time so the expert starts from a usable template.
+    for (const period of [RoutinePeriod.MORNING, RoutinePeriod.EVENING]) {
+      const periodDrafts = drafts
+        .filter((draft) => draft.period === period)
+        .sort(
+          (a, b) =>
+            resolveRoutineStepRank(a.role) - resolveRoutineStepRank(b.role) ||
+            a.name.localeCompare(b.name),
+        );
+
+      periodDrafts.forEach((draft, index) => {
+        const dosage = resolveDefaultDosage(draft.role);
+        draft.stepOrder = index;
+        draft.waitMinutes = resolveDefaultWaitMinutes(draft.role, index === 0);
+        draft.dosageText = dosage.dosageText;
+        draft.amountMl = dosage.amountMl;
+      });
     }
 
     return this.dataSource.transaction(async (manager) => {
@@ -1080,8 +1124,8 @@ export class TreatmentsService {
             period: draft.period,
             stepOrder: draft.stepOrder,
             instructions: draft.instructions,
-            waitMinutes: null,
-            dosageText: null,
+            waitMinutes: draft.waitMinutes,
+            dosageText: draft.dosageText,
           }),
         );
 
@@ -1090,7 +1134,7 @@ export class TreatmentsService {
           manager.create(RoutineStepDetails, {
             routineStepId: step.id,
             productVariantId: draft.productVariantId,
-            amountMl: null,
+            amountMl: draft.amountMl,
             date: null,
             period: draft.period,
             progressNote: null,
@@ -1103,7 +1147,7 @@ export class TreatmentsService {
             manager.create(RoutineStepProtocol, {
               routineStepId: step.id,
               protocolId: draft.protocolId,
-              amountMl: null,
+              amountMl: draft.amountMl,
             }),
           );
         }
@@ -1240,16 +1284,28 @@ export class TreatmentsService {
             );
             throw err;
           }
+          if (patch.amountMl !== undefined) {
+            await this.stepDetailsRepo.update(
+              { routineStepId: step.id },
+              { amountMl: patch.amountMl },
+            );
+          }
         } else {
-          // Insert new step
+          // Insert new step. Steps added by hand have no linked product, so
+          // dosage/wait fall back to the role defaults inferred from the name.
+          const name = patch.name || `Bước ${i + 1}`;
+          const role: RoutineStepRoleInput = { productName: name };
           const newStep = this.stepRepo.create({
             routineId,
-            name: patch.name || `Bước ${i + 1}`,
+            name,
             period: (patch.period as RoutinePeriod) || RoutinePeriod.MORNING,
             stepOrder: patch.stepOrder ?? i,
             instructions: patch.instructions ?? null,
-            waitMinutes: patch.waitMinutes ?? null,
-            dosageText: patch.dosageText ?? null,
+            waitMinutes:
+              patch.waitMinutes ??
+              resolveDefaultWaitMinutes(role, (patch.stepOrder ?? i) === 0),
+            dosageText:
+              patch.dosageText ?? resolveDefaultDosage(role).dosageText,
           });
           try {
             await this.stepRepo.save(newStep);

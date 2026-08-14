@@ -1,7 +1,16 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ConsultationStatus } from '../consultations/enums';
+import { TimeOfUse } from '../ingredients/enums';
 import { ConflictSeverity } from '../products/enums/conflict-severity.enum';
-import { RoutineStatus, StepCompletionStatus } from '../routines/enums';
+import {
+  RoutinePeriod,
+  RoutineStatus,
+  RoutineType,
+  StepCompletionStatus,
+} from '../routines/enums';
+import { RoutineStepDetails } from '../routines/routine-step-details.entity';
+import { RoutineStepProtocol } from '../routines/routine-step-protocol.entity';
+import { RoutineStep } from '../routines/routine-step.entity';
 import { Routine } from '../routines/routine.entity';
 import {
   TreatmentEventType,
@@ -1537,5 +1546,286 @@ describe('TreatmentsService phase product conflict warnings', () => {
         description: 'Retinol kết hợp AHA có thể gây kích ứng mạnh',
       },
     ]);
+  });
+});
+
+describe('TreatmentsService generateRoutine defaults', () => {
+  const buildService = () => {
+    const phase = {
+      id: 'phase-1',
+      treatmentId: 't-1',
+      title: 'Phase 1',
+      phaseOrder: 0,
+      goals: 'Giảm mụn',
+      phaseProducts: [
+        { productVariantId: 'v-spf' },
+        { productVariantId: 'v-cleanse' },
+        { productVariantId: 'v-serum' },
+      ],
+      treatment: {
+        id: 't-1',
+        expertId: 'expert-1',
+        customerId: 'cust-1',
+        status: TreatmentStatus.ACTIVE,
+        paidAt: new Date(),
+      },
+    };
+
+    const savedSteps: Array<Record<string, unknown>> = [];
+    const savedDetails: Array<Record<string, unknown>> = [];
+    const savedStepProtocols: Array<Record<string, unknown>> = [];
+
+    let sequence = 0;
+    const dataSource = {
+      transaction: jest.fn(async (cb: (m: unknown) => Promise<unknown>) => {
+        const manager = {
+          find: jest.fn().mockResolvedValue([]),
+          delete: jest.fn().mockResolvedValue(undefined),
+          create: jest.fn(
+            (_entity: unknown, row: Record<string, unknown>) => row,
+          ),
+          save: jest.fn((entity: unknown, row: Record<string, unknown>) => {
+            const stored = { id: `id-${++sequence}`, ...row };
+            if (entity === RoutineStep) savedSteps.push(stored);
+            if (entity === RoutineStepDetails) savedDetails.push(stored);
+            if (entity === RoutineStepProtocol) savedStepProtocols.push(stored);
+            return Promise.resolve(stored);
+          }),
+          findOneOrFail: jest.fn().mockResolvedValue({ id: 'routine-1' }),
+        };
+        return cb(manager);
+      }),
+    };
+
+    const variantRepo = {
+      find: jest.fn().mockResolvedValue([
+        {
+          id: 'v-spf',
+          productId: 'p-spf',
+          sku: 'SKU-SPF',
+          product: {
+            name: 'Anthelios SPF50+',
+            category: { code: 'SUNSCREEN' },
+          },
+        },
+        {
+          id: 'v-cleanse',
+          productId: 'p-cleanse',
+          sku: 'SKU-C',
+          product: { name: 'Gentle Cleanser', category: { code: 'CLEANSER' } },
+        },
+        {
+          id: 'v-serum',
+          productId: 'p-serum',
+          sku: 'SKU-S',
+          product: { name: 'Niacinamide Serum', category: { code: 'SERUM' } },
+        },
+      ]),
+    };
+
+    const productProtocolRepo = {
+      find: jest.fn().mockResolvedValue([
+        {
+          productId: 'p-spf',
+          protocolId: 'prot-spf',
+          protocol: {
+            id: 'prot-spf',
+            code: 'sunscreen_daily_spf',
+            name: 'Chống nắng hằng ngày',
+            timeOfUse: TimeOfUse.AM,
+            instructions: 'Thoa lại sau 2 giờ ngoài trời.',
+          },
+        },
+        {
+          productId: 'p-cleanse',
+          protocolId: 'prot-cleanse',
+          protocol: {
+            id: 'prot-cleanse',
+            code: 'cleanser_gentle_foam',
+            name: 'Sữa rửa mặt dịu nhẹ',
+            timeOfUse: TimeOfUse.AM_PM,
+            instructions: null,
+          },
+        },
+        {
+          productId: 'p-serum',
+          protocolId: 'prot-serum',
+          protocol: {
+            id: 'prot-serum',
+            code: 'serum_niacinamide',
+            name: 'Serum Niacinamide',
+            timeOfUse: TimeOfUse.AM,
+            instructions: null,
+          },
+        },
+      ]),
+    };
+
+    const service = new TreatmentsService(
+      { findOne: jest.fn().mockResolvedValue(phase.treatment) } as never,
+      { findOne: jest.fn().mockResolvedValue(phase) } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {
+        findOne: jest.fn().mockResolvedValue({ id: 'expert-1', userId: 'u-e' }),
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      variantRepo as never,
+      {} as never,
+      productProtocolRepo as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      dataSource as never,
+      {} as never,
+      {} as never,
+    );
+
+    return { service, savedSteps, savedDetails, savedStepProtocols };
+  };
+
+  it('orders steps by category rank and fills dosage/wait defaults', async () => {
+    const { service, savedSteps, savedDetails, savedStepProtocols } =
+      buildService();
+
+    await service.generateRoutine('u-e', 'phase-1');
+
+    const morning = savedSteps
+      .filter((s) => s.period === RoutinePeriod.MORNING)
+      .sort((a, b) => (a.stepOrder as number) - (b.stepOrder as number));
+
+    expect(morning.map((s) => s.stepOrder)).toEqual([0, 1, 2]);
+    expect(morning.map((s) => s.name)).toEqual([
+      'Sữa rửa mặt dịu nhẹ',
+      'Serum Niacinamide',
+      'Chống nắng hằng ngày',
+    ]);
+    expect(morning.map((s) => s.dosageText)).toEqual([
+      'bằng hạt đậu',
+      '2-3 giọt',
+      'hai đốt ngón tay',
+    ]);
+    // First step of a period never waits; the serum waits before sunscreen.
+    expect(morning.map((s) => s.waitMinutes)).toEqual([0, 5, 0]);
+
+    const evening = savedSteps.filter(
+      (s) => s.period === RoutinePeriod.EVENING,
+    );
+    expect(evening).toHaveLength(1);
+    expect(evening[0]).toMatchObject({ stepOrder: 0, waitMinutes: 0 });
+
+    expect(savedDetails.map((d) => d.amountMl)).toEqual([2, 2, 2, 2]);
+    expect(savedStepProtocols.map((p) => p.amountMl)).toEqual([2, 2, 2, 2]);
+  });
+});
+
+describe('TreatmentsService updateRoutine dosage edits', () => {
+  const buildService = (steps: Array<Record<string, unknown>>) => {
+    const routine = {
+      id: 'routine-1',
+      type: RoutineType.EXPERT_PRESCRIBED,
+      status: RoutineStatus.ACTIVE,
+      treatmentPhaseId: 'phase-1',
+      treatmentPhase: { treatmentId: 't-1' },
+      steps,
+    };
+
+    const routineRepo = {
+      findOne: jest.fn().mockResolvedValue(routine),
+      save: jest.fn((row: unknown) => Promise.resolve(row)),
+      findOneOrFail: jest.fn().mockResolvedValue(routine),
+    };
+    const stepRepo = {
+      find: jest.fn().mockResolvedValue(steps),
+      save: jest.fn((row: unknown) => Promise.resolve(row)),
+      create: jest.fn((row: Record<string, unknown>) => row),
+      remove: jest.fn().mockResolvedValue(undefined),
+    };
+    const stepDetailsRepo = { update: jest.fn().mockResolvedValue(undefined) };
+
+    const service = new TreatmentsService(
+      {
+        findOne: jest
+          .fn()
+          .mockResolvedValue({ id: 't-1', expertId: 'expert-1' }),
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {
+        findOne: jest.fn().mockResolvedValue({ id: 'expert-1', userId: 'u-e' }),
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      routineRepo as never,
+      stepRepo as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      stepDetailsRepo as never,
+    );
+
+    return { service, stepRepo, stepDetailsRepo };
+  };
+
+  it('persists an edited amountMl and keeps untouched defaults', async () => {
+    const step = {
+      id: '11111111-1111-4111-8111-111111111111',
+      name: 'Serum Niacinamide',
+      period: RoutinePeriod.MORNING,
+      stepOrder: 1,
+      instructions: null,
+      waitMinutes: 5,
+      dosageText: '2-3 giọt',
+    };
+    const { service, stepRepo, stepDetailsRepo } = buildService([step]);
+
+    await service.updateRoutine('u-e', 'routine-1', {
+      steps: [{ id: step.id, amountMl: 1.5 }],
+    });
+
+    expect(stepDetailsRepo.update).toHaveBeenCalledWith(
+      { routineStepId: step.id },
+      { amountMl: 1.5 },
+    );
+    expect(stepRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ waitMinutes: 5, dosageText: '2-3 giọt' }),
+    );
+  });
+
+  it('defaults dosage and wait time for manually added steps', async () => {
+    const { service, stepRepo } = buildService([]);
+
+    await service.updateRoutine('u-e', 'routine-1', {
+      steps: [
+        { name: 'Sữa rửa mặt dịu nhẹ', period: 'MORNING' },
+        { name: 'Serum Niacinamide', period: 'MORNING' },
+      ],
+    });
+
+    expect(stepRepo.save).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ dosageText: 'bằng hạt đậu', waitMinutes: 0 }),
+    );
+    expect(stepRepo.save).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ dosageText: '2-3 giọt', waitMinutes: 5 }),
+    );
   });
 });
