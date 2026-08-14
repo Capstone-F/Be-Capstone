@@ -16,6 +16,7 @@ End-to-end guide for **Staff** (`staff`) and **App Admin** (`app_admin`):
 
 See also:
 
+- [Support Chat Mobile Guide](support-chat-mobile-guide.md) — Customer support chat integration guide for mobile (Expo / React Native)
 - [Dashboard Integration Guide](dashboard-flow.md) — Staff work queues and authoritative operational trends
 - [Admin Integration Guide](admin-flow.md) — admin-only surface (users/RBAC, clinics, survey bank, commerce settings, wallet)
 - [Clinic Manager Flow Guide](clinic-manager-flow.md) — clinic-scoped expert onboarding, fees, availability, **escrow / clinic wallet / withdrawals** (app_admin marks withdrawals paid)
@@ -175,7 +176,9 @@ Response shape:
 
 ```json
 {
-  "items": [/* StockImportFormResponseDto */],
+  "items": [
+    /* StockImportFormResponseDto */
+  ],
   "total": 1,
   "page": 1,
   "limit": 20
