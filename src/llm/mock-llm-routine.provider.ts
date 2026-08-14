@@ -3,9 +3,9 @@ import { TimeOfUse } from '../ingredients/enums';
 import { RoutinePeriod } from '../routines/enums';
 import {
   resolveDefaultDosage,
+  resolveDefaultInstructions,
   resolveDefaultWaitMinutes,
   resolveRoutineStepRank,
-  resolveRoutineStepRole,
 } from '../routines/routine-step-defaults';
 import {
   LlmRoutineProvider,
@@ -91,30 +91,13 @@ export class MockLlmRoutineProvider implements LlmRoutineProvider {
       name: product.productName,
       period,
       stepOrder,
-      instructions: this.resolveInstructions(product),
+      instructions: resolveDefaultInstructions(product),
       productVariantId: product.productVariantId,
       protocolId: product.protocolId,
       amountMl: dosage.amountMl,
       dosageText: dosage.dosageText,
       waitMinutes: resolveDefaultWaitMinutes(product, stepOrder === 1),
     };
-  }
-
-  private resolveInstructions(product: RoutineGenerationProductInput): string {
-    // App is Vietnamese-first: always emit VI step copy (do not pass through EN seed HDSD).
-    const role = resolveRoutineStepRole(product);
-    const fallbacks: Record<string, string> = {
-      CLEANSER: `Làm ướt mặt, lấy một lượng ${product.productName} bằng hạt đậu tạo bọt, massage 30-60 giây, rửa sạch và thấm khô.`,
-      TONER: `Sau khi làm sạch, thoa ${product.productName} bằng tay hoặc bông cotton. Tránh vùng mắt và chờ trước bước tiếp theo.`,
-      SERUM: `Sử dụng 2-3 giọt ${product.productName} lên da sạch và vỗ nhẹ đến khi thấm.`,
-      TREATMENT: `Thoa một lớp mỏng ${product.productName} lên vùng cần điều trị. Dưỡng ẩm sau nếu da khô.`,
-      MOISTURIZER: `Massage một lượng ${product.productName} bằng hạt đậu lên mặt và cổ đến khi thấm.`,
-      SUNSCREEN: `Ở bước buổi sáng cuối cùng, thoa đều ${product.productName} lượng bằng hai đốt ngón tay. Thoa lại nếu ra ngoài trời.`,
-    };
-    return (
-      fallbacks[role] ??
-      `Sử dụng ${product.productName} theo hướng dẫn phù hợp với ${product.protocolName ?? 'nhu cầu da của bạn'}.`
-    );
   }
 
   private categoryRank(product: RoutineGenerationProductInput): number {

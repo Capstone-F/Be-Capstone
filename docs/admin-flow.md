@@ -44,6 +44,7 @@ See also:
 9. [Flow F — Commerce settings (survey combo discount)](#9-flow-f--commerce-settings-survey-combo-discount)
 10. [Flow G — Wallet inspect & top-up](#10-flow-g--wallet-inspect--top-up)
 11. [Flow H — Customer QA cheats (profile / survey)](#11-flow-h--customer-qa-cheats-profile--survey)
+    - 11.3 [Seed a demo customer with routine history](#113-seed-a-demo-customer-with-routine-history)
 12. [Flow I — Maintain experts (update / fee / availability)](#12-flow-i--maintain-experts-update--fee--availability)
 13. [Flow J — Manage clinics](#13-flow-j--manage-clinics)
 14. [Flow K — Order cancellations, refunds & restock](#14-flow-k--order-cancellations-refunds--restock)
@@ -782,6 +783,7 @@ Dev / demo shortcuts. Require `app_admin`. After survey cheat, call `GET /recomm
 | ------ | ------------------------------ | --------- | -------- |
 | PATCH  | `/admin/customers/:id/profile` | app_admin | ✅ Ready |
 | PATCH  | `/admin/customers/:id/survey`  | app_admin | ✅ Ready |
+| POST   | `/admin/demo/customers`        | app_admin | ✅ Ready |
 
 `:id` is the **customer** id (not always equal to `userId` — resolve via your user/customer tooling or known seed ids).
 
@@ -832,6 +834,80 @@ PATCH /admin/customers/:id/profile
   → PATCH /admin/customers/:id/survey
   → (as customer) GET /recommendations/latest
 ```
+
+---
+
+### 11.3 Seed a demo customer with routine history ✅ Ready
+
+One call provisions a customer you can log in as immediately: Keycloak account + `customer` role, a PAID `SURVEY` order, an **ACTIVE** AI routine backdated by `historyDays`, completed step history, one check-in per completed day, and **one product already sitting on a `LOW` stock warning** in `GET /routines/me/today`.
+
+```http
+POST /admin/demo/customers
+Content-Type: application/json
+
+{
+  "email": "demo.tracking@glowscan.local",
+  "password": "P@ssw0rd",
+  "fullName": "Demo Tracking Customer",
+  "historyDays": 14
+}
+```
+
+All fields are optional — the default is a unique `demo.customer.<random>@glowscan.local` address, password `P@ssw0rd`, and 14 days of history (`historyDays` accepts 7–60).
+
+Response (trimmed):
+
+```json
+{
+  "credentials": {
+    "email": "demo.tracking@glowscan.local",
+    "password": "P@ssw0rd",
+    "userId": "…",
+    "customerId": "…",
+    "keycloakSub": "…"
+  },
+  "routine": {
+    "routineId": "…",
+    "activeFromDate": "2026-07-31",
+    "morningSteps": 4,
+    "eveningSteps": 4,
+    "sourceOrderId": "…"
+  },
+  "history": {
+    "completedDays": 12,
+    "missedDays": 2,
+    "currentStreak": 8,
+    "checkInCount": 12,
+    "from": "2026-07-31",
+    "to": "2026-08-13"
+  },
+  "lowStock": {
+    "sku": "TO-NIACINAMIDE-10-ZINC-30ML",
+    "bottleMl": 30,
+    "dailyMl": 2.14,
+    "remainingMl": 4.32,
+    "daysLeft": 2,
+    "warning": "LOW",
+    "stepIds": ["…"]
+  },
+  "nextSteps": ["…"]
+}
+```
+
+How the numbers are built:
+
+- Steps are laid out CLEANSER → TONER → SERUM → SUNSCREEN (morning) and CLEANSER → TONER → TREATMENT → MOISTURIZER (evening), from active variants whose `volume` is in ml (`454g` products are skipped — the estimator needs a bottle size).
+- Per-step `amountMl` is sized backwards from the target: the **smallest bottle** lands on ~2 days of supply left (`LOW`, the threshold is ≤5), every other product on ~20 days (no warning).
+- Purchased quantity comes from the routine's `sourceOrderId` (1 bottle per variant), which is exactly what the buy-again demo then tops up.
+- Two early days are left with no step actions so the calendar shows `MISSED`; the recent days stay `COMPLETED` for the streak.
+- **Today is deliberately left empty** — complete/skip steps and `POST /routines/:routineId/check-ins` live during the demo.
+
+**Notes**
+
+- `409` when the email already has a local user; `400` when the catalog has no ml-based variants (run `npm run seed` first).
+- The response echoes the plain-text password — `app_admin` only, intended for demo / QA environments.
+- No stock movements are recorded for the seeded order, so staff inventory demos ([§7](#7-flow-d--product-catalog--stock)) are unaffected.
+- Fund the account for buy-again with [`POST /admin/wallets/:userId/top-up`](#10-flow-g--wallet-inspect--top-up) using the returned `userId`.
 
 ---
 
@@ -1088,6 +1164,7 @@ Env: `DELIVERY_SIMULATION_ENABLED` (default false in code; set true in `.env` fo
 | DELETE | `/admin/survey-questions/:id`         | app_admin | ✅ Ready |
 | PATCH  | `/admin/customers/:id/profile`        | app_admin | ✅ Ready |
 | PATCH  | `/admin/customers/:id/survey`         | app_admin | ✅ Ready |
+| POST   | `/admin/demo/customers`               | app_admin | ✅ Ready |
 
 ### Commerce & wallet
 

@@ -36,6 +36,7 @@ import { UploadsModule } from './uploads/uploads.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { FinanceModule } from './finance/finance.module';
 import { CommerceAnalyticsModule } from './analytics/commerce-analytics.module';
+import { DemoModule } from './demo/demo.module';
 
 @Module({
   imports: [
@@ -82,6 +83,7 @@ import { CommerceAnalyticsModule } from './analytics/commerce-analytics.module';
     UploadsModule,
     DashboardModule,
     AuthModule,
+    DemoModule,
     RedisModule,
     TypeOrmModule.forRootAsync({
       inject: [AppConfigService],

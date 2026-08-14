@@ -93,6 +93,8 @@ All tracking endpoints require an authenticated **Customer**. Acting on another 
 | ≥1 `ACTIVE` routine     | `POST /routines/generate` after paid survey order | ✅ Ready |
 | Steps with period/order | Returned on generate / `GET /routines/me`         | ✅ Ready |
 
+To skip that setup while integrating, an `app_admin` can call `POST /admin/demo/customers` once — it returns a fresh customer login whose routine already has backdated completions, check-ins, a streak, and a product on `warning: "LOW"` (see [admin-flow §11.3](admin-flow.md#113-seed-a-demo-customer-with-routine-history)). Today itself is left empty so the complete / skip / check-in calls below still have something to do.
+
 If the customer has **no** `ACTIVE` routine, Today returns an empty state (not a hard crash):
 
 ```json
