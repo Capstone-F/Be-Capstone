@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
+import { CommerceSetting } from '../commerce/commerce-setting.entity';
 import { ProductVariant } from '../products/product-variant.entity';
 import { ProductInstance } from './product-instance.entity';
 import { StockBatch } from './stock-batch.entity';
@@ -19,6 +20,7 @@ import { StockService } from './stock.service';
       StockMovement,
       ProductInstance,
       StockImportForm,
+      CommerceSetting,
     ]),
     AuthModule,
   ],

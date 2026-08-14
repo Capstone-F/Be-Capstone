@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { InventoryStockWarning } from '../enums';
 
 export class InventoryItemDto {
   @ApiProperty({ example: 'uuid' })
@@ -31,4 +32,20 @@ export class InventoryItemDto {
     type: [String],
   })
   activeIngredients!: string[];
+
+  @ApiProperty({
+    description:
+      'Restock alert: LOW when stockQuantity is at or below the low-stock threshold, OUT_OF_STOCK when zero',
+    enum: InventoryStockWarning,
+    nullable: true,
+    example: InventoryStockWarning.LOW,
+  })
+  stockWarning!: InventoryStockWarning | null;
+
+  @ApiProperty({
+    description: 'Human-readable restock warning for Staff UI',
+    nullable: true,
+    example: 'Sắp hết hàng — chỉ còn 8 sản phẩm (ngưỡng cảnh báo 10)',
+  })
+  warningMessage!: string | null;
 }

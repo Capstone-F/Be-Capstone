@@ -6,8 +6,12 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, MoreThan, Repository } from 'typeorm';
+import { CommerceSetting } from '../commerce/commerce-setting.entity';
+import { CommerceSettingKey } from '../commerce/enums';
 import { ProductVariant } from '../products/product-variant.entity';
+import { InventoryItemDto } from './dto/inventory.dto';
 import {
+  InventoryStockWarning,
   ProductInstanceStatus,
   ShelfLifeUnit,
   StockMovementType,
@@ -22,6 +26,12 @@ export type CreateBatchInput = {
   manufacturingDate: Date | string;
   batchCode?: string;
 };
+
+/**
+ * Default remaining units at or below which a LOW restock warning fires.
+ * Admin-configurable via PATCH /stock/low-stock-threshold.
+ */
+export const DEFAULT_LOW_STOCK_THRESHOLD = 10;
 
 export type DeductByVariantResult = {
   productVariantId: string;
@@ -42,7 +52,41 @@ export class StockService {
     private readonly movementRepository: Repository<StockMovement>,
     @InjectRepository(ProductInstance)
     private readonly instanceRepository: Repository<ProductInstance>,
+    @InjectRepository(CommerceSetting)
+    private readonly settingRepository: Repository<CommerceSetting>,
   ) {}
+
+  async getLowStockThreshold(): Promise<number> {
+    const setting = await this.settingRepository.findOneBy({
+      key: CommerceSettingKey.LOW_STOCK_THRESHOLD,
+    });
+    const parsed = Number.parseInt(setting?.value ?? '', 10);
+    if (Number.isNaN(parsed) || parsed < 0) {
+      return DEFAULT_LOW_STOCK_THRESHOLD;
+    }
+    return parsed;
+  }
+
+  async updateLowStockThreshold(
+    userId: string,
+    threshold: number,
+  ): Promise<number> {
+    let setting = await this.settingRepository.findOneBy({
+      key: CommerceSettingKey.LOW_STOCK_THRESHOLD,
+    });
+    if (!setting) {
+      setting = this.settingRepository.create({
+        key: CommerceSettingKey.LOW_STOCK_THRESHOLD,
+        value: String(threshold),
+        updatedByUserId: userId,
+      });
+    } else {
+      setting.value = String(threshold);
+      setting.updatedByUserId = userId;
+    }
+    await this.settingRepository.save(setting);
+    return threshold;
+  }
 
   async createBatch(input: CreateBatchInput): Promise<StockBatch> {
     return this.batchRepository.manager.transaction(async (manager) =>
@@ -419,7 +463,7 @@ export class StockService {
     );
   }
 
-  async listInventory(): Promise<any[]> {
+  async listInventory(): Promise<InventoryItemDto[]> {
     const variants = await this.variantRepository
       .createQueryBuilder('variant')
       .leftJoinAndSelect('variant.product', 'product')
@@ -442,12 +486,20 @@ export class StockService {
       stockMap.set(b.productVariantId, parseInt(b.stockQuantity, 10));
     }
 
+    const lowStockThreshold = await this.getLowStockThreshold();
+
     return variants.map((v) => {
       const activeIngredients = v.product.productIngredients
         ? v.product.productIngredients
             .filter((pi) => pi.ingredient?.isActiveIngredient)
             .map((pi) => pi.ingredient.name)
         : [];
+
+      const stockQuantity = stockMap.get(v.id) ?? 0;
+      const { stockWarning, warningMessage } = this.buildStockWarning(
+        stockQuantity,
+        lowStockThreshold,
+      );
 
       return {
         productVariantId: v.id,
@@ -456,9 +508,33 @@ export class StockService {
         sku: v.sku,
         priceVnd: v.priceVnd,
         imageUrl: v.imageUrl,
-        stockQuantity: stockMap.get(v.id) ?? 0,
+        stockQuantity,
         activeIngredients,
+        stockWarning,
+        warningMessage,
       };
     });
+  }
+
+  private buildStockWarning(
+    stockQuantity: number,
+    lowStockThreshold: number,
+  ): {
+    stockWarning: InventoryStockWarning | null;
+    warningMessage: string | null;
+  } {
+    if (stockQuantity <= 0) {
+      return {
+        stockWarning: InventoryStockWarning.OUT_OF_STOCK,
+        warningMessage: 'Hết hàng — cần nhập kho ngay',
+      };
+    }
+    if (stockQuantity <= lowStockThreshold) {
+      return {
+        stockWarning: InventoryStockWarning.LOW,
+        warningMessage: `Sắp hết hàng — chỉ còn ${stockQuantity} sản phẩm (ngưỡng cảnh báo ${lowStockThreshold})`,
+      };
+    }
+    return { stockWarning: null, warningMessage: null };
   }
 }

@@ -1,7 +1,9 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Repository } from 'typeorm';
+import { CommerceSetting } from '../commerce/commerce-setting.entity';
 import { ProductVariant } from '../products/product-variant.entity';
 import {
+  InventoryStockWarning,
   ProductInstanceStatus,
   ShelfLifeUnit,
   StockMovementType,
@@ -49,6 +51,13 @@ const makeVariantRepo = (overrides: Partial<Repository<ProductVariant>> = {}) =>
 const makeMovementRepo = () => ({}) as unknown as Repository<StockMovement>;
 
 const makeInstanceRepo = () => ({}) as unknown as Repository<ProductInstance>;
+
+const makeSettingRepo = (value: string | null = null) =>
+  ({
+    findOneBy: jest.fn().mockResolvedValue(value === null ? null : { value }),
+    create: jest.fn().mockImplementation((data) => data),
+    save: jest.fn().mockImplementation((entity) => Promise.resolve(entity)),
+  }) as unknown as Repository<CommerceSetting>;
 
 const mockOnRackInstances = (
   stockBatchId: string,
@@ -103,6 +112,7 @@ describe('StockService', () => {
       batchRepo,
       makeMovementRepo(),
       makeInstanceRepo(),
+      makeSettingRepo(),
     );
   });
 
@@ -276,7 +286,7 @@ describe('StockService', () => {
       manager.findOne.mockResolvedValue({
         id: 'batch-1',
         remainingQuantity: 5,
-      } as StockBatch);
+      });
 
       await expect(
         service.recordMovement('batch-1', StockMovementType.SALE, 10),
@@ -287,7 +297,7 @@ describe('StockService', () => {
       manager.findOne.mockResolvedValue({
         id: 'batch-1',
         remainingQuantity: 50,
-      } as StockBatch);
+      });
 
       const { batch: saved } = await service.recordMovement(
         'batch-1',
@@ -446,6 +456,97 @@ describe('StockService', () => {
       expect(batches[1].remainingQuantity).toBe(50);
       expect(batches[2].remainingQuantity).toBe(40);
       expect(manager.save).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe('listInventory', () => {
+    const makeInventoryService = (
+      variants: Array<Partial<ProductVariant> & { product: unknown }>,
+      stockRows: Array<{ productVariantId: string; stockQuantity: string }>,
+      thresholdSetting: string | null = null,
+    ) => {
+      const variantQb = {
+        leftJoinAndSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue(variants),
+      };
+      const batchQb = {
+        select: jest.fn().mockReturnThis(),
+        addSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        groupBy: jest.fn().mockReturnThis(),
+        getRawMany: jest.fn().mockResolvedValue(stockRows),
+      };
+      return new StockService(
+        {
+          createQueryBuilder: jest.fn().mockReturnValue(variantQb),
+        } as unknown as Repository<ProductVariant>,
+        {
+          createQueryBuilder: jest.fn().mockReturnValue(batchQb),
+        } as unknown as Repository<StockBatch>,
+        makeMovementRepo(),
+        makeInstanceRepo(),
+        makeSettingRepo(thresholdSetting),
+      );
+    };
+
+    const makeInvVariant = (id: string) => ({
+      id,
+      productId: 'product-1',
+      sku: `SKU-${id}`,
+      priceVnd: 100000,
+      imageUrl: null,
+      product: { name: 'Serum', productIngredients: [] },
+    });
+
+    it('flags LOW when stock is at or below the threshold', async () => {
+      const svc = makeInventoryService(
+        [makeInvVariant('v-low')],
+        [{ productVariantId: 'v-low', stockQuantity: '8' }],
+      );
+
+      const [item] = await svc.listInventory();
+
+      expect(item.stockQuantity).toBe(8);
+      expect(item.stockWarning).toBe(InventoryStockWarning.LOW);
+      expect(item.warningMessage).toContain('Sắp hết hàng');
+      expect(item.warningMessage).toContain('8');
+    });
+
+    it('flags OUT_OF_STOCK when no remaining stock', async () => {
+      const svc = makeInventoryService([makeInvVariant('v-empty')], []);
+
+      const [item] = await svc.listInventory();
+
+      expect(item.stockQuantity).toBe(0);
+      expect(item.stockWarning).toBe(InventoryStockWarning.OUT_OF_STOCK);
+      expect(item.warningMessage).toContain('Hết hàng');
+    });
+
+    it('returns no warning above the threshold', async () => {
+      const svc = makeInventoryService(
+        [makeInvVariant('v-ok')],
+        [{ productVariantId: 'v-ok', stockQuantity: '11' }],
+      );
+
+      const [item] = await svc.listInventory();
+
+      expect(item.stockWarning).toBeNull();
+      expect(item.warningMessage).toBeNull();
+    });
+
+    it('uses the admin-configured threshold from commerce settings', async () => {
+      const svc = makeInventoryService(
+        [makeInvVariant('v-cfg')],
+        [{ productVariantId: 'v-cfg', stockQuantity: '15' }],
+        '20',
+      );
+
+      const [item] = await svc.listInventory();
+
+      expect(item.stockWarning).toBe(InventoryStockWarning.LOW);
+      expect(item.warningMessage).toContain('ngưỡng cảnh báo 20');
     });
   });
 });

@@ -5,7 +5,10 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
+  Req,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -18,6 +21,8 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import type { Request } from 'express';
+import { getAuthContext } from '../auth/auth-context';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
@@ -26,6 +31,10 @@ import { StockMovementType } from './enums';
 import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { ImportBatchDto } from './dto/import-batch.dto';
 import { InventoryItemDto } from './dto/inventory.dto';
+import {
+  LowStockThresholdDto,
+  UpdateLowStockThresholdDto,
+} from './dto/low-stock-threshold.dto';
 import { StockService } from './stock.service';
 
 @ApiTags('Stock')
@@ -48,6 +57,40 @@ export class StockController {
   @ApiOkResponse({ type: [InventoryItemDto] })
   getInventory() {
     return this.stockService.listInventory();
+  }
+
+  @Get('low-stock-threshold')
+  @ApiOperation({
+    summary: 'Get the low-stock warning threshold',
+    description:
+      'Inventory items with remaining stock at or below this value carry a LOW restock warning.',
+  })
+  @ApiOkResponse({ type: LowStockThresholdDto })
+  async getLowStockThreshold(): Promise<LowStockThresholdDto> {
+    return { threshold: await this.stockService.getLowStockThreshold() };
+  }
+
+  @Patch('low-stock-threshold')
+  @Roles(Role.AppAdmin)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update the low-stock warning threshold (app_admin only)',
+  })
+  @ApiOkResponse({ type: LowStockThresholdDto })
+  async updateLowStockThreshold(
+    @Req() req: Request,
+    @Body() dto: UpdateLowStockThresholdDto,
+  ): Promise<LowStockThresholdDto> {
+    const auth = getAuthContext(req);
+    if (!auth?.userId) {
+      throw new UnauthorizedException('Chưa xác thực');
+    }
+    return {
+      threshold: await this.stockService.updateLowStockThreshold(
+        auth.userId,
+        dto.threshold,
+      ),
+    };
   }
 
   @Post('batches')
