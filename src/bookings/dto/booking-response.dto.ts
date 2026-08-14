@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  BookingAutoCancelReason,
   BookingCancelledBy,
   ConsultationStatus,
 } from '../../consultations/enums';
@@ -83,6 +84,22 @@ export class BookingResponseDto {
     nullable: true,
   })
   cancelledBy!: BookingCancelledBy | null;
+
+  @ApiPropertyOptional({
+    enum: BookingAutoCancelReason,
+    nullable: true,
+    description:
+      'Set only when cancelledBy = SYSTEM. CONFIRM_TIMEOUT = expert never confirmed; ' +
+      'EXPERT_NO_SHOW = expert confirmed but never started after scheduledAt + grace.',
+  })
+  autoCancelReason!: BookingAutoCancelReason | null;
+
+  @ApiProperty({
+    description:
+      'True when the customer may still POST /bookings/:id/feedback — COMPLETED, ' +
+      'or CANCELLED with autoCancelReason = EXPERT_NO_SHOW, and no feedback yet.',
+  })
+  canSubmitFeedback!: boolean;
 
   @ApiPropertyOptional({ nullable: true })
   treatmentId!: string | null;

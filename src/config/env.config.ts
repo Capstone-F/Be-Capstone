@@ -345,6 +345,35 @@ export const ENV_DEFINITIONS = {
     defaultValue: '20',
     description: 'Max deliveries claimed per simulator tick.',
   },
+  BOOKING_EXPIRY_CRON_ENABLED: {
+    required: false,
+    defaultValue: 'true',
+    description:
+      'When true, the booking-expiry sweep auto-cancels stale PENDING bookings and expert no-shows on a cron. Set false in e2e or to drive it only via the admin tick endpoint.',
+  },
+  BOOKING_EXPIRY_TICK_CRON: {
+    required: false,
+    defaultValue: '0 * * * * *',
+    description:
+      'Cron expression for the booking-expiry sweep (default every minute).',
+  },
+  BOOKING_CONFIRM_TIMEOUT_MIN: {
+    required: false,
+    defaultValue: '1440',
+    description:
+      'Minutes a PENDING booking waits for expert confirm before auto-cancel + refund (default 24h). The sweep also fires once scheduledAt passes, whichever is first.',
+  },
+  BOOKING_NO_SHOW_GRACE_MIN: {
+    required: false,
+    defaultValue: '15',
+    description:
+      'Minutes after scheduledAt a CONFIRMED booking may stay un-started before it is cancelled as an expert no-show and refunded.',
+  },
+  BOOKING_EXPIRY_BATCH_SIZE: {
+    required: false,
+    defaultValue: '20',
+    description: 'Max bookings auto-cancelled per expiry tick.',
+  },
 } as const satisfies Record<string, EnvDefinition>;
 
 export type EnvKey = keyof typeof ENV_DEFINITIONS;
@@ -415,6 +444,11 @@ export type AppEnv = {
   DELIVERY_SIMULATION_TICK_CRON: string;
   DELIVERY_SIMULATION_STEP_DELAY_SEC: number;
   DELIVERY_SIMULATION_BATCH_SIZE: number;
+  BOOKING_EXPIRY_CRON_ENABLED: boolean;
+  BOOKING_EXPIRY_TICK_CRON: string;
+  BOOKING_CONFIRM_TIMEOUT_MIN: number;
+  BOOKING_NO_SHOW_GRACE_MIN: number;
+  BOOKING_EXPIRY_BATCH_SIZE: number;
 };
 
 export function getMissingRequiredEnv(
@@ -704,6 +738,29 @@ export function resolveAppEnv(raw: NodeJS.ProcessEnv = process.env): AppEnv {
       raw.DELIVERY_SIMULATION_BATCH_SIZE,
       'DELIVERY_SIMULATION_BATCH_SIZE',
       ENV_DEFINITIONS.DELIVERY_SIMULATION_BATCH_SIZE.defaultValue,
+    ),
+    BOOKING_EXPIRY_CRON_ENABLED: parseBool(
+      raw.BOOKING_EXPIRY_CRON_ENABLED,
+      'BOOKING_EXPIRY_CRON_ENABLED',
+      ENV_DEFINITIONS.BOOKING_EXPIRY_CRON_ENABLED.defaultValue === 'true',
+    ),
+    BOOKING_EXPIRY_TICK_CRON:
+      raw.BOOKING_EXPIRY_TICK_CRON?.trim() ||
+      ENV_DEFINITIONS.BOOKING_EXPIRY_TICK_CRON.defaultValue,
+    BOOKING_CONFIRM_TIMEOUT_MIN: parsePositiveInt(
+      raw.BOOKING_CONFIRM_TIMEOUT_MIN,
+      'BOOKING_CONFIRM_TIMEOUT_MIN',
+      ENV_DEFINITIONS.BOOKING_CONFIRM_TIMEOUT_MIN.defaultValue,
+    ),
+    BOOKING_NO_SHOW_GRACE_MIN: parsePositiveInt(
+      raw.BOOKING_NO_SHOW_GRACE_MIN,
+      'BOOKING_NO_SHOW_GRACE_MIN',
+      ENV_DEFINITIONS.BOOKING_NO_SHOW_GRACE_MIN.defaultValue,
+    ),
+    BOOKING_EXPIRY_BATCH_SIZE: parsePositiveInt(
+      raw.BOOKING_EXPIRY_BATCH_SIZE,
+      'BOOKING_EXPIRY_BATCH_SIZE',
+      ENV_DEFINITIONS.BOOKING_EXPIRY_BATCH_SIZE.defaultValue,
     ),
   };
 }

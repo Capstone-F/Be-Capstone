@@ -12,7 +12,11 @@ import {
 import { Customer } from '../users/customer.entity';
 import { Expert } from '../users/expert.entity';
 import { Treatment } from '../treatments/treatment.entity';
-import { BookingCancelledBy, ConsultationStatus } from './enums';
+import {
+  BookingAutoCancelReason,
+  BookingCancelledBy,
+  ConsultationStatus,
+} from './enums';
 import { ChatHistory } from './chat-history.entity';
 import { Feedback } from './feedback.entity';
 
@@ -66,6 +70,14 @@ export class ConsultationRequest {
     nullable: true,
   })
   cancelledBy: BookingCancelledBy | null;
+
+  /** Set only for SYSTEM cancels; EXPERT_NO_SHOW unlocks customer feedback. */
+  @Column({
+    type: 'varchar',
+    enum: BookingAutoCancelReason,
+    nullable: true,
+  })
+  autoCancelReason: BookingAutoCancelReason | null;
 
   /** Linked paid treatment when this booking is a free follow-up (tái khám). */
   @Column({ type: 'uuid', nullable: true })

@@ -114,14 +114,15 @@ export class BookingsController {
   @Roles(Role.Customer)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
-    summary: 'Submit feedback for a completed booking',
+    summary: 'Submit feedback for a completed or no-show booking',
     description:
-      'Owning customer only, when status is COMPLETED. One feedback per consultation. ' +
-      'Updates the expert aggregate rating from all feedback averages.',
+      'Owning customer only, when status is COMPLETED — or CANCELLED with ' +
+      'autoCancelReason EXPERT_NO_SHOW, so a missed session still counts against the expert. ' +
+      'One feedback per consultation. Updates the expert aggregate rating from all feedback averages.',
   })
   @ApiCreatedResponse({ type: BookingResponseDto })
   @ApiBadRequestResponse({
-    description: 'Booking is not COMPLETED or invalid rating',
+    description: 'Booking is not rateable yet or invalid rating',
   })
   @ApiConflictResponse({ description: 'Feedback already submitted' })
   @ApiForbiddenResponse({ description: 'Not the owning customer' })
