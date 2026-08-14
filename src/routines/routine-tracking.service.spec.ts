@@ -705,11 +705,19 @@ describe('RoutineTrackingService', () => {
       expect(result.sideEffects).toHaveLength(1);
     });
 
-    it('conflicts on duplicate check-in', async () => {
-      checkInRepository.findOne.mockResolvedValue({ id: 'exists' });
-      await expect(
-        service.createCheckIn('user-1', 'routine-1', {}, now),
-      ).rejects.toThrow(ConflictException);
+    it('updates existing check-in on duplicate check-in (e.g. side-effect report)', async () => {
+      checkInRepository.findOne.mockResolvedValue({
+        id: 'exists',
+        routineId: 'routine-1',
+      });
+      const result = await service.createCheckIn(
+        'user-1',
+        'routine-1',
+        { overallMood: 'BAD' as any },
+        now,
+      );
+      expect(checkInRepository.save).toHaveBeenCalled();
+      expect(result).toBeDefined();
     });
   });
 

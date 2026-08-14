@@ -288,9 +288,6 @@ export class RoutineTrackingService {
         period,
       },
     });
-    if (existing) {
-      throw new ConflictException(`Check-in đã tồn tại cho ${date} ${period}`);
-    }
 
     const periodSteps = await this.stepRepository.find({
       where: { routineId: routine.id, period },
@@ -308,23 +305,48 @@ export class RoutineTrackingService {
       ),
     );
 
-    const checkIn = await this.checkInRepository.save(
-      this.checkInRepository.create({
-        routineId: routine.id,
-        checkInDate: date as unknown as Date,
-        period,
-        overallMood: dto.overallMood ?? null,
-        acneLevel: dto.acneLevel ?? null,
-        oilLevel: dto.oilLevel ?? null,
-        rednessLevel: dto.rednessLevel ?? null,
-        moistureLevel: dto.moistureLevel ?? null,
-        completionRate: progress.completionRate,
-        note: dto.note ?? null,
-      }),
-    );
+    let checkIn: typeof existing;
+
+    if (existing) {
+      // Ghi đè / Cập nhật check-in (ví dụ người dùng báo cáo kích ứng hoặc cập nhật cảm nhận sau khi check-in)
+      if (dto.overallMood !== undefined) existing.overallMood = dto.overallMood;
+      if (dto.acneLevel !== undefined) existing.acneLevel = dto.acneLevel;
+      if (dto.oilLevel !== undefined) existing.oilLevel = dto.oilLevel;
+      if (dto.rednessLevel !== undefined)
+        existing.rednessLevel = dto.rednessLevel;
+      if (dto.moistureLevel !== undefined)
+        existing.moistureLevel = dto.moistureLevel;
+      existing.completionRate = progress.completionRate;
+      if (dto.note !== undefined) {
+        existing.note = existing.note
+          ? `${existing.note}\n${dto.note}`
+          : dto.note;
+      }
+      checkIn = await this.checkInRepository.save(existing);
+    } else {
+      checkIn = await this.checkInRepository.save(
+        this.checkInRepository.create({
+          routineId: routine.id,
+          checkInDate: date as unknown as Date,
+          period,
+          overallMood: dto.overallMood ?? null,
+          acneLevel: dto.acneLevel ?? null,
+          oilLevel: dto.oilLevel ?? null,
+          rednessLevel: dto.rednessLevel ?? null,
+          moistureLevel: dto.moistureLevel ?? null,
+          completionRate: progress.completionRate,
+          note: dto.note ?? null,
+        }),
+      );
+    }
 
     const sideEffects = dto.sideEffects ?? [];
     if (sideEffects.length > 0) {
+      if (existing) {
+        await this.sideEffectRepository.delete({
+          routineCheckInId: checkIn.id,
+        });
+      }
       await this.sideEffectRepository.save(
         sideEffects.map((se) =>
           this.sideEffectRepository.create({
