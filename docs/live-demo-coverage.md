@@ -29,6 +29,14 @@
 
 - [ ] Admin `GET /admin/users?q=<email>` → `userId` → `POST /admin/wallets/:userId/top-up { amountVnd: 3000000 }`
 
+## 🆕 One-shot demo customer (routine history + low-stock warning)
+
+- [ ] Admin `POST /admin/demo/customers { }` → response carries `credentials` (login + password), `routine`, `history`, `lowStock`
+  - Creates the customer login, a PAID SURVEY order, an **ACTIVE** routine backdated 14 days (`historyDays` 7–60), completed step history, one check-in per completed day, and one product already at `warning: "LOW"`
+  - Log in as that customer → `GET /routines/me/today` (LOW badge with `remainingMl` / `daysLeft`), `GET /routines/:id/check-ins?from&to`, `GET /routines/:id/history?from&to` (streak)
+  - **Today is left empty on purpose** → still demo complete / skip / check-in live (§IV), then buy-again to clear the warning (§III)
+  - Skips §I onboarding; use the survey path when the demo needs recommendations. Top up the wallet with the returned `userId` before buy-again.
+
 ---
 
 ## I. Onboarding → Survey → Routine _(customer)_
@@ -73,6 +81,7 @@
 - [ ] Today MORNING → complete + skip(`OUT_OF_STOCK`) → 3/4 = 75% → **check-in** (partial ok)
 - [ ] History calendar + **streak** + day detail
 - [ ] Cancel AI routine → COMPLETED, off Today
+- [ ] _(shortcut)_ Admin `POST /admin/demo/customers` seeds history + streak + `LOW` warning in one call — see the section above
 
 ## V. Support & Real-time
 
@@ -111,6 +120,7 @@
 - [ ] Survey **question bank CRUD** → verify `GET /surveys/questions`
 - [ ] Commerce settings: survey combo discount %, platform commission %, 🆕 **low-stock threshold** (`PATCH /stock/low-stock-threshold`)
 - [ ] Customer QA cheats (profile + survey) → re-derive skin type → rebuild recs
+- [ ] 🆕 **Seed a demo customer** (`POST /admin/demo/customers`) → login + routine history + `LOW` stock warning in one call
 - [ ] Delivery simulation + GHN create retry (`missingProviderCode=true`)
 - [ ] ✏️ 🆕 **Clinic withdrawal payout** (app_admin only): `GET /admin/clinic-withdrawals?status=REQUESTED` → manual transfer → `POST /admin/clinic-withdrawals/:id/mark-paid { transferRef }` → **reject** re-credits wallet (WITHDRAWAL_REVERSAL)
 

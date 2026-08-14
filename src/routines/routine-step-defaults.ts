@@ -126,6 +126,32 @@ export function resolveDefaultDosage(
   }
 }
 
+/**
+ * Vietnamese step copy for a product. The app is Vietnamese-first, so builders
+ * always emit VI instructions instead of passing through EN catalog HDSD.
+ */
+export function resolveDefaultInstructions(
+  input: RoutineStepRoleInput,
+): string {
+  const productName = input.productName ?? 'sản phẩm';
+  switch (resolveRoutineStepRole(input)) {
+    case 'CLEANSER':
+      return `Làm ướt mặt, lấy một lượng ${productName} bằng hạt đậu tạo bọt, massage 30-60 giây, rửa sạch và thấm khô.`;
+    case 'TONER':
+      return `Sau khi làm sạch, thoa ${productName} bằng tay hoặc bông cotton. Tránh vùng mắt và chờ trước bước tiếp theo.`;
+    case 'SERUM':
+      return `Sử dụng 2-3 giọt ${productName} lên da sạch và vỗ nhẹ đến khi thấm.`;
+    case 'TREATMENT':
+      return `Thoa một lớp mỏng ${productName} lên vùng cần điều trị. Dưỡng ẩm sau nếu da khô.`;
+    case 'MOISTURIZER':
+      return `Massage một lượng ${productName} bằng hạt đậu lên mặt và cổ đến khi thấm.`;
+    case 'SUNSCREEN':
+      return `Ở bước buổi sáng cuối cùng, thoa đều ${productName} lượng bằng hai đốt ngón tay. Thoa lại nếu ra ngoài trời.`;
+    default:
+      return `Sử dụng ${productName} theo hướng dẫn phù hợp với ${input.protocolName ?? 'nhu cầu da của bạn'}.`;
+  }
+}
+
 /** Minutes to wait after this step before the next product. */
 export function resolveDefaultWaitMinutes(
   input: RoutineStepRoleInput,
