@@ -194,6 +194,7 @@ export class ClinicWithdrawalsService {
 
     const [items, total] = await this.withdrawalRepo.findAndCount({
       where: { clinicId },
+      relations: ['clinic'],
       order: { createdAt: 'DESC' },
       skip,
       take,
@@ -219,6 +220,7 @@ export class ClinicWithdrawalsService {
 
     const qb = this.withdrawalRepo
       .createQueryBuilder('w')
+      .leftJoinAndSelect('w.clinic', 'clinic')
       .orderBy('w.createdAt', 'DESC')
       .skip(skip)
       .take(limit);
@@ -245,6 +247,7 @@ export class ClinicWithdrawalsService {
   ): Promise<ClinicWithdrawalResponseDto> {
     const withdrawal = await this.withdrawalRepo.findOne({
       where: { id: withdrawalId },
+      relations: ['clinic'],
     });
     if (!withdrawal) {
       throw new NotFoundException(
@@ -263,6 +266,7 @@ export class ClinicWithdrawalsService {
     return {
       id: w.id,
       clinicId: w.clinicId,
+      clinicName: w.clinic?.name || null,
       amountVnd: w.amountVnd,
       status: w.status,
       requestedByUserId: w.requestedByUserId,
