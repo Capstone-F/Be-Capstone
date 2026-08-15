@@ -193,7 +193,7 @@ describe('Order cancellation refund restock (e2e)', () => {
   });
 
   it('unpaid PENDING cancel completes with no refund and no restock', async () => {
-    const { customerUser, customer, staffSid } = await seedActors();
+    const { customerUser, customer, staffSid, adminSid } = await seedActors();
     const customerSid = await loginAs(customerUser, [Role.Customer]);
     const { order } = await seedOrder({
       customerId: customer.id,
@@ -211,9 +211,15 @@ describe('Order cancellation refund restock (e2e)', () => {
     expect(created.refundAmountVnd).toBe('0');
     expect(created.requiresStockReturn).toBe(false);
 
-    const { body: advanced } = await request(app.getHttpServer())
+    await request(app.getHttpServer())
       .post(`/admin/order-cancellations/${created.id}/advance`)
       .set('Cookie', staffSid)
+      .send({ steps: 5 })
+      .expect(403);
+
+    const { body: advanced } = await request(app.getHttpServer())
+      .post(`/admin/order-cancellations/${created.id}/advance`)
+      .set('Cookie', adminSid)
       .send({ steps: 5 })
       .expect(200);
 
@@ -233,7 +239,7 @@ describe('Order cancellation refund restock (e2e)', () => {
   });
 
   it('paid cancel refunds wallet, parks stock, restocks good/damaged, and is idempotent', async () => {
-    const { customerUser, customer, staffSid } = await seedActors();
+    const { customerUser, customer, staffSid, adminSid } = await seedActors();
     const customerSid = await loginAs(customerUser, [Role.Customer]);
     const { order, item, batch } = await seedPaidOrderWithStock({
       customerId: customer.id,
@@ -260,7 +266,7 @@ describe('Order cancellation refund restock (e2e)', () => {
 
     const { body: toReturn } = await request(app.getHttpServer())
       .post(`/admin/order-cancellations/${created.id}/advance`)
-      .set('Cookie', staffSid)
+      .set('Cookie', adminSid)
       .send({ steps: 10 })
       .expect(200);
 
@@ -312,7 +318,7 @@ describe('Order cancellation refund restock (e2e)', () => {
 
     const { body: stuck } = await request(app.getHttpServer())
       .post(`/admin/order-cancellations/${created.id}/advance`)
-      .set('Cookie', staffSid)
+      .set('Cookie', adminSid)
       .send({ steps: 5 })
       .expect(200);
     expect(stuck.cancellation.status).toBe(
@@ -362,7 +368,7 @@ describe('Order cancellation refund restock (e2e)', () => {
 
     const { body: completed } = await request(app.getHttpServer())
       .post(`/admin/order-cancellations/${created.id}/advance`)
-      .set('Cookie', staffSid)
+      .set('Cookie', adminSid)
       .send({ steps: 1 })
       .expect(200);
     expect(completed.cancellation.status).toBe(
@@ -371,7 +377,7 @@ describe('Order cancellation refund restock (e2e)', () => {
 
     await request(app.getHttpServer())
       .post(`/admin/order-cancellations/${created.id}/advance`)
-      .set('Cookie', staffSid)
+      .set('Cookie', adminSid)
       .send({ steps: 3 })
       .expect(200);
 
@@ -443,6 +449,7 @@ describe('Order cancellation refund restock (e2e)', () => {
     customer: Customer;
     staffUser: User;
     staffSid: string;
+    adminSid: string;
   }> {
     const suffix = Math.random().toString(36).slice(2, 8);
     const customerUser = await seedUser({
@@ -464,7 +471,14 @@ describe('Order cancellation refund restock (e2e)', () => {
       roles: [Role.Staff],
     });
     const staffSid = await loginAs(staffUser, [Role.Staff]);
-    return { customerUser, customer, staffUser, staffSid };
+    const adminUser = await seedUser({
+      keycloakSub: `kc-admin-${suffix}`,
+      email: `admin-${suffix}@example.com`,
+      name: 'Cancellation Admin',
+      roles: [Role.AppAdmin],
+    });
+    const adminSid = await loginAs(adminUser, [Role.AppAdmin]);
+    return { customerUser, customer, staffUser, staffSid, adminSid };
   }
 
   async function seedProductVariant(): Promise<ProductVariant> {

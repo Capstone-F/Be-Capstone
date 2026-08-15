@@ -250,7 +250,7 @@ describe('Delivery status simulation (e2e)', () => {
   });
 
   it('force returned auto-creates SYSTEM cancellation on cancellation tick', async () => {
-    const { customerUser, customer, staffSid } = await seedActors();
+    const { customerUser, customer, staffSid, adminSid } = await seedActors();
     const { delivery, order, item } = await seedShippableDelivery({
       customerId: customer.id,
       status: OrderStatus.SHIPPED,
@@ -277,7 +277,7 @@ describe('Delivery status simulation (e2e)', () => {
 
     const { body: tick } = await request(app.getHttpServer())
       .post('/admin/order-cancellations/tick')
-      .set('Cookie', staffSid)
+      .set('Cookie', adminSid)
       .send({ ignoreDelay: true })
       .expect(200);
 
@@ -298,7 +298,7 @@ describe('Delivery status simulation (e2e)', () => {
     // Drive the new cancellation to AWAITING_RETURN in the same demo style.
     const { body: advanced } = await request(app.getHttpServer())
       .post(`/admin/order-cancellations/${cancellation!.id}/advance`)
-      .set('Cookie', staffSid)
+      .set('Cookie', adminSid)
       .send({ steps: 10 })
       .expect(200);
     expect(advanced.cancellation.status).toBe(
@@ -358,6 +358,7 @@ describe('Delivery status simulation (e2e)', () => {
     customerUser: User;
     customer: Customer;
     staffSid: string;
+    adminSid: string;
   }> {
     const suffix = Math.random().toString(36).slice(2, 8);
     const customerUser = await seedUser({
@@ -379,7 +380,14 @@ describe('Delivery status simulation (e2e)', () => {
       roles: [Role.Staff],
     });
     const staffSid = await loginAs(staffUser, [Role.Staff]);
-    return { customerUser, customer, staffSid };
+    const adminUser = await seedUser({
+      keycloakSub: `kc-admin-${suffix}`,
+      email: `admin-${suffix}@example.com`,
+      name: 'Delivery Admin',
+      roles: [Role.AppAdmin],
+    });
+    const adminSid = await loginAs(adminUser, [Role.AppAdmin]);
+    return { customerUser, customer, staffSid, adminSid };
   }
 
   async function ensureGhnProvider(): Promise<DeliveryProvider> {
