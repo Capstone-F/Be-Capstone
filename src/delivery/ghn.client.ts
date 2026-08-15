@@ -10,6 +10,7 @@ import {
   GhnFeeRequest,
   GhnOrderDetailData,
   GhnProvince,
+  GhnSwitchStatusResult,
   GhnWard,
 } from './ghn.types';
 
@@ -90,6 +91,20 @@ export class GhnClient {
     return this.request<GhnOrderDetailData>(
       '/shiip/public-api/v2/shipping-order/detail',
       { order_code: orderCode },
+    );
+  }
+
+  cancelOrder(orderCode: string): Promise<GhnSwitchStatusResult[]> {
+    return this.request<GhnSwitchStatusResult[]>(
+      '/shiip/public-api/v2/switch-status/cancel',
+      { order_codes: [orderCode] },
+    );
+  }
+
+  returnOrder(orderCode: string): Promise<GhnSwitchStatusResult[]> {
+    return this.request<GhnSwitchStatusResult[]>(
+      '/shiip/public-api/v2/switch-status/return',
+      { order_codes: [orderCode] },
     );
   }
 

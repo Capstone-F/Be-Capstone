@@ -43,7 +43,9 @@ export type ParcelLine = { weightGram: number; quantity: number };
 
 const TERMINAL_HANDOVER_DELIVERY_STATUSES = new Set([
   DeliveryStatus.DELIVERED,
+  DeliveryStatus.CANCELLED,
   DeliveryStatus.FAILED,
+  DeliveryStatus.RETURNING,
   DeliveryStatus.RETURNED,
 ]);
 
@@ -478,6 +480,50 @@ export class DeliveryService {
     }
 
     return this.toCustomerDto(delivery);
+  }
+
+  /** Best-effort carrier sync; cancellation/refund must not fail when GHN is unavailable. */
+  async stopDeliveryForCancelledOrder(orderId: string): Promise<void> {
+    const delivery = await this.deliveryRepository.findOne({
+      where: { orderId },
+    });
+    if (!delivery || delivery.status === DeliveryStatus.CANCELLED) {
+      return;
+    }
+
+    const returning = Boolean(delivery.handedOverAt);
+    const providerStatus = returning ? 'return' : 'cancel';
+
+    try {
+      if (delivery.providerOrderCode) {
+        const results = returning
+          ? await this.ghn.returnOrder(delivery.providerOrderCode)
+          : await this.ghn.cancelOrder(delivery.providerOrderCode);
+        const result = results.find(
+          (item) => item.order_code === delivery.providerOrderCode,
+        );
+        if (!result?.result) {
+          throw new Error(result?.message || 'GHN không chấp nhận yêu cầu');
+        }
+      }
+
+      await this.applyProviderStatus({
+        delivery,
+        providerStatus,
+        occurredAt: new Date(),
+        rawPayload: {
+          source: 'order-cancellation',
+          providerOrderCode: delivery.providerOrderCode,
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Không thể đồng bộ hủy vận chuyển cho đơn ${orderId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
   }
 
   async listForAdmin(query: ListDeliveriesQueryDto): Promise<{

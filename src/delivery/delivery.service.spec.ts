@@ -40,7 +40,14 @@ const ADDRESS: ShippingAddressDto = {
 
 describe('DeliveryService', () => {
   let ghn: Mocked<
-    Pick<GhnClient, 'calculateFee' | 'createOrder' | 'getProvinces'>
+    Pick<
+      GhnClient,
+      | 'calculateFee'
+      | 'createOrder'
+      | 'getProvinces'
+      | 'cancelOrder'
+      | 'returnOrder'
+    >
   >;
   let deliveryRepo: Mocked<Pick<Repository<Delivery>, 'findOne' | 'update'>>;
   let eventRepo: Mocked<
@@ -57,6 +64,8 @@ describe('DeliveryService', () => {
       calculateFee: jest.fn().mockResolvedValue({ total: 32000 }),
       createOrder: jest.fn(),
       getProvinces: jest.fn(),
+      cancelOrder: jest.fn(),
+      returnOrder: jest.fn(),
     };
     deliveryRepo = { findOne: jest.fn(), update: jest.fn() };
     eventRepo = {
@@ -207,6 +216,95 @@ describe('DeliveryService', () => {
         service.createGhnOrderForPaidOrder('o1'),
       ).resolves.toBeUndefined();
       expect(ghn.createOrder).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('stopDeliveryForCancelledOrder', () => {
+    it('cancels a GHN order that has not been handed over', async () => {
+      deliveryRepo.findOne.mockResolvedValue({
+        id: 'd1',
+        orderId: 'o1',
+        providerOrderCode: 'GHN-1',
+        handedOverAt: null,
+        status: DeliveryStatus.PROCESSING,
+        lastStatusAt: null,
+      });
+      ghn.cancelOrder.mockResolvedValue([
+        { order_code: 'GHN-1', result: true, message: 'Success' },
+      ]);
+
+      await service.stopDeliveryForCancelledOrder('o1');
+
+      expect(ghn.cancelOrder).toHaveBeenCalledWith('GHN-1');
+      expect(ghn.returnOrder).not.toHaveBeenCalled();
+      expect(deliveryRepo.update).toHaveBeenCalledWith(
+        { id: 'd1' },
+        expect.objectContaining({
+          status: DeliveryStatus.CANCELLED,
+          providerStatus: 'cancel',
+        }),
+      );
+    });
+
+    it('requests a return after the parcel was handed over', async () => {
+      deliveryRepo.findOne.mockResolvedValue({
+        id: 'd1',
+        orderId: 'o1',
+        providerOrderCode: 'GHN-1',
+        handedOverAt: new Date('2026-08-15T01:00:00Z'),
+        status: DeliveryStatus.IN_TRANSIT,
+        lastStatusAt: null,
+      });
+      ghn.returnOrder.mockResolvedValue([
+        { order_code: 'GHN-1', result: true, message: 'Success' },
+      ]);
+
+      await service.stopDeliveryForCancelledOrder('o1');
+
+      expect(ghn.returnOrder).toHaveBeenCalledWith('GHN-1');
+      expect(deliveryRepo.update).toHaveBeenCalledWith(
+        { id: 'd1' },
+        expect.objectContaining({
+          status: DeliveryStatus.RETURNING,
+          providerStatus: 'return',
+        }),
+      );
+    });
+
+    it('cancels locally when no GHN order code exists', async () => {
+      deliveryRepo.findOne.mockResolvedValue({
+        id: 'd1',
+        orderId: 'o1',
+        providerOrderCode: null,
+        handedOverAt: null,
+        status: DeliveryStatus.PENDING,
+        lastStatusAt: null,
+      });
+
+      await service.stopDeliveryForCancelledOrder('o1');
+
+      expect(ghn.cancelOrder).not.toHaveBeenCalled();
+      expect(deliveryRepo.update).toHaveBeenCalledWith(
+        { id: 'd1' },
+        expect.objectContaining({ status: DeliveryStatus.CANCELLED }),
+      );
+    });
+
+    it('does not throw or update delivery when GHN rejects cancellation', async () => {
+      deliveryRepo.findOne.mockResolvedValue({
+        id: 'd1',
+        orderId: 'o1',
+        providerOrderCode: 'GHN-1',
+        handedOverAt: null,
+        status: DeliveryStatus.PROCESSING,
+        lastStatusAt: null,
+      });
+      ghn.cancelOrder.mockRejectedValue(new Error('GHN down'));
+
+      await expect(
+        service.stopDeliveryForCancelledOrder('o1'),
+      ).resolves.toBeUndefined();
+      expect(deliveryRepo.update).not.toHaveBeenCalled();
     });
   });
 

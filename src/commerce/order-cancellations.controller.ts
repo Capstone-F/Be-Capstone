@@ -96,6 +96,7 @@ export class OrderCancellationsController {
   }
 
   @Post('tick')
+  @Roles(Role.AppAdmin)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Run one processor pass now',
@@ -122,6 +123,7 @@ export class OrderCancellationsController {
   }
 
   @Post(':id/advance')
+  @Roles(Role.AppAdmin)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Advance one cancellation (demo / unstick)',
