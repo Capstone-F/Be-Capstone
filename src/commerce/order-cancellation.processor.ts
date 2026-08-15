@@ -6,6 +6,7 @@ import { AppConfigService } from '../config/config.service';
 import { ORDER_CANCELLATION_TICK_CRON_DEFAULT } from '../config/order-cancellation.config';
 import { Delivery } from '../delivery/delivery.entity';
 import { DeliveryStatus } from '../delivery/enums';
+import { DeliveryService } from '../delivery/delivery.service';
 import { StockService } from '../stock/stock.service';
 import { WalletService } from '../wallet/wallet.service';
 import { TransactionType, OrderCancellationStatus, OrderStatus } from './enums';
@@ -56,6 +57,7 @@ export class OrderCancellationProcessor {
     private readonly cancellationRepository: Repository<OrderCancellation>,
     @InjectRepository(Delivery)
     private readonly deliveryRepository: Repository<Delivery>,
+    private readonly deliveryService: DeliveryService,
     private readonly cancellationsService: OrderCancellationsService,
     private readonly stockService: StockService,
     private readonly walletService: WalletService,
@@ -291,6 +293,9 @@ export class OrderCancellationProcessor {
           },
         );
       });
+      await this.deliveryService.stopDeliveryForCancelledOrder(
+        cancellation.orderId,
+      );
       return OrderCancellationStatus.REFUNDING;
     }
     if (cancellation.requiresStockReturn) {
@@ -307,6 +312,9 @@ export class OrderCancellationProcessor {
           },
         );
       });
+      await this.deliveryService.stopDeliveryForCancelledOrder(
+        cancellation.orderId,
+      );
       return OrderCancellationStatus.AWAITING_RETURN;
     }
 
@@ -322,6 +330,9 @@ export class OrderCancellationProcessor {
         },
       );
     });
+    await this.deliveryService.stopDeliveryForCancelledOrder(
+      cancellation.orderId,
+    );
     return OrderCancellationStatus.COMPLETED;
   }
 

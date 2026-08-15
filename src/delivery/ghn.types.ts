@@ -96,3 +96,9 @@ export type GhnOrderDetailData = {
   order_code: string;
   status: string;
 };
+
+export type GhnSwitchStatusResult = {
+  order_code: string;
+  result: boolean;
+  message: string;
+};

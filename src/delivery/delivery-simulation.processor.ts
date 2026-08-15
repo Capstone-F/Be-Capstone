@@ -18,7 +18,9 @@ import { GHN_STATUS_MAP } from './ghn.status-map';
 
 const TERMINAL_DELIVERY_STATUSES = new Set([
   DeliveryStatus.DELIVERED,
+  DeliveryStatus.CANCELLED,
   DeliveryStatus.FAILED,
+  DeliveryStatus.RETURNING,
   DeliveryStatus.RETURNED,
 ]);
 
