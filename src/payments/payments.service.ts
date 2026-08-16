@@ -20,6 +20,7 @@ import {
 import type { IpnResponse } from 'vnpay';
 import { AppConfigService } from '../config/config.service';
 import { Order } from '../commerce/order.entity';
+import { OrderItem } from '../commerce/order-item.entity';
 import { LedgerAccount, OrderStatus, TransactionType } from '../commerce/enums';
 import { DeliveryService } from '../delivery/delivery.service';
 import { StockService } from '../stock/stock.service';
@@ -69,6 +70,8 @@ export class PaymentsService {
     private readonly attemptRepo: Repository<PaymentAttempt>,
     @InjectRepository(Order)
     private readonly orderRepo: Repository<Order>,
+    @InjectRepository(OrderItem)
+    private readonly orderItemRepo: Repository<OrderItem>,
     @InjectRepository(Customer)
     private readonly customerRepo: Repository<Customer>,
     @Inject(PAYMENT_GATEWAY)
@@ -555,26 +558,34 @@ export class PaymentsService {
   }
 
   /**
-   * Stock deduction + GHN handover, each isolated so one failing cannot skip the other
-   * or reach the finalize/IPN catch. Collaborators are expected to handle their own errors;
-   * this is defence in depth, not a substitute for that.
+   * Stock deduction + GHN handover, each isolated so a failure cannot reach the
+   * finalize/IPN catch. GHN handover is only requested once every item's stock
+   * was deducted — an incomplete deduction flags order.stockShortfall and holds
+   * the order for staff (POST /admin/orders/:orderId/fulfillment/retry).
    */
   private async runPostPaymentSideEffects(paymentId: string): Promise<void> {
-    await this.safely('stock deduction', paymentId, () =>
+    const stockComplete = await this.safely('stock deduction', paymentId, () =>
       this.deductStockForPaidPayment(paymentId),
     );
+    if (stockComplete !== true) {
+      this.logger.warn(
+        `Holding GHN handover for payment=${paymentId}: stock deduction incomplete`,
+      );
+      return;
+    }
     await this.safely('GHN delivery creation', paymentId, () =>
       this.createDeliveryForPaidPayment(paymentId),
     );
   }
 
-  private async safely(
+  /** Runs the callback, logging instead of throwing; returns undefined on error. */
+  private async safely<T>(
     label: string,
     paymentId: string,
-    run: () => Promise<void>,
-  ): Promise<void> {
+    run: () => Promise<T>,
+  ): Promise<T | undefined> {
     try {
-      await run();
+      return await run();
     } catch (error) {
       this.logger.error(
         `${label} failed for payment=${paymentId} (payment is still confirmed): ${
@@ -582,6 +593,7 @@ export class PaymentsService {
         }`,
         error instanceof Error ? error.stack : undefined,
       );
+      return undefined;
     }
   }
 
@@ -596,12 +608,13 @@ export class PaymentsService {
     await this.deliveryService.createGhnOrderForPaidOrder(payment.orderId);
   }
 
-  private async deductStockForPaidPayment(paymentId: string): Promise<void> {
+  /** Returns true when every order item has its stock deducted. */
+  private async deductStockForPaidPayment(paymentId: string): Promise<boolean> {
     const payment = await this.paymentRepo.findOne({
       where: { id: paymentId },
     });
     if (!payment?.orderId) {
-      return;
+      return true;
     }
 
     const order = await this.orderRepo.findOne({
@@ -609,10 +622,14 @@ export class PaymentsService {
       relations: ['items'],
     });
     if (!order?.items?.length) {
-      return;
+      return true;
     }
 
+    let failures = 0;
     for (const item of order.items) {
+      if (item.stockDeductedAt) {
+        continue;
+      }
       try {
         await this.stockService.deductByVariantId(
           item.productVariantId,
@@ -620,7 +637,12 @@ export class PaymentsService {
           `Order ${order.id} payment ${payment.id}`,
           item.id,
         );
+        await this.orderItemRepo.update(
+          { id: item.id },
+          { stockDeductedAt: new Date() },
+        );
       } catch (error) {
+        failures += 1;
         this.logger.error(
           `Stock deduction failed for orderItem=${item.id}: ${
             error instanceof Error ? error.message : String(error)
@@ -629,6 +651,15 @@ export class PaymentsService {
         );
       }
     }
+
+    const complete = failures === 0;
+    if (order.stockShortfall !== !complete) {
+      await this.orderRepo.update(
+        { id: order.id },
+        { stockShortfall: !complete },
+      );
+    }
+    return complete;
   }
 
   async getStatus(

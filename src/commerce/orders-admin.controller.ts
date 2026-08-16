@@ -31,6 +31,8 @@ import { Role } from '../auth/roles.enum';
 import { DeliveryAdminResponseDto } from '../delivery/dto/delivery-admin-response.dto';
 import { DeliveryService } from '../delivery/delivery.service';
 import { ConfirmHandoverDto } from './dto/confirm-handover.dto';
+import { OrderResponseDto } from './dto/order-response.dto';
+import { OrdersService } from './orders.service';
 
 @ApiTags('Admin orders')
 @Controller('admin/orders')
@@ -41,7 +43,30 @@ import { ConfirmHandoverDto } from './dto/confirm-handover.dto';
 @ApiUnauthorizedResponse({ description: 'Not authenticated' })
 @ApiForbiddenResponse({ description: 'Insufficient permissions' })
 export class OrdersAdminController {
-  constructor(private readonly deliveryService: DeliveryService) {}
+  constructor(
+    private readonly deliveryService: DeliveryService,
+    private readonly ordersService: OrdersService,
+  ) {}
+
+  @Post(':orderId/fulfillment/retry')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Retry stock deduction for a paid order held by a stock shortfall',
+    description:
+      'Re-runs stock deduction for items not yet deducted (typically after ' +
+      'restocking), clears order.stockShortfall, and releases the held GHN ' +
+      'handover once every item is covered. Idempotent for already-deducted items.',
+  })
+  @ApiOkResponse({ type: OrderResponseDto })
+  @ApiBadRequestResponse({
+    description: 'Order is not PAID, or stock is still insufficient',
+  })
+  @ApiNotFoundResponse({ description: 'Order not found' })
+  retryFulfillment(
+    @Param('orderId', ParseUUIDPipe) orderId: string,
+  ): Promise<OrderResponseDto> {
+    return this.ordersService.retryFulfillment(orderId);
+  }
 
   @Post(':orderId/handover')
   @HttpCode(HttpStatus.OK)

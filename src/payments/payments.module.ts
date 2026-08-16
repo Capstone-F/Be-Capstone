@@ -4,6 +4,7 @@ import { VnpayModule } from 'nestjs-vnpay';
 import { HashAlgorithm, ignoreLogger } from 'vnpay';
 import { AppConfigService } from '../config/config.service';
 import { Order } from '../commerce/order.entity';
+import { OrderItem } from '../commerce/order-item.entity';
 import { Transaction } from '../commerce/transaction.entity';
 import { Customer } from '../users/customer.entity';
 import { AuthModule } from '../auth/auth.module';
@@ -27,6 +28,7 @@ import { CommerceAnalyticsModule } from '../analytics/commerce-analytics.module'
       Payment,
       PaymentAttempt,
       Order,
+      OrderItem,
       Customer,
       Transaction,
     ]),

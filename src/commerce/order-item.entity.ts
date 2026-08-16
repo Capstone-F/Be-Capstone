@@ -54,6 +54,10 @@ export class OrderItem {
   @Column({ type: 'int' })
   quantity: number;
 
+  /** Stamped when stock was deducted for this item — makes fulfillment retries idempotent. */
+  @Column({ nullable: true, type: 'timestamptz' })
+  stockDeductedAt: Date | null;
+
   @Column({ type: 'int' })
   unitPriceVnd: number;
 

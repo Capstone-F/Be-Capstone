@@ -65,7 +65,8 @@ describe('PaymentsService', () => {
   let attemptRepo: Mocked<
     Pick<Repository<PaymentAttempt>, 'findOne' | 'create' | 'save'>
   >;
-  let orderRepo: Mocked<Pick<Repository<Order>, 'findOne'>>;
+  let orderRepo: Mocked<Pick<Repository<Order>, 'findOne' | 'update'>>;
+  let orderItemRepo: { update: jest.Mock };
   let customerRepo: Mocked<Pick<Repository<Customer>, 'findOne'>>;
   let gateway: jest.Mocked<PaymentGateway>;
   let dataSource: { transaction: jest.Mock };
@@ -85,7 +86,8 @@ describe('PaymentsService', () => {
   beforeEach(() => {
     paymentRepo = { findOne: jest.fn(), create: jest.fn(), save: jest.fn() };
     attemptRepo = { findOne: jest.fn(), create: jest.fn(), save: jest.fn() };
-    orderRepo = { findOne: jest.fn() };
+    orderRepo = { findOne: jest.fn(), update: jest.fn() };
+    orderItemRepo = { update: jest.fn() };
     customerRepo = { findOne: jest.fn() };
     gateway = {
       code: PaymentProvider.VNPAY,
@@ -120,6 +122,7 @@ describe('PaymentsService', () => {
       paymentRepo as unknown as Repository<Payment>,
       attemptRepo as unknown as Repository<PaymentAttempt>,
       orderRepo as unknown as Repository<Order>,
+      orderItemRepo as never,
       customerRepo as unknown as Repository<Customer>,
       gateway,
       makeConfig(),
@@ -245,6 +248,59 @@ describe('PaymentsService', () => {
         2,
         expect.any(String),
         'oi-1',
+      );
+      expect(deliveryService.createGhnOrderForPaidOrder).toHaveBeenCalledWith(
+        'order-1',
+      );
+    });
+
+    it('flags stockShortfall and holds GHN handover when deduction fails', async () => {
+      mockWalletTransaction(pendingOrder);
+      orderRepo.findOne.mockResolvedValueOnce(pendingOrder).mockResolvedValue({
+        ...pendingOrder,
+        items: [{ id: 'oi-1', productVariantId: 'var-1', quantity: 2 }],
+      });
+      stockService.deductByVariantId.mockRejectedValue(
+        new BadRequestException('Không đủ hàng tồn kho'),
+      );
+
+      await service.checkoutWithWallet('user-1', { orderId: 'order-1' });
+
+      expect(orderRepo.update).toHaveBeenCalledWith(
+        { id: 'order-1' },
+        { stockShortfall: true },
+      );
+      expect(orderItemRepo.update).not.toHaveBeenCalled();
+      expect(deliveryService.createGhnOrderForPaidOrder).not.toHaveBeenCalled();
+    });
+
+    it('skips already-deducted items and still hands over to GHN', async () => {
+      mockWalletTransaction(pendingOrder);
+      orderRepo.findOne.mockResolvedValueOnce(pendingOrder).mockResolvedValue({
+        ...pendingOrder,
+        items: [
+          {
+            id: 'oi-1',
+            productVariantId: 'var-1',
+            quantity: 2,
+            stockDeductedAt: new Date(),
+          },
+          { id: 'oi-2', productVariantId: 'var-2', quantity: 1 },
+        ],
+      });
+
+      await service.checkoutWithWallet('user-1', { orderId: 'order-1' });
+
+      expect(stockService.deductByVariantId).toHaveBeenCalledTimes(1);
+      expect(stockService.deductByVariantId).toHaveBeenCalledWith(
+        'var-2',
+        1,
+        expect.any(String),
+        'oi-2',
+      );
+      expect(orderItemRepo.update).toHaveBeenCalledWith(
+        { id: 'oi-2' },
+        { stockDeductedAt: expect.any(Date) },
       );
       expect(deliveryService.createGhnOrderForPaidOrder).toHaveBeenCalledWith(
         'order-1',
@@ -852,6 +908,7 @@ describe('PaymentsService', () => {
         paymentRepo as unknown as Repository<Payment>,
         attemptRepo as unknown as Repository<PaymentAttempt>,
         orderRepo as unknown as Repository<Order>,
+        orderItemRepo as never,
         customerRepo as unknown as Repository<Customer>,
         { ...gateway, code: PaymentProvider.MOCK },
         makeConfig('mock'),
@@ -937,6 +994,7 @@ describe('PaymentsService', () => {
         paymentRepo as unknown as Repository<Payment>,
         attemptRepo as unknown as Repository<PaymentAttempt>,
         orderRepo as unknown as Repository<Order>,
+        orderItemRepo as never,
         customerRepo as unknown as Repository<Customer>,
         { ...gateway, code: PaymentProvider.VNPAY },
         makeConfig('vnpay'),

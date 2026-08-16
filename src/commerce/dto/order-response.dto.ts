@@ -89,6 +89,13 @@ export class OrderResponseDto {
   })
   cancelledAt!: Date | null;
 
+  @ApiProperty({
+    description:
+      'True when post-payment stock deduction failed for at least one item. ' +
+      'GHN handover is held until staff restock and retry fulfillment.',
+  })
+  stockShortfall!: boolean;
+
   @ApiPropertyOptional({
     type: OrderCancellationSummaryDto,
     nullable: true,
