@@ -8,6 +8,7 @@ import { ProductProtocol } from '../products/product-protocol.entity';
 import { ProductVariant } from '../products/product-variant.entity';
 import { RecommendationService } from '../recommendations/recommendation.service';
 import { REDIS_CLIENT } from '../redis/redis.constants';
+import { StockService } from '../stock/stock.service';
 import { Customer } from '../users/customer.entity';
 import { CartService } from './cart.service';
 
@@ -27,6 +28,7 @@ describe('CartService', () => {
   let ingredientConflictRepository: {
     find: jest.Mock;
   };
+  let stockService: { getAvailableQuantity: jest.Mock };
 
   beforeEach(async () => {
     redisStore = new Map();
@@ -53,6 +55,9 @@ describe('CartService', () => {
     };
     ingredientConflictRepository = {
       find: jest.fn().mockResolvedValue([]),
+    };
+    stockService = {
+      getAvailableQuantity: jest.fn().mockResolvedValue(100),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -89,6 +94,7 @@ describe('CartService', () => {
           useValue: ingredientConflictRepository,
         },
         { provide: RecommendationService, useValue: recommendationService },
+        { provide: StockService, useValue: stockService },
       ],
     }).compile();
 
@@ -123,6 +129,44 @@ describe('CartService', () => {
     expect(cart.surveyRecommendationId).toBe('rec-1');
     expect(cart.items).toEqual([{ productVariantId: 'v-other', quantity: 1 }]);
     expect(cart.conflicts).toEqual([]);
+  });
+
+  it('rejects adding an out-of-stock variant', async () => {
+    stockService.getAvailableQuantity.mockResolvedValue(0);
+
+    await expect(
+      service.addItem('u1', {
+        productVariantId: 'v1',
+        quantity: 1,
+        source: OrderSource.CATALOG,
+      }),
+    ).rejects.toThrow('Sản phẩm đã hết hàng');
+
+    const cart = await service.getCart('u1');
+    expect(cart.items).toHaveLength(0);
+  });
+
+  it('rejects a quantity above the available stock', async () => {
+    stockService.getAvailableQuantity.mockResolvedValue(3);
+
+    await expect(
+      service.addItem('u1', {
+        productVariantId: 'v1',
+        quantity: 5,
+        source: OrderSource.CATALOG,
+      }),
+    ).rejects.toThrow('Không đủ hàng tồn kho: còn 3, yêu cầu 5');
+  });
+
+  it('allows adding when stock covers the requested quantity', async () => {
+    stockService.getAvailableQuantity.mockResolvedValue(3);
+
+    const cart = await service.addItem('u1', {
+      productVariantId: 'v1',
+      quantity: 3,
+      source: OrderSource.CATALOG,
+    });
+    expect(cart.items).toEqual([{ productVariantId: 'v1', quantity: 3 }]);
   });
 
   it('clears source when cart is emptied', async () => {

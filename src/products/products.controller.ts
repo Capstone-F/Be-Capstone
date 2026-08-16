@@ -26,6 +26,7 @@ import {
 } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { getAuthContext } from '../auth/auth-context';
+import { Public } from '../auth/decorators/public.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
@@ -93,14 +94,20 @@ export class ProductsController {
   }
 
   @Get()
+  @UseGuards(SessionGuard, RolesGuard)
+  @Public()
   @ApiOperation({
     summary: 'List products',
     description:
-      'Filter by category, brand, or ingredient name. Use query for free-text search across product name, brand, category, description, ingredient, and SKU.',
+      'Filter by category, brand, or ingredient name. Use query for free-text search across product name, brand, category, description, ingredient, and SKU. Out-of-stock products are hidden unless the caller is Staff or Admin.',
   })
   @ApiOkResponse({ type: PaginatedProductsDto })
-  list(@Query() query: ListProductsQueryDto) {
-    return this.productsService.findMany(query);
+  list(@Req() req: Request, @Query() query: ListProductsQueryDto) {
+    const auth = getAuthContext(req);
+    const includeOutOfStock = (auth?.roles ?? []).some((role) =>
+      [Role.Staff, Role.AppAdmin].includes(role as Role),
+    );
+    return this.productsService.findMany(query, { includeOutOfStock });
   }
 
   @Get('suggestion')

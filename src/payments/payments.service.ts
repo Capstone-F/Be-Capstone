@@ -669,7 +669,7 @@ export class PaymentsService {
     };
   }
 
-  /** Shared guard for every order payment path: ownership, status, shipping. */
+  /** Shared guard for every order payment path: ownership, status, shipping, stock. */
   private async requirePayableOrder(
     userId: string,
     orderId: string,
@@ -683,7 +683,7 @@ export class PaymentsService {
 
     const order = await this.orderRepo.findOne({
       where: { id: orderId },
-      relations: ['delivery'],
+      relations: ['delivery', 'items', 'items.productVariant'],
     });
     if (!order) {
       throw new NotFoundException('Không tìm thấy đơn hàng');
@@ -701,7 +701,30 @@ export class PaymentsService {
         'Đơn hàng chưa chọn phương thức vận chuyển',
       );
     }
+    await this.assertOrderItemsInStock(order);
     return order;
+  }
+
+  /** Stock is only deducted after payment, so re-check availability at checkout. */
+  private async assertOrderItemsInStock(order: Order): Promise<void> {
+    const items = order.items ?? [];
+    if (items.length === 0) {
+      return;
+    }
+    const availability = await this.stockService.getAvailableQuantities(
+      items.map((i) => i.productVariantId),
+    );
+    for (const item of items) {
+      const available = availability.get(item.productVariantId) ?? 0;
+      if (item.quantity > available) {
+        const sku = item.productVariant?.sku ?? item.productVariantId;
+        throw new BadRequestException(
+          available <= 0
+            ? `Sản phẩm ${sku} đã hết hàng`
+            : `Không đủ hàng tồn kho cho sản phẩm ${sku}: còn ${available}, yêu cầu ${item.quantity}`,
+        );
+      }
+    }
   }
 
   /**

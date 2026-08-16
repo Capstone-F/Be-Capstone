@@ -15,6 +15,7 @@ import { GHN_PROVIDER_CODE } from '../delivery/ghn.constants';
 import { ProductVariant } from '../products/product-variant.entity';
 import { RecommendationService } from '../recommendations/recommendation.service';
 import { Role } from '../auth/roles.enum';
+import { StockService } from '../stock/stock.service';
 import { Customer } from '../users/customer.entity';
 import { CommerceSetting } from './commerce-setting.entity';
 import {
@@ -51,6 +52,7 @@ export class OrdersService {
     private readonly cartService: CartService,
     private readonly recommendationService: RecommendationService,
     private readonly deliveryService: DeliveryService,
+    private readonly stockService: StockService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -75,6 +77,20 @@ export class OrdersService {
       );
     }
     const variantById = new Map(variants.map((v) => [v.id, v]));
+
+    const availability =
+      await this.stockService.getAvailableQuantities(variantIds);
+    for (const item of cart.items) {
+      const available = availability.get(item.productVariantId) ?? 0;
+      if (item.quantity > available) {
+        const sku = variantById.get(item.productVariantId)!.sku;
+        throw new BadRequestException(
+          available <= 0
+            ? `Sản phẩm ${sku} đã hết hàng`
+            : `Không đủ hàng tồn kho cho sản phẩm ${sku}: còn ${available}, yêu cầu ${item.quantity}`,
+        );
+      }
+    }
 
     let customerSurveyId: string | null = null;
     let surveyRecommendationId: string | null = null;

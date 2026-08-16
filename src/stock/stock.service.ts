@@ -463,6 +463,45 @@ export class StockService {
     );
   }
 
+  /**
+   * Sellable quantity per variant = SUM(remainingQuantity) over non-expired
+   * batches. Variants without any stock are absent from the map (treat as 0).
+   */
+  async getAvailableQuantities(
+    productVariantIds?: string[],
+  ): Promise<Map<string, number>> {
+    if (productVariantIds && productVariantIds.length === 0) {
+      return new Map();
+    }
+
+    const qb = this.batchRepository
+      .createQueryBuilder('batch')
+      .select('batch.productVariantId', 'productVariantId')
+      .addSelect('SUM(batch.remainingQuantity)', 'stockQuantity')
+      .where('batch.expirationDate > :now', { now: new Date() })
+      .groupBy('batch.productVariantId');
+    if (productVariantIds) {
+      qb.andWhere('batch.productVariantId IN (:...productVariantIds)', {
+        productVariantIds,
+      });
+    }
+    const batches = await qb.getRawMany<{
+      productVariantId: string;
+      stockQuantity: string;
+    }>();
+
+    const stockMap = new Map<string, number>();
+    for (const b of batches) {
+      stockMap.set(b.productVariantId, parseInt(b.stockQuantity, 10));
+    }
+    return stockMap;
+  }
+
+  async getAvailableQuantity(productVariantId: string): Promise<number> {
+    const quantities = await this.getAvailableQuantities([productVariantId]);
+    return quantities.get(productVariantId) ?? 0;
+  }
+
   async listInventory(): Promise<InventoryItemDto[]> {
     const variants = await this.variantRepository
       .createQueryBuilder('variant')
@@ -473,18 +512,7 @@ export class StockService {
       .andWhere('product.isActive = :isActive', { isActive: true })
       .getMany();
 
-    const batches = await this.batchRepository
-      .createQueryBuilder('batch')
-      .select('batch.productVariantId', 'productVariantId')
-      .addSelect('SUM(batch.remainingQuantity)', 'stockQuantity')
-      .where('batch.expirationDate > :now', { now: new Date() })
-      .groupBy('batch.productVariantId')
-      .getRawMany<{ productVariantId: string; stockQuantity: string }>();
-
-    const stockMap = new Map<string, number>();
-    for (const b of batches) {
-      stockMap.set(b.productVariantId, parseInt(b.stockQuantity, 10));
-    }
+    const stockMap = await this.getAvailableQuantities();
 
     const lowStockThreshold = await this.getLowStockThreshold();
 
