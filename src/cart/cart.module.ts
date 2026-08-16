@@ -7,6 +7,7 @@ import { IngredientConflict } from '../ingredients/ingredient-conflict.entity';
 import { ProductProtocol } from '../products/product-protocol.entity';
 import { ProductVariant } from '../products/product-variant.entity';
 import { RecommendationsModule } from '../recommendations/recommendations.module';
+import { StockModule } from '../stock/stock.module';
 import { Customer } from '../users/customer.entity';
 import { CartController } from './cart.controller';
 import { CartService } from './cart.service';
@@ -20,6 +21,7 @@ import { CartService } from './cart.service';
       IngredientConflict,
     ]),
     RecommendationsModule,
+    StockModule,
     AuthModule,
   ],
   controllers: [CartController],

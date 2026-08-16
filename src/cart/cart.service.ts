@@ -14,6 +14,7 @@ import { ProductProtocol } from '../products/product-protocol.entity';
 import { ProductVariant } from '../products/product-variant.entity';
 import { RecommendationService } from '../recommendations/recommendation.service';
 import { REDIS_CLIENT } from '../redis/redis.constants';
+import { StockService } from '../stock/stock.service';
 import { Customer } from '../users/customer.entity';
 import { AddCartItemDto } from './dto/add-cart-item.dto';
 import { CartConflictDto, CartResponseDto } from './dto/cart-response.dto';
@@ -34,6 +35,7 @@ export class CartService {
     @InjectRepository(IngredientConflict)
     private readonly ingredientConflictRepository: Repository<IngredientConflict>,
     private readonly recommendationService: RecommendationService,
+    private readonly stockService: StockService,
   ) {}
 
   async getCart(userId: string): Promise<CartResponseDto> {
@@ -52,6 +54,18 @@ export class CartService {
     if (!variant) {
       throw new NotFoundException(
         `Không tìm thấy phân loại sản phẩm ${dto.productVariantId}`,
+      );
+    }
+
+    // addItem replaces (not increments) the quantity, so dto.quantity is the
+    // total the customer wants — compare it directly against available stock.
+    const available = await this.stockService.getAvailableQuantity(variant.id);
+    if (available <= 0) {
+      throw new BadRequestException('Sản phẩm đã hết hàng');
+    }
+    if (dto.quantity > available) {
+      throw new BadRequestException(
+        `Không đủ hàng tồn kho: còn ${available}, yêu cầu ${dto.quantity}`,
       );
     }
 

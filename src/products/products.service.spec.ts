@@ -67,6 +67,7 @@ type MockQb = {
   orderBy: jest.Mock;
   skip: jest.Mock;
   take: jest.Mock;
+  setParameter: jest.Mock;
   getManyAndCount: jest.Mock;
   getMany: jest.Mock;
 };
@@ -80,6 +81,7 @@ const makeQueryBuilder = (products: Product[] = []): MockQb => ({
   orderBy: jest.fn().mockReturnThis(),
   skip: jest.fn().mockReturnThis(),
   take: jest.fn().mockReturnThis(),
+  setParameter: jest.fn().mockReturnThis(),
   getManyAndCount: jest.fn().mockResolvedValue([products, products.length]),
   getMany: jest.fn().mockResolvedValue([]),
 });
@@ -109,6 +111,7 @@ const makeCategoryQueryBuilder = (
   orderBy: jest.fn().mockReturnThis(),
   skip: jest.fn().mockReturnThis(),
   take: jest.fn().mockReturnThis(),
+  setParameter: jest.fn().mockReturnThis(),
   getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
   getMany: jest.fn().mockResolvedValue(categories),
 });
@@ -393,6 +396,36 @@ describe('ProductsService', () => {
         { queryTerm: '%100\\%\\_off%' },
       );
     });
+
+    it('hides out-of-stock products by default', async () => {
+      const qb = makeQueryBuilder([makeProduct()]);
+      const service = makeService(qb);
+
+      await service.findMany({});
+
+      const existsFilter = qb.andWhere.mock.calls.find(
+        ([arg]) => typeof arg === 'function',
+      );
+      expect(existsFilter).toBeDefined();
+      expect(qb.setParameter).toHaveBeenCalledWith('stockVariantActive', true);
+      expect(qb.setParameter).toHaveBeenCalledWith(
+        'stockNow',
+        expect.any(Date),
+      );
+    });
+
+    it('keeps out-of-stock products when includeOutOfStock is set', async () => {
+      const qb = makeQueryBuilder([makeProduct()]);
+      const service = makeService(qb);
+
+      await service.findMany({}, { includeOutOfStock: true });
+
+      const existsFilter = qb.andWhere.mock.calls.find(
+        ([arg]) => typeof arg === 'function',
+      );
+      expect(existsFilter).toBeUndefined();
+      expect(qb.setParameter).not.toHaveBeenCalled();
+    });
   });
 
   describe('findCategories', () => {
@@ -533,7 +566,7 @@ describe('ProductsService', () => {
         labelId: retinoidLabel.id,
         label: retinoidLabel,
         createdAt: new Date(),
-      } as CustomerAllergy;
+      };
       const retinolMapping = {
         ...makeMapping(),
         productId: 'product-retinol',

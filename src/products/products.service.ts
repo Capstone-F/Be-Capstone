@@ -6,6 +6,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, Repository } from 'typeorm';
 import { RuleEngineService } from '../rule-engine/rule-engine.service';
+import { StockBatch } from '../stock/stock-batch.entity';
 import { CustomerAllergy } from '../users/customer-allergy.entity';
 import { Customer } from '../users/customer.entity';
 import { ListProductCategoriesQueryDto } from './dto/list-product-categories.dto';
@@ -106,7 +107,10 @@ export class ProductsService {
     };
   }
 
-  async findMany(query: ListProductsQueryDto): Promise<PaginatedProductsDto> {
+  async findMany(
+    query: ListProductsQueryDto,
+    options?: { includeOutOfStock?: boolean },
+  ): Promise<PaginatedProductsDto> {
     const page = Math.max(1, query.page ?? 1);
     const limit = Math.min(100, Math.max(1, query.limit ?? 20));
     const skip = (page - 1) * limit;
@@ -117,6 +121,26 @@ export class ProductsService {
       .leftJoinAndSelect('product.category', 'category')
       .leftJoinAndSelect('product.variants', 'variants')
       .where('product.isActive = :isActive', { isActive: true });
+
+    if (!options?.includeOutOfStock) {
+      // Customers only see products with at least one active variant that has
+      // sellable (non-expired) stock; Staff/Admin see everything.
+      qb.andWhere((outerQb) => {
+        const sub = outerQb
+          .subQuery()
+          .select('1')
+          .from(StockBatch, 'stockBatch')
+          .innerJoin('stockBatch.productVariant', 'stockVariant')
+          .where('stockVariant.productId = product.id')
+          .andWhere('stockVariant.isActive = :stockVariantActive')
+          .andWhere('stockBatch.remainingQuantity > 0')
+          .andWhere('stockBatch.expirationDate > :stockNow')
+          .getQuery();
+        return `EXISTS ${sub}`;
+      })
+        .setParameter('stockVariantActive', true)
+        .setParameter('stockNow', new Date());
+    }
 
     if (query.categoryId) {
       qb.andWhere('product.categoryId = :categoryId', {

@@ -67,6 +67,9 @@ import { Role } from '../src/auth/roles.enum';
 import { IngredientConflict } from '../src/ingredients/ingredient-conflict.entity';
 import { ConflictSeverity } from '../src/products/enums/conflict-severity.enum';
 import { StockBatch } from '../src/stock/stock-batch.entity';
+import { StockMovement } from '../src/stock/stock-movement.entity';
+import { ProductInstance } from '../src/stock/product-instance.entity';
+import { StockService } from '../src/stock/stock.service';
 
 describe('Survey purchase → routine generation (e2e)', () => {
   let moduleFixture: TestingModule;
@@ -108,6 +111,8 @@ describe('Survey purchase → routine generation (e2e)', () => {
           ProductProtocol,
           ProductVariant,
           StockBatch,
+          StockMovement,
+          ProductInstance,
           CommerceSetting,
           Order,
           OrderItem,
@@ -125,6 +130,7 @@ describe('Survey purchase → routine generation (e2e)', () => {
       providers: [
         RecommendationService,
         CartService,
+        StockService,
         OrdersService,
         DeliveryService,
         GhnClient,

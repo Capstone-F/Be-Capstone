@@ -11,6 +11,7 @@ import { ProductVariant } from '../products/product-variant.entity';
 import { RecommendationService } from '../recommendations/recommendation.service';
 import { SurveyRecommendation } from '../recommendations/survey-recommendation.entity';
 import { SurveyRecommendationItem } from '../recommendations/survey-recommendation-item.entity';
+import { StockService } from '../stock/stock.service';
 import { Customer } from '../users/customer.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { CommerceSetting } from './commerce-setting.entity';
@@ -48,6 +49,7 @@ describe('OrdersService', () => {
   let orderRepository: { findOne: jest.Mock };
   let deliveryProviderRepository: { findOneBy: jest.Mock };
   let deliveryService: jest.Mocked<Pick<DeliveryService, 'quoteFee'>>;
+  let stockService: { getAvailableQuantities: jest.Mock };
   let savedOrders: Order[];
   let savedDeliveries: Delivery[];
   let savedOrderItems: OrderItem[];
@@ -143,6 +145,13 @@ describe('OrdersService', () => {
     deliveryService = {
       quoteFee: jest.fn().mockResolvedValue(32000),
     };
+    stockService = {
+      getAvailableQuantities: jest
+        .fn()
+        .mockImplementation((ids: string[]) =>
+          Promise.resolve(new Map(ids.map((id) => [id, 100]))),
+        ),
+    };
 
     const dataSource = {
       transaction: async (cb: (m: unknown) => Promise<Order>) =>
@@ -192,6 +201,7 @@ describe('OrdersService', () => {
         { provide: CartService, useValue: cartService },
         { provide: RecommendationService, useValue: recommendationService },
         { provide: DeliveryService, useValue: deliveryService },
+        { provide: StockService, useValue: stockService },
         { provide: DataSource, useValue: dataSource },
       ],
     }).compile();
@@ -484,6 +494,35 @@ describe('OrdersService', () => {
     expect(order.provinceId).toBeNull();
     expect(order.districtId).toBeNull();
     expect(order.wardCode).toBeNull();
+  });
+
+  it('rejects the order when a cart item exceeds available stock', async () => {
+    stockService.getAvailableQuantities.mockResolvedValue(new Map([['v1', 1]]));
+    cartService.getCartByCustomerId.mockResolvedValue({
+      source: OrderSource.CATALOG,
+      surveyRecommendationId: null,
+      items: [{ productVariantId: 'v1', quantity: 2 }],
+    });
+
+    await expect(service.createFromCart('user-1', DTO)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(savedOrders).toHaveLength(0);
+    expect(deliveryService.quoteFee).not.toHaveBeenCalled();
+  });
+
+  it('rejects the order when a cart item is out of stock', async () => {
+    stockService.getAvailableQuantities.mockResolvedValue(new Map());
+    cartService.getCartByCustomerId.mockResolvedValue({
+      source: OrderSource.CATALOG,
+      surveyRecommendationId: null,
+      items: [{ productVariantId: 'v1', quantity: 1 }],
+    });
+
+    await expect(service.createFromCart('user-1', DTO)).rejects.toThrow(
+      'đã hết hàng',
+    );
+    expect(savedOrders).toHaveLength(0);
   });
 
   it('rejects when the GHN provider row is missing', async () => {

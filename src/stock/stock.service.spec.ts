@@ -549,4 +549,59 @@ describe('StockService', () => {
       expect(item.warningMessage).toContain('ngưỡng cảnh báo 20');
     });
   });
+
+  describe('getAvailableQuantities', () => {
+    const makeStockQueryService = (
+      stockRows: Array<{ productVariantId: string; stockQuantity: string }>,
+    ) => {
+      const batchQb = {
+        select: jest.fn().mockReturnThis(),
+        addSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        groupBy: jest.fn().mockReturnThis(),
+        getRawMany: jest.fn().mockResolvedValue(stockRows),
+      };
+      const svc = new StockService(
+        {} as unknown as Repository<ProductVariant>,
+        {
+          createQueryBuilder: jest.fn().mockReturnValue(batchQb),
+        } as unknown as Repository<StockBatch>,
+        makeMovementRepo(),
+        makeInstanceRepo(),
+        makeSettingRepo(null),
+      );
+      return { svc, batchQb };
+    };
+
+    it('sums non-expired batch stock per variant and scopes to the given ids', async () => {
+      const { svc, batchQb } = makeStockQueryService([
+        { productVariantId: 'v1', stockQuantity: '7' },
+      ]);
+
+      const quantities = await svc.getAvailableQuantities(['v1', 'v2']);
+
+      expect(quantities.get('v1')).toBe(7);
+      expect(quantities.has('v2')).toBe(false);
+      expect(batchQb.andWhere).toHaveBeenCalledWith(
+        'batch.productVariantId IN (:...productVariantIds)',
+        { productVariantIds: ['v1', 'v2'] },
+      );
+    });
+
+    it('returns an empty map without querying when no ids are given', async () => {
+      const { svc, batchQb } = makeStockQueryService([]);
+
+      const quantities = await svc.getAvailableQuantities([]);
+
+      expect(quantities.size).toBe(0);
+      expect(batchQb.getRawMany).not.toHaveBeenCalled();
+    });
+
+    it('getAvailableQuantity falls back to 0 for unknown variants', async () => {
+      const { svc } = makeStockQueryService([]);
+
+      await expect(svc.getAvailableQuantity('v-missing')).resolves.toBe(0);
+    });
+  });
 });

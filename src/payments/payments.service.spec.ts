@@ -69,7 +69,10 @@ describe('PaymentsService', () => {
   let customerRepo: Mocked<Pick<Repository<Customer>, 'findOne'>>;
   let gateway: jest.Mocked<PaymentGateway>;
   let dataSource: { transaction: jest.Mock };
-  let stockService: { deductByVariantId: jest.Mock };
+  let stockService: {
+    deductByVariantId: jest.Mock;
+    getAvailableQuantities: jest.Mock;
+  };
   let deliveryService: { createGhnOrderForPaidOrder: jest.Mock };
   let walletService: {
     getOrCreateWallet: jest.Mock;
@@ -92,7 +95,14 @@ describe('PaymentsService', () => {
       verifyIpn: jest.fn(),
     };
     dataSource = { transaction: jest.fn() };
-    stockService = { deductByVariantId: jest.fn().mockResolvedValue({}) };
+    stockService = {
+      deductByVariantId: jest.fn().mockResolvedValue({}),
+      getAvailableQuantities: jest
+        .fn()
+        .mockImplementation((ids: string[]) =>
+          Promise.resolve(new Map(ids.map((id) => [id, 100]))),
+        ),
+    };
     deliveryService = {
       createGhnOrderForPaidOrder: jest.fn().mockResolvedValue(undefined),
     };
@@ -428,6 +438,57 @@ describe('PaymentsService', () => {
       await expect(
         service.checkout('user-1', { orderId: 'order-1' }, '1.1.1.1'),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects checkout when an order item no longer has stock', async () => {
+      customerRepo.findOne.mockResolvedValue({ id: 'cust-1' });
+      orderRepo.findOne.mockResolvedValue({
+        id: 'order-1',
+        customerId: 'cust-1',
+        status: OrderStatus.PENDING,
+        totalVnd: 199000,
+        delivery: { id: 'del-1' },
+        items: [
+          {
+            id: 'oi-1',
+            productVariantId: 'v1',
+            quantity: 2,
+            productVariant: { sku: 'SKU-1' },
+          },
+        ],
+      });
+      stockService.getAvailableQuantities.mockResolvedValue(new Map());
+
+      await expect(
+        service.checkout('user-1', { orderId: 'order-1' }, '1.1.1.1'),
+      ).rejects.toThrow('Sản phẩm SKU-1 đã hết hàng');
+      expect(paymentRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects checkout when stock is below the ordered quantity', async () => {
+      customerRepo.findOne.mockResolvedValue({ id: 'cust-1' });
+      orderRepo.findOne.mockResolvedValue({
+        id: 'order-1',
+        customerId: 'cust-1',
+        status: OrderStatus.PENDING,
+        totalVnd: 199000,
+        delivery: { id: 'del-1' },
+        items: [
+          {
+            id: 'oi-1',
+            productVariantId: 'v1',
+            quantity: 3,
+            productVariant: { sku: 'SKU-1' },
+          },
+        ],
+      });
+      stockService.getAvailableQuantities.mockResolvedValue(
+        new Map([['v1', 1]]),
+      );
+
+      await expect(
+        service.checkout('user-1', { orderId: 'order-1' }, '1.1.1.1'),
+      ).rejects.toThrow('Không đủ hàng tồn kho cho sản phẩm SKU-1');
     });
 
     it('charges products + shipping via order.totalVnd', async () => {
