@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -12,11 +13,12 @@ import {
   QueryFailedError,
   Repository,
 } from 'typeorm';
-import { AppConfigService } from '../config/config.service';
+import { DeliveryService } from '../delivery/delivery.service';
 import { ProductInstanceStatus } from '../stock/enums';
 import { ProductInstance } from '../stock/product-instance.entity';
 import { StockService } from '../stock/stock.service';
 import { Customer } from '../users/customer.entity';
+import { WalletService } from '../wallet/wallet.service';
 import { ConfirmOrderReturnDto } from './dto/confirm-order-return.dto';
 import { ListOrderCancellationsQueryDto } from './dto/list-order-cancellations-query.dto';
 import {
@@ -27,6 +29,7 @@ import {
   OrderCancellationActor,
   OrderCancellationStatus,
   OrderStatus,
+  TransactionType,
 } from './enums';
 import { OrderCancellationItem } from './order-cancellation-item.entity';
 import { OrderCancellation } from './order-cancellation.entity';
@@ -53,6 +56,8 @@ const CANCELLATION_RELATIONS = ['items'] as const;
 
 @Injectable()
 export class OrderCancellationsService {
+  private readonly logger = new Logger(OrderCancellationsService.name);
+
   constructor(
     @InjectRepository(OrderCancellation)
     private readonly cancellationRepository: Repository<OrderCancellation>,
@@ -61,7 +66,8 @@ export class OrderCancellationsService {
     @InjectRepository(Customer)
     private readonly customerRepository: Repository<Customer>,
     private readonly stockService: StockService,
-    private readonly config: AppConfigService,
+    private readonly walletService: WalletService,
+    private readonly deliveryService: DeliveryService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -169,10 +175,17 @@ export class OrderCancellationsService {
       }
       await manager.save(OrderCancellationItem, cancellation.items);
 
-      cancellation.status = OrderCancellationStatus.RESTOCKED;
+      // Goods are back — refund the wallet in the same transaction, then close out.
+      if (
+        BigInt(cancellation.refundAmountVnd) > 0n &&
+        !cancellation.refundTransactionId
+      ) {
+        await this.refundInTransaction(manager, cancellation);
+      }
+
+      cancellation.status = OrderCancellationStatus.COMPLETED;
       cancellation.restockConfirmedByUserId = staffUserId;
       cancellation.restockConfirmedAt = new Date();
-      cancellation.nextRunAt = this.stepDelayFromNow();
       cancellation.lastError = null;
       await manager.save(OrderCancellation, cancellation);
 
@@ -248,11 +261,13 @@ export class OrderCancellationsService {
     };
   }
 
-  stepDelayFromNow(): Date {
-    const delaySec = this.config.orderCancellationConfig.stepDelaySec;
-    return new Date(Date.now() + delaySec * 1000);
-  }
-
+  /**
+   * The whole cancellation is applied synchronously in one transaction — no
+   * cron pipeline. Orders whose stock was already deducted land directly in
+   * AWAITING_RETURN (order CANCELLED, instances in return transit); the wallet
+   * refund only happens at confirm-return, once the goods are physically back.
+   * Orders with nothing to return are refunded inline (when paid) and COMPLETED.
+   */
   private async createCancellation(
     order: Order,
     userId: string | null,
@@ -261,8 +276,9 @@ export class OrderCancellationsService {
   ): Promise<OrderCancellationResponseDto> {
     const refundAmountVnd = this.computeRefundAmount(order);
 
+    let saved: OrderCancellation;
     try {
-      const saved = await this.dataSource.transaction(async (manager) => {
+      saved = await this.dataSource.transaction(async (manager) => {
         const soldCounts = await this.countSoldInstancesByOrderItem(
           manager,
           order.items,
@@ -273,7 +289,9 @@ export class OrderCancellationsService {
 
         const cancellation = manager.create(OrderCancellation, {
           orderId: order.id,
-          status: OrderCancellationStatus.REQUESTED,
+          status: requiresStockReturn
+            ? OrderCancellationStatus.AWAITING_RETURN
+            : OrderCancellationStatus.COMPLETED,
           requestedByUserId: userId,
           requestedByActor: actor,
           reason: reason?.trim() || null,
@@ -300,14 +318,89 @@ export class OrderCancellationsService {
           }),
         );
         persisted.items = await manager.save(OrderCancellationItem, lines);
+
+        await manager.update(
+          Order,
+          { id: order.id },
+          { status: OrderStatus.CANCELLED, cancelledAt: new Date() },
+        );
+
+        if (requiresStockReturn) {
+          for (const item of order.items) {
+            await this.stockService.markInstancesInReturnTransit(
+              manager,
+              item.id,
+            );
+          }
+        } else if (refundAmountVnd > 0) {
+          await this.refundInTransaction(manager, persisted);
+        }
+
         return persisted;
       });
-      return this.toDto(saved);
     } catch (error) {
       if (this.isUniqueViolation(error)) {
         throw new ConflictException(`Đơn hàng ${order.id} đã có yêu cầu hủy`);
       }
       throw error;
+    }
+
+    await this.stopDeliverySafely(order.id);
+    return this.toDto(saved);
+  }
+
+  /** Credit the customer wallet and flip the order to REFUNDED, all inside the caller's transaction. */
+  private async refundInTransaction(
+    manager: EntityManager,
+    cancellation: OrderCancellation,
+  ): Promise<void> {
+    const order = await manager.findOne(Order, {
+      where: { id: cancellation.orderId },
+      relations: ['customer'],
+    });
+    if (!order?.customer?.userId) {
+      throw new BadRequestException(
+        `Không thể hoàn tiền cho đơn hàng ${cancellation.orderId}: thiếu tài khoản khách hàng`,
+      );
+    }
+
+    const tx = await this.walletService.creditWithManager(manager, {
+      type: TransactionType.REFUND,
+      amountVnd: cancellation.refundAmountVnd,
+      userId: order.customer.userId,
+      orderId: order.id,
+      note: `Refund for cancelled order ${order.id}`,
+      externalRef: `order-cancellation:${cancellation.id}`,
+    });
+
+    cancellation.refundTransactionId = tx.id;
+    cancellation.refundedAt = new Date();
+    await manager.update(
+      OrderCancellation,
+      { id: cancellation.id },
+      {
+        refundTransactionId: cancellation.refundTransactionId,
+        refundedAt: cancellation.refundedAt,
+      },
+    );
+    await manager.update(
+      Order,
+      { id: order.id },
+      { status: OrderStatus.REFUNDED },
+    );
+  }
+
+  /** Delivery stop is best-effort — a GHN outage must not undo the cancellation. */
+  private async stopDeliverySafely(orderId: string): Promise<void> {
+    try {
+      await this.deliveryService.stopDeliveryForCancelledOrder(orderId);
+    } catch (error) {
+      this.logger.error(
+        `Failed to stop delivery for cancelled order ${orderId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        error instanceof Error ? error.stack : undefined,
+      );
     }
   }
 

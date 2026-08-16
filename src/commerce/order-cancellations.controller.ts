@@ -31,17 +31,14 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
 import { Role } from '../auth/roles.enum';
-import { AdvanceOrderCancellationDto } from './dto/advance-order-cancellation.dto';
 import { ConfirmOrderReturnDto } from './dto/confirm-order-return.dto';
 import { CreateOrderCancellationDto } from './dto/create-order-cancellation.dto';
 import { ListOrderCancellationsQueryDto } from './dto/list-order-cancellations-query.dto';
 import {
-  AdvanceOrderCancellationResponseDto,
   OrderCancellationResponseDto,
   PaginatedOrderCancellationsDto,
   TickOrderCancellationsResponseDto,
 } from './dto/order-cancellation-response.dto';
-import { TickOrderCancellationsDto } from './dto/tick-order-cancellations.dto';
 import { OrderCancellationProcessor } from './order-cancellation.processor';
 import { OrderCancellationsService } from './order-cancellations.service';
 
@@ -64,8 +61,10 @@ export class OrderCancellationsController {
   @ApiOperation({
     summary: 'Staff-initiated order cancellation',
     description:
-      'Creates a REQUESTED cancellation for any order that is not DELIVERED, CANCELLED, or REFUNDED. ' +
-      'The processor (cron or POST …/advance) then refunds the wallet and parks stock at AWAITING_RETURN.',
+      'Cancels any order that is not DELIVERED, CANCELLED, or REFUNDED — applied ' +
+      'synchronously, no cron. Orders with deducted stock land directly in ' +
+      'AWAITING_RETURN (refund happens at confirm-return); orders with nothing ' +
+      'to return are refunded to the wallet inline and COMPLETED.',
   })
   @ApiCreatedResponse({ type: OrderCancellationResponseDto })
   @ApiBadRequestResponse({ description: 'Order is not cancellable' })
@@ -99,17 +98,14 @@ export class OrderCancellationsController {
   @Roles(Role.AppAdmin)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Run one processor pass now',
+    summary: 'Sweep RETURNED deliveries now',
     description:
-      'Does exactly what the cron tick would do. ignoreDelay defaults to true so a demo does not wait on the step delay.',
+      'Auto-creates SYSTEM cancellations for deliveries that came back RETURNED. ' +
+      'Cancellations themselves apply synchronously, so there is no pipeline to advance.',
   })
   @ApiOkResponse({ type: TickOrderCancellationsResponseDto })
-  tick(
-    @Body() dto: TickOrderCancellationsDto,
-  ): Promise<TickOrderCancellationsResponseDto> {
-    return this.processor.tick({
-      ignoreDelay: dto.ignoreDelay ?? true,
-    });
+  tick(): Promise<TickOrderCancellationsResponseDto> {
+    return this.processor.tick();
   }
 
   @Get(':id')
@@ -122,30 +118,6 @@ export class OrderCancellationsController {
     return this.cancellationsService.getById(id);
   }
 
-  @Post(':id/advance')
-  @Roles(Role.AppAdmin)
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Advance one cancellation (demo / unstick)',
-    description:
-      'Pushes a single cancellation forward immediately, ignoring nextRunAt. ' +
-      'Stops early at AWAITING_RETURN (staff confirm-return is the only way past that gate) or a terminal status.',
-  })
-  @ApiOkResponse({ type: AdvanceOrderCancellationResponseDto })
-  @ApiNotFoundResponse({ description: 'Cancellation not found' })
-  async advance(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: AdvanceOrderCancellationDto,
-  ): Promise<AdvanceOrderCancellationResponseDto> {
-    const tick = await this.processor.tick({
-      cancellationId: id,
-      ignoreDelay: true,
-      steps: dto.steps ?? 1,
-    });
-    const cancellation = await this.cancellationsService.getById(id);
-    return { cancellation, transitions: tick.advanced };
-  }
-
   @Post(':id/confirm-return')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -153,7 +125,8 @@ export class OrderCancellationsController {
     description:
       'Allowed only while AWAITING_RETURN. Per order item, goodQuantity units return to ON_RACK ' +
       '(remainingQuantity incremented, RETURN movement) and damagedQuantity units go DAMAGED. ' +
-      'goodQuantity + damagedQuantity must equal expectedQuantity for every item.',
+      'goodQuantity + damagedQuantity must equal expectedQuantity for every item. ' +
+      'On success the wallet refund is credited in the same transaction and the cancellation is COMPLETED.',
   })
   @ApiOkResponse({ type: OrderCancellationResponseDto })
   @ApiBadRequestResponse({
