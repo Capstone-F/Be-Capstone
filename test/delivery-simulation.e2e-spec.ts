@@ -278,7 +278,7 @@ describe('Delivery status simulation (e2e)', () => {
     const { body: tick } = await request(app.getHttpServer())
       .post('/admin/order-cancellations/tick')
       .set('Cookie', adminSid)
-      .send({ ignoreDelay: true })
+      .send({})
       .expect(200);
 
     expect(tick.autoCancelled).toContain(order.id);
@@ -295,17 +295,11 @@ describe('Delivery status simulation (e2e)', () => {
     expect(cancellation!.items[0].orderItemId).toBe(item.id);
     expect(cancellation!.items[0].expectedQuantity).toBe(2);
 
-    // Drive the new cancellation to AWAITING_RETURN in the same demo style.
-    const { body: advanced } = await request(app.getHttpServer())
-      .post(`/admin/order-cancellations/${cancellation!.id}/advance`)
-      .set('Cookie', adminSid)
-      .send({ steps: 10 })
-      .expect(200);
-    expect(advanced.cancellation.status).toBe(
-      OrderCancellationStatus.AWAITING_RETURN,
-    );
+    // The SYSTEM cancellation applies synchronously: sold stock parks the
+    // order at AWAITING_RETURN immediately; the refund waits for confirm-return.
+    expect(cancellation!.status).toBe(OrderCancellationStatus.AWAITING_RETURN);
+    expect(cancellation!.refundTransactionId).toBeNull();
 
-    // Wallet should have been credited (shipping withheld for SHIPPED).
     void customerUser;
   });
 

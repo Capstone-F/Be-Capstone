@@ -113,14 +113,6 @@ export class CancellationTransitionDto {
   to!: OrderCancellationStatus;
 }
 
-export class AdvanceOrderCancellationResponseDto {
-  @ApiProperty({ type: OrderCancellationResponseDto })
-  cancellation!: OrderCancellationResponseDto;
-
-  @ApiProperty({ type: [CancellationTransitionDto] })
-  transitions!: CancellationTransitionDto[];
-}
-
 export class TickOrderCancellationsResponseDto {
   @ApiProperty({ type: [CancellationTransitionDto] })
   advanced!: CancellationTransitionDto[];

@@ -1,6 +1,7 @@
 /**
- * Order cancellation → wallet refund → staff restock (e2e).
- * Cron is disabled; the pipeline is driven through POST /admin/order-cancellations/:id/advance.
+ * Order cancellation → staff restock → wallet refund (e2e).
+ * Cancellations apply synchronously: stock-return orders land in AWAITING_RETURN
+ * immediately and are refunded at confirm-return; others refund inline.
  */
 process.env.DATABASE_URL ??=
   'postgresql://admin:admin@localhost:5432/be-capstone';
@@ -192,8 +193,8 @@ describe('Order cancellation refund restock (e2e)', () => {
     }
   });
 
-  it('unpaid PENDING cancel completes with no refund and no restock', async () => {
-    const { customerUser, customer, staffSid, adminSid } = await seedActors();
+  it('unpaid PENDING cancel completes immediately with no refund and no restock', async () => {
+    const { customerUser, customer } = await seedActors();
     const customerSid = await loginAs(customerUser, [Role.Customer]);
     const { order } = await seedOrder({
       customerId: customer.id,
@@ -207,25 +208,10 @@ describe('Order cancellation refund restock (e2e)', () => {
       .send({ reason: 'Changed my mind' })
       .expect(200);
 
-    expect(created.status).toBe(OrderCancellationStatus.REQUESTED);
+    expect(created.status).toBe(OrderCancellationStatus.COMPLETED);
     expect(created.refundAmountVnd).toBe('0');
     expect(created.requiresStockReturn).toBe(false);
 
-    await request(app.getHttpServer())
-      .post(`/admin/order-cancellations/${created.id}/advance`)
-      .set('Cookie', staffSid)
-      .send({ steps: 5 })
-      .expect(403);
-
-    const { body: advanced } = await request(app.getHttpServer())
-      .post(`/admin/order-cancellations/${created.id}/advance`)
-      .set('Cookie', adminSid)
-      .send({ steps: 5 })
-      .expect(200);
-
-    expect(advanced.cancellation.status).toBe(
-      OrderCancellationStatus.COMPLETED,
-    );
     const persisted = await dataSource.getRepository(Order).findOneByOrFail({
       id: order.id,
     });
@@ -238,8 +224,8 @@ describe('Order cancellation refund restock (e2e)', () => {
     expect(refunds).toBe(0);
   });
 
-  it('paid cancel refunds wallet, parks stock, restocks good/damaged, and is idempotent', async () => {
-    const { customerUser, customer, staffSid, adminSid } = await seedActors();
+  it('paid cancel parks stock immediately, then confirm-return restocks and refunds the wallet', async () => {
+    const { customerUser, customer, staffSid } = await seedActors();
     const customerSid = await loginAs(customerUser, [Role.Customer]);
     const { order, item, batch } = await seedPaidOrderWithStock({
       customerId: customer.id,
@@ -259,45 +245,25 @@ describe('Order cancellation refund restock (e2e)', () => {
       .send({ reason: 'Wrong item' })
       .expect(200);
 
-    expect(created.status).toBe(OrderCancellationStatus.REQUESTED);
+    // Straight to AWAITING_RETURN — no pipeline, no refund until the goods are back.
+    expect(created.status).toBe(OrderCancellationStatus.AWAITING_RETURN);
     expect(created.refundAmountVnd).toBe(String(order.totalVnd));
     expect(created.requiresStockReturn).toBe(true);
+    expect(created.refundTransactionId).toBeNull();
     expect(created.items[0].expectedQuantity).toBe(3);
 
-    const { body: toReturn } = await request(app.getHttpServer())
-      .post(`/admin/order-cancellations/${created.id}/advance`)
-      .set('Cookie', adminSid)
-      .send({ steps: 10 })
-      .expect(200);
-
-    expect(toReturn.cancellation.status).toBe(
-      OrderCancellationStatus.AWAITING_RETURN,
-    );
-    expect(
-      toReturn.transitions.map(
-        (t: { from: string; to: string }) => `${t.from}->${t.to}`,
-      ),
-    ).toEqual([
-      'REQUESTED->REFUNDING',
-      'REFUNDING->REFUNDED',
-      'REFUNDED->AWAITING_RETURN',
-    ]);
-
-    const refundedOrder = await dataSource
+    const cancelledOrder = await dataSource
       .getRepository(Order)
       .findOneByOrFail({ id: order.id });
-    expect(refundedOrder.status).toBe(OrderStatus.REFUNDED);
+    expect(cancelledOrder.status).toBe(OrderStatus.CANCELLED);
+    expect(cancelledOrder.cancelledAt).toBeTruthy();
 
-    const wallet = await dataSource.getRepository(Wallet).findOneByOrFail({
-      userId: customerUser.id,
-    });
-    expect(wallet.balanceVnd).toBe(String(order.totalVnd));
-
-    const refundTx = await dataSource.getRepository(Transaction).find({
-      where: { orderId: order.id, type: TransactionType.REFUND },
-    });
-    expect(refundTx).toHaveLength(1);
-    expect(refundTx[0].amountVnd).toBe(String(order.totalVnd));
+    const refundsBeforeReturn = await dataSource
+      .getRepository(Transaction)
+      .count({
+        where: { orderId: order.id, type: TransactionType.REFUND },
+      });
+    expect(refundsBeforeReturn).toBe(0);
 
     const returnedCount = await dataSource
       .getRepository(ProductInstance)
@@ -316,16 +282,6 @@ describe('Order cancellation refund restock (e2e)', () => {
     ).remainingQuantity;
     expect(stillUnchanged).toBe(0);
 
-    const { body: stuck } = await request(app.getHttpServer())
-      .post(`/admin/order-cancellations/${created.id}/advance`)
-      .set('Cookie', adminSid)
-      .send({ steps: 5 })
-      .expect(200);
-    expect(stuck.cancellation.status).toBe(
-      OrderCancellationStatus.AWAITING_RETURN,
-    );
-    expect(stuck.transitions).toEqual([]);
-
     const { body: restocked } = await request(app.getHttpServer())
       .post(`/admin/order-cancellations/${created.id}/confirm-return`)
       .set('Cookie', staffSid)
@@ -340,7 +296,26 @@ describe('Order cancellation refund restock (e2e)', () => {
         note: '1 bottle cracked',
       })
       .expect(200);
-    expect(restocked.status).toBe(OrderCancellationStatus.RESTOCKED);
+    expect(restocked.status).toBe(OrderCancellationStatus.COMPLETED);
+    expect(restocked.refundTransactionId).toBeTruthy();
+    expect(restocked.refundedAt).toBeTruthy();
+
+    // Refund landed with the restock, in the same transaction.
+    const refundedOrder = await dataSource
+      .getRepository(Order)
+      .findOneByOrFail({ id: order.id });
+    expect(refundedOrder.status).toBe(OrderStatus.REFUNDED);
+
+    const wallet = await dataSource.getRepository(Wallet).findOneByOrFail({
+      userId: customerUser.id,
+    });
+    expect(wallet.balanceVnd).toBe(String(order.totalVnd));
+
+    const refundTx = await dataSource.getRepository(Transaction).find({
+      where: { orderId: order.id, type: TransactionType.REFUND },
+    });
+    expect(refundTx).toHaveLength(1);
+    expect(refundTx[0].amountVnd).toBe(String(order.totalVnd));
 
     const batchAfter = await dataSource
       .getRepository(StockBatch)
@@ -366,20 +341,14 @@ describe('Order cancellation refund restock (e2e)', () => {
       });
     expect(returnMovements).toBe(1);
 
-    const { body: completed } = await request(app.getHttpServer())
-      .post(`/admin/order-cancellations/${created.id}/advance`)
-      .set('Cookie', adminSid)
-      .send({ steps: 1 })
-      .expect(200);
-    expect(completed.cancellation.status).toBe(
-      OrderCancellationStatus.COMPLETED,
-    );
-
+    // A second confirm-return is rejected and must not double-refund.
     await request(app.getHttpServer())
-      .post(`/admin/order-cancellations/${created.id}/advance`)
-      .set('Cookie', adminSid)
-      .send({ steps: 3 })
-      .expect(200);
+      .post(`/admin/order-cancellations/${created.id}/confirm-return`)
+      .set('Cookie', staffSid)
+      .send({
+        items: [{ orderItemId: item.id, goodQuantity: 2, damagedQuantity: 1 }],
+      })
+      .expect(400);
 
     const refundsAfter = await dataSource.getRepository(Transaction).count({
       where: { orderId: order.id, type: TransactionType.REFUND },
@@ -402,7 +371,7 @@ describe('Order cancellation refund restock (e2e)', () => {
       .expect(400);
   });
 
-  it('allows customer cancel while PROCESSING and refunds without the shipping fee', async () => {
+  it('allows customer cancel while PROCESSING and refunds inline without the shipping fee', async () => {
     const { customerUser, customer } = await seedActors();
     const customerSid = await loginAs(customerUser, [Role.Customer]);
     const { order } = await seedOrder({
@@ -417,7 +386,10 @@ describe('Order cancellation refund restock (e2e)', () => {
       .send({ reason: 'Changed my mind' })
       .expect(200);
 
-    expect(created.status).toBe(OrderCancellationStatus.REQUESTED);
+    // No stock was deducted for this order, so there is nothing to return:
+    // the refund is credited inline and the cancellation completes at once.
+    expect(created.status).toBe(OrderCancellationStatus.COMPLETED);
+    expect(created.refundTransactionId).toBeTruthy();
     // GHN flips PAID -> PROCESSING at order creation, before pickup, so the
     // customer keeps their cancel window — but the shipping fee is not refunded.
     expect(created.refundAmountVnd).toBe(
@@ -426,6 +398,16 @@ describe('Order cancellation refund restock (e2e)', () => {
     expect(created.refundAmountVnd).toBe(
       String(order.totalVnd - order.shippingFeeVnd),
     );
+
+    const refundedOrder = await dataSource
+      .getRepository(Order)
+      .findOneByOrFail({ id: order.id });
+    expect(refundedOrder.status).toBe(OrderStatus.REFUNDED);
+
+    const wallet = await dataSource.getRepository(Wallet).findOneByOrFail({
+      userId: customerUser.id,
+    });
+    expect(wallet.balanceVnd).toBe(created.refundAmountVnd);
   });
 
   it('rejects customer cancel once the order is SHIPPED', async () => {
