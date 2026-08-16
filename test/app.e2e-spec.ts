@@ -1367,7 +1367,13 @@ describe('BE Capstone API (e2e)', () => {
 
     describe('GET /products', () => {
       it('should return paginated products without authentication', async () => {
-        await onboardProductViaHttp(adminSid);
+        // Anonymous callers only see in-stock products, so stock the variant.
+        const onboarded = await onboardProductViaHttp(adminSid);
+        await stockService.createBatch({
+          productVariantId: onboarded.product.variants[0].id,
+          quantity: 5,
+          manufacturingDate: '2026-01-15',
+        });
 
         const { body } = await request(app.getHttpServer())
           .get('/products?page=1&limit=10')
@@ -1379,6 +1385,28 @@ describe('BE Capstone API (e2e)', () => {
         expect(Array.isArray(body.items)).toBe(true);
         expect(body.items[0]).toHaveProperty('product');
         expect(body.items[0]).toHaveProperty('ingredients');
+      });
+
+      it('hides out-of-stock products from anonymous callers but shows them to admin', async () => {
+        const onboarded = await onboardProductViaHttp(adminSid, {
+          name: 'Out Of Stock Serum',
+        });
+        const productId = onboarded.product.id;
+
+        const { body: anonymous } = await request(app.getHttpServer())
+          .get('/products?page=1&limit=100')
+          .expect(200);
+        expect(
+          anonymous.items.map((i: { product: { id: string } }) => i.product.id),
+        ).not.toContain(productId);
+
+        const { body: asAdmin } = await request(app.getHttpServer())
+          .get('/products?page=1&limit=100')
+          .set('Cookie', adminSid)
+          .expect(200);
+        expect(
+          asAdmin.items.map((i: { product: { id: string } }) => i.product.id),
+        ).toContain(productId);
       });
 
       it('should return paginated products for authenticated user', async () => {
