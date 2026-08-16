@@ -273,6 +273,69 @@ export class OrdersService {
     return this.getOrderById({ userId, roles: [Role.Customer] }, orderId);
   }
 
+  /**
+   * Staff: re-run stock deduction for a PAID order (typically after restocking a
+   * shortfall), then release the held GHN handover once every item is covered.
+   * Idempotent — items already deducted are skipped via stockDeductedAt.
+   */
+  async retryFulfillment(orderId: string): Promise<OrderResponseDto> {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: [
+        'items',
+        'items.productVariant',
+        'items.productVariant.product',
+        'delivery',
+        'cancellation',
+      ],
+    });
+    if (!order) {
+      throw new NotFoundException(`Không tìm thấy đơn hàng ${orderId}`);
+    }
+    if (order.status !== OrderStatus.PAID) {
+      throw new BadRequestException(
+        `Chỉ đơn hàng đã thanh toán mới có thể xử lý tồn kho (trạng thái: ${order.status})`,
+      );
+    }
+
+    const stillShort: string[] = [];
+    for (const item of order.items ?? []) {
+      if (item.stockDeductedAt) {
+        continue;
+      }
+      try {
+        await this.stockService.deductByVariantId(
+          item.productVariantId,
+          item.quantity,
+          `Order ${order.id} fulfillment retry`,
+          item.id,
+        );
+        item.stockDeductedAt = new Date();
+        await this.orderItemRepository.update(
+          { id: item.id },
+          { stockDeductedAt: item.stockDeductedAt },
+        );
+      } catch {
+        stillShort.push(item.productVariant?.sku ?? item.productVariantId);
+      }
+    }
+
+    order.stockShortfall = stillShort.length > 0;
+    await this.orderRepository.update(
+      { id: order.id },
+      { stockShortfall: order.stockShortfall },
+    );
+
+    if (stillShort.length > 0) {
+      throw new BadRequestException(
+        `Vẫn thiếu hàng tồn kho cho: ${stillShort.join(', ')}`,
+      );
+    }
+
+    await this.deliveryService.createGhnOrderForPaidOrder(order.id);
+    return this.toDto(order);
+  }
+
   async reorder(userId: string, orderId: string): Promise<OrderResponseDto> {
     const customer = await this.requireCustomer(userId);
     const order = await this.orderRepository.findOne({
@@ -449,6 +512,7 @@ export class OrdersService {
       districtId: order.delivery?.districtId ?? null,
       wardCode: order.delivery?.wardCode ?? null,
       cancelledAt: order.cancelledAt ?? null,
+      stockShortfall: order.stockShortfall ?? false,
       cancellation: order.cancellation
         ? {
             id: order.cancellation.id,

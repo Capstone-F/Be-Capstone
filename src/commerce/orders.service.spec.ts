@@ -46,10 +46,16 @@ describe('OrdersService', () => {
   let settingRepository: { findOneBy: jest.Mock };
   let variantRepository: { find: jest.Mock };
   let customerRepository: { findOne: jest.Mock };
-  let orderRepository: { findOne: jest.Mock };
+  let orderRepository: { findOne: jest.Mock; update: jest.Mock };
   let deliveryProviderRepository: { findOneBy: jest.Mock };
-  let deliveryService: jest.Mocked<Pick<DeliveryService, 'quoteFee'>>;
-  let stockService: { getAvailableQuantities: jest.Mock };
+  let deliveryService: jest.Mocked<
+    Pick<DeliveryService, 'quoteFee' | 'createGhnOrderForPaidOrder'>
+  >;
+  let stockService: {
+    getAvailableQuantities: jest.Mock;
+    deductByVariantId: jest.Mock;
+  };
+  let orderItemRepository: { update: jest.Mock };
   let savedOrders: Order[];
   let savedDeliveries: Delivery[];
   let savedOrderItems: OrderItem[];
@@ -138,12 +144,14 @@ describe('OrdersService', () => {
     };
     orderRepository = {
       findOne: jest.fn(),
+      update: jest.fn(),
     };
     deliveryProviderRepository = {
       findOneBy: jest.fn().mockResolvedValue({ id: 'prov-ghn', code: 'GHN' }),
     };
     deliveryService = {
       quoteFee: jest.fn().mockResolvedValue(32000),
+      createGhnOrderForPaidOrder: jest.fn().mockResolvedValue(undefined),
     };
     stockService = {
       getAvailableQuantities: jest
@@ -151,7 +159,9 @@ describe('OrdersService', () => {
         .mockImplementation((ids: string[]) =>
           Promise.resolve(new Map(ids.map((id) => [id, 100]))),
         ),
+      deductByVariantId: jest.fn().mockResolvedValue({}),
     };
+    orderItemRepository = { update: jest.fn() };
 
     const dataSource = {
       transaction: async (cb: (m: unknown) => Promise<Order>) =>
@@ -181,7 +191,10 @@ describe('OrdersService', () => {
       providers: [
         OrdersService,
         { provide: getRepositoryToken(Order), useValue: orderRepository },
-        { provide: getRepositoryToken(OrderItem), useValue: {} },
+        {
+          provide: getRepositoryToken(OrderItem),
+          useValue: orderItemRepository,
+        },
         {
           provide: getRepositoryToken(ProductVariant),
           useValue: variantRepository,
@@ -537,5 +550,104 @@ describe('OrdersService', () => {
       BadRequestException,
     );
     expect(deliveryService.quoteFee).not.toHaveBeenCalled();
+  });
+
+  describe('retryFulfillment', () => {
+    const shortfallOrder = () => ({
+      id: 'order-1',
+      status: OrderStatus.PAID,
+      source: OrderSource.CATALOG,
+      customerSurveyId: null,
+      surveyRecommendationId: null,
+      subtotalVnd: 200000,
+      discountVnd: 0,
+      discountType: null,
+      shippingFeeVnd: 32000,
+      totalVnd: 232000,
+      stockShortfall: true,
+      items: [
+        {
+          id: 'oi-1',
+          productVariantId: 'v1',
+          quantity: 1,
+          unitPriceVnd: 100000,
+          lineTotalVnd: 100000,
+          stockDeductedAt: new Date('2026-08-01'),
+          productVariant: { sku: 'SKU-1' },
+        },
+        {
+          id: 'oi-2',
+          productVariantId: 'v2',
+          quantity: 2,
+          unitPriceVnd: 50000,
+          lineTotalVnd: 100000,
+          stockDeductedAt: null,
+          productVariant: { sku: 'SKU-2' },
+        },
+      ],
+      delivery: deliveryFixture,
+      cancellation: null,
+      createdAt: new Date(),
+    });
+
+    it('throws NotFound for an unknown order', async () => {
+      orderRepository.findOne.mockResolvedValue(null);
+      await expect(service.retryFulfillment('missing')).rejects.toThrow(
+        'Không tìm thấy đơn hàng',
+      );
+    });
+
+    it('rejects orders that are not PAID', async () => {
+      orderRepository.findOne.mockResolvedValue({
+        ...shortfallOrder(),
+        status: OrderStatus.PENDING,
+      });
+      await expect(service.retryFulfillment('order-1')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(stockService.deductByVariantId).not.toHaveBeenCalled();
+    });
+
+    it('deducts only pending items, clears the flag, and releases GHN handover', async () => {
+      orderRepository.findOne.mockResolvedValue(shortfallOrder());
+
+      const result = await service.retryFulfillment('order-1');
+
+      expect(stockService.deductByVariantId).toHaveBeenCalledTimes(1);
+      expect(stockService.deductByVariantId).toHaveBeenCalledWith(
+        'v2',
+        2,
+        expect.any(String),
+        'oi-2',
+      );
+      expect(orderItemRepository.update).toHaveBeenCalledWith(
+        { id: 'oi-2' },
+        { stockDeductedAt: expect.any(Date) },
+      );
+      expect(orderRepository.update).toHaveBeenCalledWith(
+        { id: 'order-1' },
+        { stockShortfall: false },
+      );
+      expect(deliveryService.createGhnOrderForPaidOrder).toHaveBeenCalledWith(
+        'order-1',
+      );
+      expect(result.stockShortfall).toBe(false);
+    });
+
+    it('keeps the flag and reports missing SKUs when stock is still short', async () => {
+      orderRepository.findOne.mockResolvedValue(shortfallOrder());
+      stockService.deductByVariantId.mockRejectedValue(
+        new BadRequestException('Không đủ hàng tồn kho'),
+      );
+
+      await expect(service.retryFulfillment('order-1')).rejects.toThrow(
+        'Vẫn thiếu hàng tồn kho cho: SKU-2',
+      );
+      expect(orderRepository.update).toHaveBeenCalledWith(
+        { id: 'order-1' },
+        { stockShortfall: true },
+      );
+      expect(deliveryService.createGhnOrderForPaidOrder).not.toHaveBeenCalled();
+    });
   });
 });

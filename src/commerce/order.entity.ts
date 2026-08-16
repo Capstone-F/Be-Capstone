@@ -87,6 +87,13 @@ export class Order {
   @Column({ nullable: true, type: 'timestamptz' })
   cancelledAt: Date | null;
 
+  /**
+   * True when post-payment stock deduction could not cover every item.
+   * GHN handover is held until staff restock and retry fulfillment.
+   */
+  @Column({ type: 'boolean', default: false })
+  stockShortfall: boolean;
+
   @OneToMany(() => OrderItem, (item) => item.order)
   items: OrderItem[];
 

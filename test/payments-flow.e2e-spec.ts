@@ -17,6 +17,7 @@ import {
 import { AppConfigService } from '../src/config/config.service';
 import { OrderStatus } from '../src/commerce/enums';
 import { Order } from '../src/commerce/order.entity';
+import { OrderItem } from '../src/commerce/order-item.entity';
 import { Customer } from '../src/users/customer.entity';
 import { VnpayPaymentProvider } from '../src/payments/providers/vnpay.payment-provider';
 import { MockPaymentProvider } from '../src/payments/providers/mock.payment-provider';
@@ -207,10 +208,15 @@ describe('VNPay payment flow (real crypto, in-memory repos)', () => {
 
     const gateway = new VnpayPaymentProvider(vnpay);
 
+    const orderItemRepo = {
+      update: () => Promise.resolve({ affected: 1 }),
+    } as unknown as Repository<OrderItem>;
+
     service = new PaymentsService(
       paymentRepo,
       attemptRepo,
       orderRepo,
+      orderItemRepo,
       customerRepo,
       gateway,
       config,
@@ -384,6 +390,7 @@ describe('Mock payment flow (in-memory repos)', () => {
         }
         return Promise.resolve(order);
       },
+      update: () => Promise.resolve({ affected: 1 }),
     } as unknown as Repository<Order>;
 
     const customerRepo = {
@@ -464,10 +471,15 @@ describe('Mock payment flow (in-memory repos)', () => {
       recordPurchaseWithManager: () => Promise.resolve(),
     };
 
+    const orderItemRepo = {
+      update: () => Promise.resolve({ affected: 1 }),
+    } as unknown as Repository<OrderItem>;
+
     service = new PaymentsService(
       paymentRepo,
       attemptRepo,
       orderRepo,
+      orderItemRepo,
       customerRepo,
       gateway,
       config,
