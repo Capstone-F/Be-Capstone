@@ -63,6 +63,8 @@ describe('DashboardService aggregation mapping', () => {
           average_order_value: '232500',
           consultation_fees_collected: '300000',
           consultation_refunds: '50000',
+          treatment_payments_collected: '1500000',
+          treatment_refunds: '250000',
           platform_commission_revenue: '30000',
         },
       ])
@@ -94,6 +96,8 @@ describe('DashboardService aggregation mapping', () => {
       productPaymentsCollectedVnd: 930000,
       productRefundsVnd: 120000,
       averageOrderValueVnd: 232500,
+      treatmentPaymentsCollectedVnd: 1500000,
+      treatmentRefundsVnd: 250000,
       platformCommissionRevenueVnd: 30000,
     });
     expect(result.funnel.steps.at(-1)).toMatchObject({
@@ -103,6 +107,94 @@ describe('DashboardService aggregation mapping', () => {
     });
     expect(result.trend).toHaveLength(7);
     expect(result.trend.every((point) => point.newCustomers === 0)).toBe(true);
+    expect(
+      result.trend.every(
+        (point) =>
+          point.treatmentPaymentsCollectedVnd === 0 &&
+          point.treatmentRefundsVnd === 0,
+      ),
+    ).toBe(true);
+  });
+
+  it('paginates the admin activity log with server-side filters', async () => {
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce([{ total: '843' }])
+      .mockResolvedValueOnce([
+        {
+          id: 'wd-1',
+          type: 'WITHDRAWAL_PAID',
+          title: 'Duyệt rút tiền phòng khám',
+          description: 'Phòng khám Quận 1',
+          amount_vnd: '5000000',
+          actor_id: 'admin-1',
+          actor_name: 'Admin Trung',
+          entity_id: 'wd-1',
+          occurred_at: '2026-08-16T03:12:44.000Z',
+        },
+      ]);
+    const service = new DashboardService({ query } as unknown as DataSource);
+
+    const result = await service.getAdminActivity({
+      type: ['WITHDRAWAL_PAID', 'REFUND'],
+      actorId: 'admin-1',
+      from: '2026-08-01',
+      to: '2026-08-16',
+      page: 2,
+      limit: 50,
+    });
+
+    expect(result.total).toBe(843);
+    expect(result.page).toBe(2);
+    expect(result.items[0]).toEqual({
+      id: 'wd-1',
+      type: 'WITHDRAWAL_PAID',
+      title: 'Duyệt rút tiền phòng khám',
+      description: 'Phòng khám Quận 1',
+      amountVnd: 5000000,
+      actorId: 'admin-1',
+      actorName: 'Admin Trung',
+      entityId: 'wd-1',
+      occurredAt: new Date('2026-08-16T03:12:44.000Z'),
+    });
+
+    const [countSql, countParams] = query.mock.calls[0] as [string, unknown[]];
+    expect(countSql).toContain('activity.type = ANY($1::text[])');
+    expect(countSql).toContain('activity.actor_id = $2');
+    expect(countParams).toEqual([
+      ['WITHDRAWAL_PAID', 'REFUND'],
+      'admin-1',
+      '2026-08-01',
+      '2026-08-16',
+    ]);
+
+    const [itemsSql, itemParams] = query.mock.calls[1] as [string, unknown[]];
+    expect(itemsSql).toContain('ORDER BY activity.occurred_at DESC');
+    expect(itemsSql).toContain('LIMIT $5 OFFSET $6');
+    expect(itemParams).toEqual([
+      ['WITHDRAWAL_PAID', 'REFUND'],
+      'admin-1',
+      '2026-08-01',
+      '2026-08-16',
+      50,
+      50,
+    ]);
+  });
+
+  it('returns unfiltered activity with defaults when no filters are given', async () => {
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce([{ total: '3' }])
+      .mockResolvedValueOnce([]);
+    const service = new DashboardService({ query } as unknown as DataSource);
+
+    const result = await service.getAdminActivity({});
+
+    expect(result).toMatchObject({ total: 3, page: 1, limit: 20, items: [] });
+    const [countSql] = query.mock.calls[0] as [string];
+    expect(countSql).not.toContain('WHERE activity');
+    const [, itemParams] = query.mock.calls[1] as [string, unknown[]];
+    expect(itemParams).toEqual([20, 0]);
   });
 
   it('maps staff queues and personal active support independently', async () => {

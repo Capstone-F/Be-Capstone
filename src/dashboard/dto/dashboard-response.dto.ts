@@ -28,6 +28,8 @@ export class AdminDashboardMetricsDto {
   @ApiProperty() averageOrderValueVnd!: number;
   @ApiProperty() consultationFeesCollectedVnd!: number;
   @ApiProperty() consultationRefundsVnd!: number;
+  @ApiProperty() treatmentPaymentsCollectedVnd!: number;
+  @ApiProperty() treatmentRefundsVnd!: number;
   @ApiProperty() platformCommissionRevenueVnd!: number;
 }
 
@@ -49,6 +51,8 @@ export class AdminDashboardTrendPointDto {
   @ApiProperty() productRefundsVnd!: number;
   @ApiProperty() consultationFeesCollectedVnd!: number;
   @ApiProperty() consultationRefundsVnd!: number;
+  @ApiProperty() treatmentPaymentsCollectedVnd!: number;
+  @ApiProperty() treatmentRefundsVnd!: number;
   @ApiProperty() platformCommissionRevenueVnd!: number;
 }
 
@@ -102,6 +106,31 @@ export class DashboardActivityDto {
   @ApiPropertyOptional({ nullable: true }) description!: string | null;
   @ApiPropertyOptional({ nullable: true }) amountVnd!: number | null;
   @ApiProperty() occurredAt!: Date;
+}
+
+export class AdminActivityItemDto {
+  @ApiProperty() id!: string;
+  @ApiProperty({ example: 'WITHDRAWAL_PAID' }) type!: string;
+  @ApiProperty({ example: 'Duyệt rút tiền phòng khám' }) title!: string;
+  @ApiPropertyOptional({ nullable: true }) description!: string | null;
+  @ApiPropertyOptional({ nullable: true }) amountVnd!: number | null;
+  @ApiPropertyOptional({ nullable: true }) actorId!: string | null;
+  @ApiPropertyOptional({ nullable: true, example: 'Admin Trung' })
+  actorName!: string | null;
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'ID of the source record, for deep links',
+  })
+  entityId!: string | null;
+  @ApiProperty() occurredAt!: Date;
+}
+
+export class PaginatedAdminActivityDto {
+  @ApiProperty({ type: [AdminActivityItemDto] })
+  items!: AdminActivityItemDto[];
+  @ApiProperty() total!: number;
+  @ApiProperty() page!: number;
+  @ApiProperty() limit!: number;
 }
 
 export class AdminDashboardResponseDto {

@@ -1,12 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { AdminActivityQueryDto } from './dto/admin-activity-query.dto';
 import { DashboardRange } from './dto/dashboard-query.dto';
 import {
+  AdminActivityItemDto,
   AdminDashboardResponseDto,
   DashboardActivityDto,
   DashboardPeriodDto,
   ExpertBookingQueueItemDto,
   ExpertDashboardResponseDto,
+  PaginatedAdminActivityDto,
   StaffDashboardResponseDto,
 } from './dto/dashboard-response.dto';
 
@@ -55,6 +58,81 @@ function asNumber(value: unknown): number {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
 }
+
+/**
+ * Platform activity feed as a common shape:
+ * (id, type, title, description, amount_vnd, actor_id, actor_name, entity_id, occurred_at).
+ * Superset of the dashboard's recentActivity legs, plus actor attribution,
+ * treatment payments, and clinic withdrawal decisions.
+ */
+const ADMIN_ACTIVITY_UNION_SQL = `
+  SELECT u.id::text AS id, 'USER_CREATED'::text AS type,
+    'Tài khoản mới'::text AS title,
+    COALESCE(u.name, u.email, 'Người dùng chưa đặt tên')::text AS description,
+    NULL::numeric AS amount_vnd,
+    u.id::text AS actor_id, COALESCE(u.name, u.email)::text AS actor_name,
+    u.id::text AS entity_id, u."createdAt" AS occurred_at
+  FROM users u
+  UNION ALL
+  SELECT p.id::text, 'PRODUCT_PAYMENT'::text,
+    'Thanh toán đơn hàng'::text, p."orderId"::text,
+    p."amountVnd"::numeric,
+    p."userId"::text, COALESCE(pu.name, pu.email)::text,
+    p."orderId"::text, p."paidAt"
+  FROM payments p LEFT JOIN users pu ON pu.id = p."userId"
+  WHERE p.purpose = 'ORDER' AND p.status = 'PAID' AND p."paidAt" IS NOT NULL
+  UNION ALL
+  SELECT t.id::text, t.type::text,
+    CASE t.type WHEN 'CONSULTATION_PAYMENT' THEN 'Thanh toán tư vấn'
+      WHEN 'TREATMENT_PLAN_PAYMENT' THEN 'Thanh toán phác đồ'
+      ELSE 'Hoàn tiền' END::text,
+    COALESCE(t.note, t."externalRef")::text,
+    t."amountVnd"::numeric,
+    t."userId"::text, COALESCE(tu.name, tu.email)::text,
+    t.id::text, t."createdAt"
+  FROM transactions t LEFT JOIN users tu ON tu.id = t."userId"
+  WHERE t.status = 'COMPLETED'
+    AND t.type IN ('CONSULTATION_PAYMENT', 'TREATMENT_PLAN_PAYMENT', 'REFUND')
+  UNION ALL
+  SELECT c.id::text, 'ORDER_CANCELLATION'::text,
+    'Yêu cầu hủy đơn'::text, c.reason::text,
+    c."refundAmountVnd"::numeric,
+    c."requestedByUserId"::text, COALESCE(cu.name, cu.email)::text,
+    c.id::text, c."createdAt"
+  FROM order_cancellations c
+    LEFT JOIN users cu ON cu.id = c."requestedByUserId"
+  UNION ALL
+  SELECT f.id::text, 'STOCK_IMPORT'::text,
+    'Phiếu nhập kho'::text, f.status::text,
+    NULL::numeric,
+    f."createdByUserId"::text, COALESCE(fu.name, fu.email)::text,
+    f.id::text, f."createdAt"
+  FROM stock_import_forms f
+    LEFT JOIN users fu ON fu.id = f."createdByUserId"
+  UNION ALL
+  SELECT w.id::text, 'WITHDRAWAL_REQUESTED'::text,
+    'Yêu cầu rút tiền phòng khám'::text, wc.name::text,
+    w."amountVnd"::numeric,
+    w."requestedByUserId"::text, COALESCE(wu.name, wu.email)::text,
+    w.id::text, w."createdAt"
+  FROM clinic_withdrawals w
+    LEFT JOIN clinics wc ON wc.id = w."clinicId"
+    LEFT JOIN users wu ON wu.id = w."requestedByUserId"
+  UNION ALL
+  SELECT w.id::text,
+    CASE w.status WHEN 'PAID' THEN 'WITHDRAWAL_PAID'
+      ELSE 'WITHDRAWAL_REJECTED' END::text,
+    CASE w.status WHEN 'PAID' THEN 'Duyệt rút tiền phòng khám'
+      ELSE 'Từ chối rút tiền phòng khám' END::text,
+    wc.name::text,
+    w."amountVnd"::numeric,
+    w."processedByUserId"::text, COALESCE(wu.name, wu.email)::text,
+    w.id::text, w."processedAt"
+  FROM clinic_withdrawals w
+    LEFT JOIN clinics wc ON wc.id = w."clinicId"
+    LEFT JOIN users wu ON wu.id = w."processedByUserId"
+  WHERE w.status IN ('PAID', 'REJECTED') AND w."processedAt" IS NOT NULL
+`;
 
 @Injectable()
 export class DashboardService {
@@ -106,6 +184,12 @@ export class DashboardService {
             WHERE t.type = 'REFUND' AND t.status = 'COMPLETED' AND t."consultationId" IS NOT NULL
               AND (t."createdAt" AT TIME ZONE '${DASHBOARD_TIMEZONE}')::date BETWEEN $1::date AND $2::date), 0) AS consultation_refunds,
           COALESCE((SELECT SUM(t."amountVnd"::numeric) FROM transactions t
+            WHERE t.type = 'TREATMENT_PLAN_PAYMENT' AND t.status = 'COMPLETED'
+              AND (t."createdAt" AT TIME ZONE '${DASHBOARD_TIMEZONE}')::date BETWEEN $1::date AND $2::date), 0) AS treatment_payments_collected,
+          COALESCE((SELECT SUM(t."amountVnd"::numeric) FROM transactions t
+            WHERE t.type = 'REFUND' AND t.status = 'COMPLETED' AND t."treatmentId" IS NOT NULL
+              AND (t."createdAt" AT TIME ZONE '${DASHBOARD_TIMEZONE}')::date BETWEEN $1::date AND $2::date), 0) AS treatment_refunds,
+          COALESCE((SELECT SUM(t."amountVnd"::numeric) FROM transactions t
             WHERE t.type = 'COMMISSION' AND t.status = 'COMPLETED'
               AND t."toAccount" = 'PLATFORM_REVENUE'
               AND (t."createdAt" AT TIME ZONE '${DASHBOARD_TIMEZONE}')::date BETWEEN $1::date AND $2::date), 0) AS platform_commission_revenue
@@ -144,6 +228,8 @@ export class DashboardService {
           SUM(product_refunds) AS product_refunds,
           SUM(consultation_fees_collected) AS consultation_fees_collected,
           SUM(consultation_refunds) AS consultation_refunds,
+          SUM(treatment_payments_collected) AS treatment_payments_collected,
+          SUM(treatment_refunds) AS treatment_refunds,
           SUM(platform_commission_revenue) AS platform_commission_revenue
         FROM (
           SELECT (u."createdAt" AT TIME ZONE '${DASHBOARD_TIMEZONE}')::date::text AS day,
@@ -151,7 +237,8 @@ export class DashboardService {
             0::numeric AS gross_product_sales, 0::numeric AS discounts,
             0::numeric AS shipping_collected, 0::numeric AS product_payments_collected,
             0::numeric AS product_refunds, 0::numeric AS consultation_fees_collected,
-            0::numeric AS consultation_refunds, 0::numeric AS platform_commission_revenue
+            0::numeric AS consultation_refunds, 0::numeric AS treatment_payments_collected,
+            0::numeric AS treatment_refunds, 0::numeric AS platform_commission_revenue
           FROM users u
           WHERE string_to_array(COALESCE(u.roles, ''), ',') @> ARRAY['customer']
             AND (u."createdAt" AT TIME ZONE '${DASHBOARD_TIMEZONE}')::date BETWEEN $1::date AND $2::date
@@ -160,7 +247,7 @@ export class DashboardService {
           SELECT (pop."paidAt" AT TIME ZONE '${DASHBOARD_TIMEZONE}')::date::text,
             0::numeric, COUNT(*)::numeric, SUM(o."subtotalVnd")::numeric,
             SUM(o."discountVnd")::numeric, SUM(o."shippingFeeVnd")::numeric,
-            SUM(pop."amountVnd"::numeric), 0::numeric, 0::numeric, 0::numeric, 0::numeric
+            SUM(pop."amountVnd"::numeric), 0::numeric, 0::numeric, 0::numeric, 0::numeric, 0::numeric, 0::numeric
           FROM paid_order_payments pop JOIN orders o ON o.id = pop."orderId"
           GROUP BY 1
           UNION ALL
@@ -169,10 +256,12 @@ export class DashboardService {
             SUM(CASE WHEN t.type = 'REFUND' AND t."orderId" IS NOT NULL THEN t."amountVnd"::numeric ELSE 0 END),
             SUM(CASE WHEN t.type = 'CONSULTATION_PAYMENT' THEN t."amountVnd"::numeric ELSE 0 END),
             SUM(CASE WHEN t.type = 'REFUND' AND t."consultationId" IS NOT NULL THEN t."amountVnd"::numeric ELSE 0 END),
+            SUM(CASE WHEN t.type = 'TREATMENT_PLAN_PAYMENT' THEN t."amountVnd"::numeric ELSE 0 END),
+            SUM(CASE WHEN t.type = 'REFUND' AND t."treatmentId" IS NOT NULL THEN t."amountVnd"::numeric ELSE 0 END),
             SUM(CASE WHEN t.type = 'COMMISSION' AND t."toAccount" = 'PLATFORM_REVENUE' THEN t."amountVnd"::numeric ELSE 0 END)
           FROM transactions t
           WHERE t.status = 'COMPLETED'
-            AND t.type IN ('CONSULTATION_PAYMENT', 'REFUND', 'COMMISSION')
+            AND t.type IN ('CONSULTATION_PAYMENT', 'TREATMENT_PLAN_PAYMENT', 'REFUND', 'COMMISSION')
             AND (t."createdAt" AT TIME ZONE '${DASHBOARD_TIMEZONE}')::date BETWEEN $1::date AND $2::date
           GROUP BY 1
         ) daily
@@ -322,6 +411,10 @@ export class DashboardService {
           metrics.consultation_fees_collected,
         ),
         consultationRefundsVnd: asNumber(metrics.consultation_refunds),
+        treatmentPaymentsCollectedVnd: asNumber(
+          metrics.treatment_payments_collected,
+        ),
+        treatmentRefundsVnd: asNumber(metrics.treatment_refunds),
         platformCommissionRevenueVnd: asNumber(
           metrics.platform_commission_revenue,
         ),
@@ -349,6 +442,10 @@ export class DashboardService {
             row?.consultation_fees_collected,
           ),
           consultationRefundsVnd: asNumber(row?.consultation_refunds),
+          treatmentPaymentsCollectedVnd: asNumber(
+            row?.treatment_payments_collected,
+          ),
+          treatmentRefundsVnd: asNumber(row?.treatment_refunds),
           platformCommissionRevenueVnd: asNumber(
             row?.platform_commission_revenue,
           ),
@@ -396,16 +493,83 @@ export class DashboardService {
         unitsSold: asNumber(row.units_sold),
         grossSalesVnd: asNumber(row.gross_sales),
       })),
-      recentActivity: activityRows.map(
-        (row): DashboardActivityDto => ({
-          id: String(row.id),
-          type: String(row.type),
-          title: String(row.title),
-          description: row.description == null ? null : String(row.description),
-          amountVnd: row.amount_vnd == null ? null : asNumber(row.amount_vnd),
-          occurredAt: new Date(String(row.occurred_at)),
-        }),
-      ),
+      recentActivity: activityRows.map((row): DashboardActivityDto => ({
+        id: String(row.id),
+        type: String(row.type),
+        title: String(row.title),
+        description: row.description == null ? null : String(row.description),
+        amountVnd: row.amount_vnd == null ? null : asNumber(row.amount_vnd),
+        occurredAt: new Date(String(row.occurred_at)),
+      })),
+    };
+  }
+
+  /**
+   * Full paginated activity log (the dashboard's recentActivity without the
+   * 10-row cap), with server-side type/date/actor filters.
+   */
+  async getAdminActivity(
+    query: AdminActivityQueryDto,
+  ): Promise<PaginatedAdminActivityDto> {
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 20));
+
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (query.type?.length) {
+      params.push(query.type);
+      conditions.push(`activity.type = ANY($${params.length}::text[])`);
+    }
+    if (query.actorId) {
+      params.push(query.actorId);
+      conditions.push(`activity.actor_id = $${params.length}`);
+    }
+    if (query.from) {
+      params.push(query.from);
+      conditions.push(
+        `(activity.occurred_at AT TIME ZONE '${DASHBOARD_TIMEZONE}')::date >= $${params.length}::date`,
+      );
+    }
+    if (query.to) {
+      params.push(query.to);
+      conditions.push(
+        `(activity.occurred_at AT TIME ZONE '${DASHBOARD_TIMEZONE}')::date <= $${params.length}::date`,
+      );
+    }
+    const whereSql = conditions.length
+      ? `WHERE ${conditions.join(' AND ')}`
+      : '';
+
+    const countRows = await this.dataSource.query<{ total: string }[]>(
+      `SELECT COUNT(*) AS total FROM (${ADMIN_ACTIVITY_UNION_SQL}) activity ${whereSql}`,
+      params,
+    );
+    const total = asNumber(countRows[0]?.total);
+
+    const rows = await this.dataSource.query<CountRow[]>(
+      `
+      SELECT * FROM (${ADMIN_ACTIVITY_UNION_SQL}) activity ${whereSql}
+      ORDER BY activity.occurred_at DESC
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+      `,
+      [...params, limit, (page - 1) * limit],
+    );
+
+    return {
+      items: rows.map((row): AdminActivityItemDto => ({
+        id: String(row.id),
+        type: String(row.type),
+        title: String(row.title),
+        description: row.description == null ? null : String(row.description),
+        amountVnd: row.amount_vnd == null ? null : asNumber(row.amount_vnd),
+        actorId: row.actor_id == null ? null : String(row.actor_id),
+        actorName: row.actor_name == null ? null : String(row.actor_name),
+        entityId: row.entity_id == null ? null : String(row.entity_id),
+        occurredAt: new Date(String(row.occurred_at)),
+      })),
+      total,
+      page,
+      limit,
     };
   }
 

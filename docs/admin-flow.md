@@ -1177,6 +1177,10 @@ Env: `DELIVERY_SIMULATION_ENABLED` (default false in code; set true in `.env` fo
 | GET    | `/admin/clinic-withdrawals`                      | app_admin        | ✅ Ready |
 | POST   | `/admin/clinic-withdrawals/:id/mark-paid`        | app_admin        | ✅ Ready |
 | POST   | `/admin/clinic-withdrawals/:id/reject`           | app_admin        | ✅ Ready |
+| GET    | `/admin/transactions`                            | app_admin        | ✅ Ready |
+| GET    | `/admin/transactions/export`                     | app_admin        | ✅ Ready |
+| GET    | `/admin/clinics/balances`                        | app_admin        | ✅ Ready |
+| GET    | `/admin/activity`                                | app_admin        | ✅ Ready |
 | GET    | `/admin/wallets/:userId`                         | app_admin        | ✅ Ready |
 | POST   | `/admin/wallets/:userId/top-up`                  | app_admin        | ✅ Ready |
 | POST   | `/admin/order-cancellations`                     | app_admin, staff | ✅ Ready |

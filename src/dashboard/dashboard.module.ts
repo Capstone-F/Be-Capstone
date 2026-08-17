@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import {
+  AdminActivityController,
   AdminDashboardController,
   ExpertDashboardController,
   StaffDashboardController,
@@ -11,6 +12,7 @@ import { DashboardService } from './dashboard.service';
   imports: [AuthModule],
   controllers: [
     AdminDashboardController,
+    AdminActivityController,
     ExpertDashboardController,
     StaffDashboardController,
   ],

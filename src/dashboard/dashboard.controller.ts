@@ -22,10 +22,12 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
 import { Role } from '../auth/roles.enum';
 import { DashboardService } from './dashboard.service';
+import { AdminActivityQueryDto } from './dto/admin-activity-query.dto';
 import { DashboardQueryDto } from './dto/dashboard-query.dto';
 import {
   AdminDashboardResponseDto,
   ExpertDashboardResponseDto,
+  PaginatedAdminActivityDto,
   StaffDashboardResponseDto,
 } from './dto/dashboard-response.dto';
 
@@ -47,6 +49,32 @@ export class AdminDashboardController {
     @Query() query: DashboardQueryDto,
   ): Promise<AdminDashboardResponseDto> {
     return this.dashboardService.getAdminDashboard(query.range);
+  }
+}
+
+@UseGuards(SessionGuard, RolesGuard)
+@ApiCookieAuth()
+@ApiBearerAuth()
+@ApiUnauthorizedResponse({ description: 'Not authenticated' })
+@ApiForbiddenResponse({ description: 'Insufficient role' })
+@ApiTags('Dashboards')
+@Controller('admin/activity')
+export class AdminActivityController {
+  constructor(private readonly dashboardService: DashboardService) {}
+
+  @Get()
+  @Roles(Role.AppAdmin)
+  @ApiOperation({
+    summary: 'Paginated platform activity log',
+    description:
+      'The dashboard recentActivity feed without the 10-row cap, with ' +
+      'server-side type/date/actor filters. Sorted occurredAt DESC.',
+  })
+  @ApiOkResponse({ type: PaginatedAdminActivityDto })
+  getActivity(
+    @Query() query: AdminActivityQueryDto,
+  ): Promise<PaginatedAdminActivityDto> {
+    return this.dashboardService.getAdminActivity(query);
   }
 }
 

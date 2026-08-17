@@ -27,6 +27,9 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
 import { Role } from '../auth/roles.enum';
+import { AdminClinicBalancesService } from '../finance/admin-clinic-balances.service';
+import { PaginatedAdminClinicBalancesDto } from '../finance/dto/admin-clinic-balance-response.dto';
+import { ListAdminClinicBalancesQueryDto } from '../finance/dto/list-finance-query.dto';
 import { ClinicsService } from './clinics.service';
 import {
   ClinicResponseDto,
@@ -45,7 +48,10 @@ import { UpdateClinicDto } from './dto/update-clinic.dto';
 @ApiUnauthorizedResponse({ description: 'Not authenticated' })
 @ApiForbiddenResponse({ description: 'Insufficient permissions' })
 export class AdminClinicsController {
-  constructor(private readonly clinicsService: ClinicsService) {}
+  constructor(
+    private readonly clinicsService: ClinicsService,
+    private readonly balancesService: AdminClinicBalancesService,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -56,6 +62,21 @@ export class AdminClinicsController {
   @ApiOkResponse({ type: PaginatedClinicsDto })
   list(@Query() query: ListAdminClinicsQueryDto): Promise<PaginatedClinicsDto> {
     return this.clinicsService.adminFindMany(query);
+  }
+
+  // Declared before ':id' so the literal path is not captured by the param route.
+  @Get('balances')
+  @ApiOperation({
+    summary: 'Per-clinic money position (app_admin)',
+    description:
+      'Available balance, held escrow, withdrawals awaiting review, ' +
+      'commission collected from each clinic, and last payout time.',
+  })
+  @ApiOkResponse({ type: PaginatedAdminClinicBalancesDto })
+  listBalances(
+    @Query() query: ListAdminClinicBalancesQueryDto,
+  ): Promise<PaginatedAdminClinicBalancesDto> {
+    return this.balancesService.list(query);
   }
 
   @Get(':id')
