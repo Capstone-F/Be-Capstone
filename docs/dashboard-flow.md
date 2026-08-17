@@ -18,6 +18,17 @@ Role: `app_admin`. Returns platform KPIs, net product/consultation money,
 attention counts, daily trends, and recent activity. Money includes completed
 ledger transactions, subtracts linked refunds, and excludes wallet top-ups.
 
+Treatment-plan money is reported separately from consultations:
+`metrics.treatmentPaymentsCollectedVnd` (completed `TREATMENT_PLAN_PAYMENT`
+transactions) and `metrics.treatmentRefundsVnd` (completed `REFUND`
+transactions with a `treatmentId`). Both fields also appear on every
+`trend[]` point, so platform inflow can be reconciled as product +
+consultation + treatment payments minus their refunds.
+
+The `recentActivity` feed is capped at 10 rows; for the full paginated,
+filterable log use `GET /admin/activity` (see
+[admin-finance-flow.md](./admin-finance-flow.md)).
+
 ## Expert dashboard
 
 ```http

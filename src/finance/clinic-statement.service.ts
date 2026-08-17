@@ -13,6 +13,7 @@ import { ClinicWithdrawalStatus } from './enums';
 import { EscrowService } from './escrow.service';
 import { ClinicWalletSummaryDto } from './dto/clinic-wallet-summary.dto';
 import { Clinic } from '../clinics/clinic.entity';
+import { CSV_EXPORT_CAP, csvDocument, csvEscape } from './csv.util';
 
 export type ClinicStatementQuery = {
   search?: string;
@@ -24,17 +25,6 @@ export type ClinicStatementQuery = {
   page?: number;
   limit?: number;
 };
-
-/** Max rows a single CSV export returns. */
-const CSV_EXPORT_CAP = 10000;
-
-/** RFC-4180 style CSV field escaping. */
-function csvEscape(value: string): string {
-  if (/[",\r\n]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
-}
 
 @Injectable()
 export class ClinicStatementService {
@@ -188,9 +178,7 @@ export class ClinicStatementService {
       );
     }
 
-    // Prepend a UTF-8 BOM so Excel opens Vietnamese notes correctly.
-    const bom = '\uFEFF';
-    return `${bom}${lines.join('\r\n')}\r\n`;
+    return csvDocument(lines);
   }
 
   private toDto(t: Transaction): ClinicTransactionResponseDto {
