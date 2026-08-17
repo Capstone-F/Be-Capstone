@@ -8,7 +8,6 @@ import { ClinicsModule } from '../clinics/clinics.module';
 import { CommerceSetting } from '../commerce/commerce-setting.entity';
 import { Transaction } from '../commerce/transaction.entity';
 import { WalletModule } from '../wallet/wallet.module';
-import { AdminClinicBalancesService } from './admin-clinic-balances.service';
 import { AdminClinicWithdrawalsController } from './admin-clinic-withdrawals.controller';
 import { AdminTransactionsController } from './admin-transactions.controller';
 import { AdminTransactionsService } from './admin-transactions.service';
@@ -50,7 +49,6 @@ import { PlatformCommissionController } from './platform-commission.controller';
     ClinicWithdrawalsService,
     ClinicStatementService,
     AdminTransactionsService,
-    AdminClinicBalancesService,
     SessionGuard,
     RolesGuard,
   ],
@@ -61,7 +59,6 @@ import { PlatformCommissionController } from './platform-commission.controller';
     ClinicWithdrawalsService,
     ClinicStatementService,
     AdminTransactionsService,
-    AdminClinicBalancesService,
   ],
 })
 export class FinanceModule {}
