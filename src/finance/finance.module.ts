@@ -5,7 +5,6 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
 import { Clinic } from '../clinics/clinic.entity';
 import { ClinicsModule } from '../clinics/clinics.module';
-import { CommerceSetting } from '../commerce/commerce-setting.entity';
 import { Transaction } from '../commerce/transaction.entity';
 import { WalletModule } from '../wallet/wallet.module';
 import { AdminClinicWithdrawalsController } from './admin-clinic-withdrawals.controller';
@@ -20,7 +19,6 @@ import { ClinicWithdrawalsService } from './clinic-withdrawals.service';
 import { EscrowHold } from './escrow-hold.entity';
 import { EscrowService } from './escrow.service';
 import { LedgerService } from './ledger.service';
-import { PlatformCommissionController } from './platform-commission.controller';
 
 @Module({
   imports: [
@@ -29,7 +27,6 @@ import { PlatformCommissionController } from './platform-commission.controller';
       EscrowHold,
       ClinicWithdrawal,
       Transaction,
-      CommerceSetting,
       Clinic,
     ]),
     AuthModule,
@@ -40,7 +37,6 @@ import { PlatformCommissionController } from './platform-commission.controller';
     ClinicFinanceController,
     AdminClinicWithdrawalsController,
     AdminTransactionsController,
-    PlatformCommissionController,
   ],
   providers: [
     LedgerService,

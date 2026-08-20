@@ -26,6 +26,9 @@ export class Clinic {
   @Column({ default: true })
   isActive: boolean;
 
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 10 })
+  commissionRatePct: string;
+
   /** Bank name for clinic withdrawals (set by clinic manager). */
   @Column({ nullable: true, type: 'varchar' })
   bankName: string | null;

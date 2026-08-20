@@ -66,13 +66,16 @@ describe('EscrowService release vs refund exclusivity', () => {
       creditWithManager: jest.fn().mockResolvedValue({ id: 'tx-refund' }),
     };
     const escrowHoldRepo = {};
-    const settingRepo = {
-      findOneBy: jest.fn().mockResolvedValue({ value: '10' }),
+    const clinicRepo = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'clinic-1',
+        commissionRatePct: '10',
+      }),
     };
 
     const service = new EscrowService(
       escrowHoldRepo as never,
-      settingRepo as never,
+      clinicRepo as never,
       ledgerService,
       clinicWalletService as never,
       walletService as never,
@@ -131,5 +134,104 @@ describe('EscrowService release vs refund exclusivity', () => {
 
     expect(walletService.creditWithManager).toHaveBeenCalled();
     expect(result?.status).toBe('REFUNDED');
+  });
+});
+
+describe('EscrowService clinic commission snapshot', () => {
+  it('snapshots the selected clinic rate when creating a hold', async () => {
+    const clinicRepo = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'clinic-2',
+        commissionRatePct: '12.5',
+      }),
+    };
+    const service = new EscrowService(
+      {} as never,
+      clinicRepo as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const manager = {
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn((_entity, input) => input),
+      save: jest.fn(async (_entity, input) => input),
+    };
+
+    const hold = await service.holdConsultationWithManager(manager as never, {
+      consultationId: 'consultation-1',
+      clinicId: 'clinic-2',
+      expertId: 'expert-1',
+      customerUserId: 'customer-1',
+      amountVnd: 400000,
+      holdTransactionId: 'transaction-1',
+    });
+
+    expect(hold.commissionRatePct).toBe('12.5');
+    expect(clinicRepo.findOne).toHaveBeenCalledWith({
+      where: { id: 'clinic-2' },
+      select: { id: true, commissionRatePct: true },
+    });
+  });
+
+  it('snapshots the clinic rate for treatment phase holds', async () => {
+    const clinicRepo = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'clinic-3',
+        commissionRatePct: '8.75',
+      }),
+    };
+    const service = new EscrowService(
+      {} as never,
+      clinicRepo as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const manager = {
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn((_entity, input) => input),
+      save: jest.fn(async (_entity, input) => input),
+    };
+
+    const hold = await service.holdTreatmentPhaseWithManager(manager as never, {
+      treatmentId: 'treatment-1',
+      treatmentPhaseId: 'phase-1',
+      clinicId: 'clinic-3',
+      expertId: 'expert-1',
+      customerUserId: 'customer-1',
+      amountVnd: 500000,
+      holdTransactionId: 'transaction-1',
+    });
+
+    expect(hold.commissionRatePct).toBe('8.75');
+  });
+
+  it('returns an existing snapshot without reading the current clinic rate', async () => {
+    const existing = {
+      id: 'hold-1',
+      commissionRatePct: '7.5',
+    };
+    const clinicRepo = { findOne: jest.fn() };
+    const service = new EscrowService(
+      {} as never,
+      clinicRepo as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const manager = { findOne: jest.fn().mockResolvedValue(existing) };
+
+    const hold = await service.holdConsultationWithManager(manager as never, {
+      consultationId: 'consultation-1',
+      clinicId: 'clinic-2',
+      expertId: 'expert-1',
+      customerUserId: 'customer-1',
+      amountVnd: 400000,
+      holdTransactionId: 'transaction-1',
+    });
+
+    expect(hold).toBe(existing);
+    expect(clinicRepo.findOne).not.toHaveBeenCalled();
   });
 });

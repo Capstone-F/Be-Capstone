@@ -41,7 +41,7 @@ export class ClinicManagerExpertsController {
     summary: 'List experts in own clinic (includes deactivated)',
     description:
       'Clinic manager roster of experts scoped to their bound clinic. ' +
-      'Unlike the public directory, inactive experts are included.',
+      'Unlike the authenticated customer directory, inactive experts are included.',
   })
   @ApiOkResponse({ type: PaginatedExpertsDto })
   @ApiForbiddenResponse({

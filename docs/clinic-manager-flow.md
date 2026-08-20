@@ -11,7 +11,7 @@ A clinic manager is a **single-clinic** operator. Every write is silently scoped
 
 See also:
 
-- [Admin Integration Guide](admin-flow.md) — global surface; admin owns clinics, roles, catalog, commission setting
+- [Admin Integration Guide](admin-flow.md) — global surface; admin owns clinics, roles, catalog, and per-clinic commission settings
 - [Admin Flow Guide](admin-flow.md) — **manual clinic withdrawal payouts** (app_admin marks paid / rejects)
 - [User Management & RBAC](users.md) — roles, clinic scoping, user model
 - [Consultation Flow](consultation-flow.md) — booking pay → escrow → release on complete
@@ -42,7 +42,7 @@ See also:
 8. [Clinic wallet & statement](#8-clinic-wallet--statement)
 9. [Withdrawals](#9-withdrawals)
 10. [Admin payout workflow](#10-admin-payout-workflow)
-11. [Platform commission setting](#11-platform-commission-setting)
+11. [Per-clinic commission setting](#11-per-clinic-commission-setting)
 12. [Operational oversight (experts, bookings, treatments)](#12-operational-oversight-experts-bookings-treatments)
 13. [Scoping rules & error matrix](#13-scoping-rules--error-matrix)
 14. [Endpoint checklist](#14-endpoint-checklist)
@@ -83,7 +83,9 @@ Customer pays booking / treatment plan (wallet debit)
 - Follow-up bookings (`isFollowUp`) and zero fees create **no** hold.
 - Invariant: a hold ends in exactly one of `RELEASED` or `REFUNDED`, never both.
 
-Default platform commission: **10%** (`commerce_settings.PLATFORM_COMMISSION_PCT`).
+Each clinic owns a `commissionRatePct`. New clinics default to **10%**. The
+rate is snapshotted onto each escrow hold at pay time, so later configuration
+changes never alter existing holds.
 
 ---
 
@@ -102,7 +104,7 @@ All clinic finance routes require an authenticated session (cookie or Bearer) wi
 
 1. `docker compose up -d` → `npm run migration:run` → `npm run seed` → `npm run start:dev`
 2. Seeded clinic manager accounts (password `P@ssw0rd`) — see [users.md](users.md)
-3. Migration `1786000000000-ClinicEscrowLedger` creates `clinic_wallets`, `escrow_holds`, `clinic_withdrawals`, ledger columns, and seeds commission `10`
+3. Migration `1786000000000-ClinicEscrowLedger` creates the escrow/ledger tables; migration `1786600000000-ClinicCommissionRate` backfills each clinic's commission rate and removes the old global setting.
 
 ---
 
@@ -271,16 +273,18 @@ Reject **re-credits** the clinic wallet and writes `WITHDRAWAL_REVERSAL`.
 
 ---
 
-## 11. Platform commission setting
+## 11. Per-clinic commission setting
 
 App Admin only:
 
-| Method  | Path                                                               |
-| ------- | ------------------------------------------------------------------ |
-| `GET`   | `/admin/commerce-settings/platform-commission`                     |
-| `PATCH` | `/admin/commerce-settings/platform-commission` `{ "percent": 10 }` |
+| Method  | Path                                                  |
+| ------- | ----------------------------------------------------- |
+| `GET`   | `/admin/clinics?page=1&limit=20&q=`                   |
+| `PATCH` | `/admin/clinics/:id/commission` `{ "percent": 12.5 }` |
 
-Changing the rate affects **new** holds only (existing holds keep their snapshotted rate).
+The Admin clinic response includes `commissionPercent`; public clinic responses
+do not. Changing one clinic affects **new** holds for that clinic only. Existing
+holds keep their snapshotted rate.
 
 ---
 
@@ -294,7 +298,7 @@ Read-only visibility for a clinic manager over everything happening in **their**
 GET /clinic/experts?specialization=&isActive=&page=1&limit=20
 ```
 
-Lists experts in the clinic **including deactivated** ones (unlike the public `GET /experts` directory, which is active-only). Sorted active-first, then by name. Omit `isActive` to see both; pass `isActive=false` to audit deactivated experts.
+Lists experts in the clinic **including deactivated** ones (unlike the authenticated customer `GET /experts` directory, which is active-only). Sorted active-first, then by name. Omit `isActive` to see both; pass `isActive=false` to audit deactivated experts.
 
 ### 12.2 Bookings oversight ✅ Ready
 
@@ -365,13 +369,13 @@ Submitted treatment plans for the clinic (drafts still being edited are excluded
 
 ### Staff / admin finance
 
-| Method  | Path                                           | Status   |
-| ------- | ---------------------------------------------- | -------- |
-| `GET`   | `/admin/clinic-withdrawals`                    | ✅ Ready |
-| `POST`  | `/admin/clinic-withdrawals/:id/mark-paid`      | ✅ Ready |
-| `POST`  | `/admin/clinic-withdrawals/:id/reject`         | ✅ Ready |
-| `GET`   | `/admin/commerce-settings/platform-commission` | ✅ Ready |
-| `PATCH` | `/admin/commerce-settings/platform-commission` | ✅ Ready |
+| Method  | Path                                      | Status   |
+| ------- | ----------------------------------------- | -------- |
+| `GET`   | `/admin/clinic-withdrawals`               | ✅ Ready |
+| `POST`  | `/admin/clinic-withdrawals/:id/mark-paid` | ✅ Ready |
+| `POST`  | `/admin/clinic-withdrawals/:id/reject`    | ✅ Ready |
+| `GET`   | `/admin/clinics`                          | ✅ Ready |
+| `PATCH` | `/admin/clinics/:id/commission`           | ✅ Ready |
 
 ### Experts / fees
 

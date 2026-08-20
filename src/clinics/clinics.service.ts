@@ -3,6 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Clinic } from './clinic.entity';
 import {
+  AdminClinicResponseDto,
+  PaginatedAdminClinicsDto,
+} from './dto/clinic-commission.dto';
+import {
   ClinicResponseDto,
   PaginatedClinicsDto,
 } from './dto/clinic-response.dto';
@@ -52,7 +56,7 @@ export class ClinicsService {
 
   async adminFindMany(
     query: ListAdminClinicsQueryDto,
-  ): Promise<PaginatedClinicsDto> {
+  ): Promise<PaginatedAdminClinicsDto> {
     const page = Math.max(1, query.page ?? 1);
     const limit = Math.min(100, Math.max(1, query.limit ?? 20));
     const skip = (page - 1) * limit;
@@ -75,7 +79,7 @@ export class ClinicsService {
     const [clinics, total] = await qb.getManyAndCount();
 
     return {
-      items: clinics.map((clinic) => this.toResponse(clinic)),
+      items: clinics.map((clinic) => this.toAdminResponse(clinic)),
       total,
       page,
       limit,
@@ -87,7 +91,11 @@ export class ClinicsService {
     return this.toResponse(clinic);
   }
 
-  async create(dto: CreateClinicDto): Promise<ClinicResponseDto> {
+  async adminFindOne(id: string): Promise<AdminClinicResponseDto> {
+    return this.toAdminResponse(await this.requireById(id));
+  }
+
+  async create(dto: CreateClinicDto): Promise<AdminClinicResponseDto> {
     const clinic = await this.clinicRepository.save(
       this.clinicRepository.create({
         name: dto.name.trim(),
@@ -95,9 +103,10 @@ export class ClinicsService {
         latitude: this.normalizeNullableNumber(dto.latitude),
         longitude: this.normalizeNullableNumber(dto.longitude),
         isActive: dto.isActive ?? true,
+        commissionRatePct: '10',
       }),
     );
-    return this.toResponse(clinic);
+    return this.toAdminResponse(clinic);
   }
 
   async updateBankAccount(
@@ -116,7 +125,10 @@ export class ClinicsService {
     return this.toResponse(saved);
   }
 
-  async update(id: string, dto: UpdateClinicDto): Promise<ClinicResponseDto> {
+  async update(
+    id: string,
+    dto: UpdateClinicDto,
+  ): Promise<AdminClinicResponseDto> {
     const clinic = await this.requireById(id);
 
     if (dto.name !== undefined) {
@@ -136,14 +148,23 @@ export class ClinicsService {
     }
 
     const saved = await this.clinicRepository.save(clinic);
-    return this.toResponse(saved);
+    return this.toAdminResponse(saved);
   }
 
-  async deactivate(id: string): Promise<ClinicResponseDto> {
+  async updateCommission(
+    id: string,
+    percent: number,
+  ): Promise<AdminClinicResponseDto> {
+    const clinic = await this.requireById(id);
+    clinic.commissionRatePct = String(percent);
+    return this.toAdminResponse(await this.clinicRepository.save(clinic));
+  }
+
+  async deactivate(id: string): Promise<AdminClinicResponseDto> {
     const clinic = await this.requireById(id);
     clinic.isActive = false;
     const saved = await this.clinicRepository.save(clinic);
-    return this.toResponse(saved);
+    return this.toAdminResponse(saved);
   }
 
   private normalizeNullableString(
@@ -184,6 +205,13 @@ export class ClinicsService {
       bankAccountHolder: clinic.bankAccountHolder ?? null,
       createdAt: clinic.createdAt,
       updatedAt: clinic.updatedAt,
+    };
+  }
+
+  private toAdminResponse(clinic: Clinic): AdminClinicResponseDto {
+    return {
+      ...this.toResponse(clinic),
+      commissionPercent: Number(clinic.commissionRatePct ?? 10),
     };
   }
 }

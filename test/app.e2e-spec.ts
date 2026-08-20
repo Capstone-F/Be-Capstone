@@ -1888,15 +1888,10 @@ describe('BE Capstone API (e2e)', () => {
     }
 
     describe('GET /experts', () => {
-      it('should allow unauthenticated access', async () => {
-        await seedExpert({ name: 'Public List Expert' });
-
-        const { body } = await request(app.getHttpServer())
+      it('should reject unauthenticated access', async () => {
+        await request(app.getHttpServer())
           .get('/experts?page=1&limit=10')
-          .expect(200);
-
-        expect(body.total).toBeGreaterThanOrEqual(1);
-        expect(Array.isArray(body.items)).toBe(true);
+          .expect(401);
       });
 
       it('should return paginated experts for authenticated user', async () => {
@@ -2018,20 +2013,18 @@ describe('BE Capstone API (e2e)', () => {
     });
 
     describe('GET /experts/:id', () => {
-      it('should allow unauthenticated access', async () => {
-        const expert = await seedExpert({ name: 'Public Detail Expert' });
+      it('should reject unauthenticated access', async () => {
+        const expert = await seedExpert({ name: 'Protected Detail Expert' });
 
-        const { body } = await request(app.getHttpServer())
+        await request(app.getHttpServer())
           .get(`/experts/${expert.id}`)
-          .expect(200);
-
-        expect(body.id).toBe(expert.id);
-        expect(body.name).toBe('Public Detail Expert');
+          .expect(401);
       });
 
       it('should return 404 when expert does not exist', async () => {
         await request(app.getHttpServer())
           .get('/experts/00000000-0000-0000-0000-000000000099')
+          .set('Cookie', customerSid)
           .expect(404);
       });
 
@@ -2090,6 +2083,9 @@ describe('BE Capstone API (e2e)', () => {
     describe('GET /clinics', () => {
       it('should return 401 without session cookie', async () => {
         await request(app.getHttpServer()).get('/clinics').expect(401);
+        await request(app.getHttpServer())
+          .get('/clinics/00000000-0000-0000-0000-000000000001/experts')
+          .expect(401);
       });
 
       it('should list active clinics', async () => {
@@ -2138,6 +2134,7 @@ describe('BE Capstone API (e2e)', () => {
 
         const experts = await request(app.getHttpServer())
           .get(`/clinics/${expert.clinicId}/experts`)
+          .set('Cookie', customerSid)
           .expect(200);
 
         expect(experts.body.total).toBeGreaterThanOrEqual(1);
@@ -2186,8 +2183,36 @@ describe('BE Capstone API (e2e)', () => {
         expect(createRes.body.name).toBe(`Admin Clinic ${suffix}`);
         expect(createRes.body.isActive).toBe(true);
         expect(createRes.body.latitude).toBe(10.8);
+        expect(createRes.body.commissionPercent).toBe(10);
 
         const clinicId = createRes.body.id as string;
+
+        await request(app.getHttpServer())
+          .patch(`/admin/clinics/${clinicId}/commission`)
+          .set('Cookie', customerSid)
+          .send({ percent: 20 })
+          .expect(403);
+
+        const commissionRes = await request(app.getHttpServer())
+          .patch(`/admin/clinics/${clinicId}/commission`)
+          .set('Cookie', adminSid)
+          .send({ percent: 12.5 })
+          .expect(200);
+
+        expect(commissionRes.body.commissionPercent).toBe(12.5);
+
+        await request(app.getHttpServer())
+          .patch(`/admin/clinics/${clinicId}/commission`)
+          .set('Cookie', adminSid)
+          .send({ percent: 100.01 })
+          .expect(400);
+
+        const publicDetail = await request(app.getHttpServer())
+          .get(`/clinics/${clinicId}`)
+          .set('Cookie', customerSid)
+          .expect(200);
+
+        expect(publicDetail.body).not.toHaveProperty('commissionPercent');
 
         const listRes = await request(app.getHttpServer())
           .get(`/admin/clinics?q=Admin Clinic ${suffix}`)
