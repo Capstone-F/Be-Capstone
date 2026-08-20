@@ -32,9 +32,10 @@ import { PaginatedAdminClinicBalancesDto } from '../finance/dto/admin-clinic-bal
 import { ListAdminClinicBalancesQueryDto } from '../finance/dto/list-finance-query.dto';
 import { ClinicsService } from './clinics.service';
 import {
-  ClinicResponseDto,
-  PaginatedClinicsDto,
-} from './dto/clinic-response.dto';
+  AdminClinicResponseDto,
+  PaginatedAdminClinicsDto,
+  UpdateClinicCommissionDto,
+} from './dto/clinic-commission.dto';
 import { CreateClinicDto } from './dto/create-clinic.dto';
 import { ListAdminClinicsQueryDto } from './dto/list-admin-clinics-query.dto';
 import { UpdateClinicDto } from './dto/update-clinic.dto';
@@ -59,8 +60,10 @@ export class AdminClinicsController {
     description:
       'Includes inactive clinics by default. Filter with activeOnly=true or q=name.',
   })
-  @ApiOkResponse({ type: PaginatedClinicsDto })
-  list(@Query() query: ListAdminClinicsQueryDto): Promise<PaginatedClinicsDto> {
+  @ApiOkResponse({ type: PaginatedAdminClinicsDto })
+  list(
+    @Query() query: ListAdminClinicsQueryDto,
+  ): Promise<PaginatedAdminClinicsDto> {
     return this.clinicsService.adminFindMany(query);
   }
 
@@ -81,17 +84,19 @@ export class AdminClinicsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get clinic by id (app_admin)' })
-  @ApiOkResponse({ type: ClinicResponseDto })
+  @ApiOkResponse({ type: AdminClinicResponseDto })
   @ApiNotFoundResponse({ description: 'Clinic not found' })
-  getOne(@Param('id', ParseUUIDPipe) id: string): Promise<ClinicResponseDto> {
-    return this.clinicsService.findOne(id);
+  getOne(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<AdminClinicResponseDto> {
+    return this.clinicsService.adminFindOne(id);
   }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a partner clinic (app_admin)' })
-  @ApiCreatedResponse({ type: ClinicResponseDto })
-  create(@Body() dto: CreateClinicDto): Promise<ClinicResponseDto> {
+  @ApiCreatedResponse({ type: AdminClinicResponseDto })
+  create(@Body() dto: CreateClinicDto): Promise<AdminClinicResponseDto> {
     return this.clinicsService.create(dto);
   }
 
@@ -101,13 +106,25 @@ export class AdminClinicsController {
     summary: 'Update a clinic (app_admin)',
     description: 'Partial update. Set isActive true to reactivate a clinic.',
   })
-  @ApiOkResponse({ type: ClinicResponseDto })
+  @ApiOkResponse({ type: AdminClinicResponseDto })
   @ApiNotFoundResponse({ description: 'Clinic not found' })
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateClinicDto,
-  ): Promise<ClinicResponseDto> {
+  ): Promise<AdminClinicResponseDto> {
     return this.clinicsService.update(id, dto);
+  }
+
+  @Patch(':id/commission')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Update commission percent for one clinic' })
+  @ApiOkResponse({ type: AdminClinicResponseDto })
+  @ApiNotFoundResponse({ description: 'Clinic not found' })
+  updateCommission(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateClinicCommissionDto,
+  ): Promise<AdminClinicResponseDto> {
+    return this.clinicsService.updateCommission(id, dto.percent);
   }
 
   @Delete(':id')
@@ -117,11 +134,11 @@ export class AdminClinicsController {
     description:
       'Sets isActive=false. Hard delete is not supported while experts reference the clinic (ON DELETE RESTRICT).',
   })
-  @ApiOkResponse({ type: ClinicResponseDto })
+  @ApiOkResponse({ type: AdminClinicResponseDto })
   @ApiNotFoundResponse({ description: 'Clinic not found' })
   deactivate(
     @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<ClinicResponseDto> {
+  ): Promise<AdminClinicResponseDto> {
     return this.clinicsService.deactivate(id);
   }
 }

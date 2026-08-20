@@ -1172,8 +1172,8 @@ Env: `DELIVERY_SIMULATION_ENABLED` (default false in code; set true in `.env` fo
 | ------ | ------------------------------------------------ | ---------------- | -------- |
 | GET    | `/admin/commerce-settings/survey-combo-discount` | app_admin        | ✅ Ready |
 | PATCH  | `/admin/commerce-settings/survey-combo-discount` | app_admin        | ✅ Ready |
-| GET    | `/admin/commerce-settings/platform-commission`   | app_admin        | ✅ Ready |
-| PATCH  | `/admin/commerce-settings/platform-commission`   | app_admin        | ✅ Ready |
+| GET    | `/admin/clinics`                                 | app_admin        | ✅ Ready |
+| PATCH  | `/admin/clinics/:id/commission`                  | app_admin        | ✅ Ready |
 | GET    | `/admin/clinic-withdrawals`                      | app_admin        | ✅ Ready |
 | POST   | `/admin/clinic-withdrawals/:id/mark-paid`        | app_admin        | ✅ Ready |
 | POST   | `/admin/clinic-withdrawals/:id/reject`           | app_admin        | ✅ Ready |

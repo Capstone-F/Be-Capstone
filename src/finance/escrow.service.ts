@@ -5,12 +5,8 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
-import {
-  CommerceSettingKey,
-  LedgerAccount,
-  TransactionType,
-} from '../commerce/enums';
-import { CommerceSetting } from '../commerce/commerce-setting.entity';
+import { Clinic } from '../clinics/clinic.entity';
+import { LedgerAccount, TransactionType } from '../commerce/enums';
 import { WalletService } from '../wallet/wallet.service';
 import { ClinicWalletService } from './clinic-wallet.service';
 import { EscrowHold } from './escrow-hold.entity';
@@ -48,14 +44,14 @@ export class EscrowService {
   constructor(
     @InjectRepository(EscrowHold)
     private readonly escrowHoldRepo: Repository<EscrowHold>,
-    @InjectRepository(CommerceSetting)
-    private readonly settingRepo: Repository<CommerceSetting>,
+    @InjectRepository(Clinic)
+    private readonly clinicRepo: Repository<Clinic>,
     private readonly ledgerService: LedgerService,
     private readonly clinicWalletService: ClinicWalletService,
     private readonly walletService: WalletService,
   ) {}
 
-  /** Floor commission so rounding remainder stays with the platform. */
+  /** Floor commission so the rounding remainder stays with the clinic. */
   static splitCommission(
     amountVnd: number,
     ratePct: number,
@@ -73,49 +69,11 @@ export class EscrowService {
     return { commissionVnd, netVnd };
   }
 
-  async getPlatformCommissionPct(): Promise<number> {
-    const setting = await this.settingRepo.findOneBy({
-      key: CommerceSettingKey.PLATFORM_COMMISSION_PCT,
-    });
-    const parsed = Number.parseFloat(setting?.value ?? '10');
-    if (Number.isNaN(parsed) || parsed < 0) {
-      return 10;
-    }
-    return Math.min(100, parsed);
-  }
-
-  async updatePlatformCommissionPct(
-    userId: string,
-    percent: number,
-  ): Promise<number> {
-    if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
-      throw new BadRequestException(
-        'Phần trăm hoa hồng phải nằm trong khoảng từ 0 đến 100',
-      );
-    }
-    let setting = await this.settingRepo.findOneBy({
-      key: CommerceSettingKey.PLATFORM_COMMISSION_PCT,
-    });
-    if (!setting) {
-      setting = this.settingRepo.create({
-        key: CommerceSettingKey.PLATFORM_COMMISSION_PCT,
-        value: String(percent),
-        updatedByUserId: userId,
-      });
-    } else {
-      setting.value = String(percent);
-      setting.updatedByUserId = userId;
-    }
-    await this.settingRepo.save(setting);
-    return this.getPlatformCommissionPct();
-  }
-
   async holdConsultationWithManager(
     manager: EntityManager,
     options: HoldConsultationOptions,
   ): Promise<EscrowHold> {
     const amount = this.parsePositiveAmount(options.amountVnd);
-    const rate = await this.getPlatformCommissionPct();
 
     const existing = await manager.findOne(EscrowHold, {
       where: { consultationId: options.consultationId },
@@ -123,6 +81,7 @@ export class EscrowService {
     if (existing) {
       return existing;
     }
+    const rate = await this.getClinicCommissionPct(options.clinicId);
 
     const hold = manager.create(EscrowHold, {
       sourceType: EscrowHoldSourceType.CONSULTATION,
@@ -145,7 +104,6 @@ export class EscrowService {
     options: HoldTreatmentPhaseOptions,
   ): Promise<EscrowHold> {
     const amount = this.parsePositiveAmount(options.amountVnd);
-    const rate = await this.getPlatformCommissionPct();
 
     const existing = await manager.findOne(EscrowHold, {
       where: { treatmentPhaseId: options.treatmentPhaseId },
@@ -153,6 +111,7 @@ export class EscrowService {
     if (existing) {
       return existing;
     }
+    const rate = await this.getClinicCommissionPct(options.clinicId);
 
     const hold = manager.create(EscrowHold, {
       sourceType: EscrowHoldSourceType.TREATMENT_PHASE,
@@ -418,5 +377,22 @@ export class EscrowService {
       throw new BadRequestException('Số tiền phải là số nguyên dương VND');
     }
     return amount;
+  }
+
+  private async getClinicCommissionPct(clinicId: string): Promise<number> {
+    const clinic = await this.clinicRepo.findOne({
+      where: { id: clinicId },
+      select: { id: true, commissionRatePct: true },
+    });
+    if (!clinic) {
+      throw new NotFoundException(`Không tìm thấy phòng khám ${clinicId}`);
+    }
+    const rate = Number(clinic.commissionRatePct);
+    if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
+      throw new BadRequestException(
+        `Tỷ lệ hoa hồng của phòng khám ${clinicId} không hợp lệ`,
+      );
+    }
+    return rate;
   }
 }

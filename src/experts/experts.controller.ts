@@ -48,8 +48,10 @@ import { ExpertsService } from './experts.service';
 
 @ApiTags('Experts')
 @Controller('experts')
+@UseGuards(SessionGuard)
 @ApiCookieAuth()
 @ApiBearerAuth()
+@ApiUnauthorizedResponse({ description: 'Not authenticated' })
 export class ExpertsController {
   constructor(private readonly expertsService: ExpertsService) {}
 
@@ -57,7 +59,7 @@ export class ExpertsController {
   @ApiOperation({
     summary: 'List available experts',
     description:
-      'Public. Filter by specialization, rating, consultation fee, and distance from client location.',
+      'Authenticated users can filter by specialization, rating, consultation fee, and distance.',
   })
   @ApiOkResponse({ type: PaginatedExpertsDto })
   list(@Query() query: ListExpertsQueryDto) {
@@ -144,7 +146,7 @@ export class ExpertsController {
   @Get(':id')
   @ApiOperation({
     summary: 'Get expert by id',
-    description: 'Public. Returns clinic-bound expert profile details.',
+    description: 'Returns clinic-bound expert profile details.',
   })
   @ApiOkResponse({ type: ExpertResponseDto })
   @ApiNotFoundResponse({ description: 'Expert not found' })

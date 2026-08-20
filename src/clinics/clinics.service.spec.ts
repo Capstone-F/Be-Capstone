@@ -10,6 +10,7 @@ const makeClinic = (overrides: Partial<Clinic> = {}): Clinic => ({
   latitude: 10.7769,
   longitude: 106.7009,
   isActive: true,
+  commissionRatePct: '10',
   bankName: null,
   bankAccountNumber: null,
   bankAccountHolder: null,
@@ -76,6 +77,7 @@ describe('ClinicsService', () => {
     );
     expect(result.total).toBe(2);
     expect(result.items).toHaveLength(2);
+    expect(result.items[0].commissionPercent).toBe(10);
   });
 
   it('should return clinic detail', async () => {
@@ -122,9 +124,11 @@ describe('ClinicsService', () => {
       latitude: 10.1,
       longitude: 106.2,
       isActive: true,
+      commissionRatePct: '10',
     });
     expect(result.id).toBe('new-clinic');
     expect(result.name).toBe('New Clinic');
+    expect(result.commissionPercent).toBe(10);
   });
 
   it('should update a clinic', async () => {
@@ -161,5 +165,21 @@ describe('ClinicsService', () => {
     expect(clinicRepo.save).toHaveBeenCalledWith(
       expect.objectContaining({ isActive: false }),
     );
+  });
+
+  it('updates commission for only the selected clinic', async () => {
+    const clinic = makeClinic();
+    const clinicRepo = {
+      findOneBy: jest.fn().mockResolvedValue(clinic),
+      save: jest.fn().mockImplementation(async (entity) => entity),
+    } as unknown as Repository<Clinic>;
+    const service = new ClinicsService(clinicRepo);
+
+    const result = await service.updateCommission('clinic-1', 12.5);
+
+    expect(clinicRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'clinic-1', commissionRatePct: '12.5' }),
+    );
+    expect(result.commissionPercent).toBe(12.5);
   });
 });

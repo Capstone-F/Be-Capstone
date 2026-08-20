@@ -12,7 +12,7 @@ import { ExpertSpecialty } from '../expert-specialty.enum';
 
 /**
  * Query for a clinic manager listing experts in their own clinic.
- * Unlike the public expert directory, this includes deactivated experts.
+ * Unlike the authenticated customer expert directory, this includes deactivated experts.
  */
 export class ListClinicExpertsQueryDto {
   @ApiPropertyOptional({
