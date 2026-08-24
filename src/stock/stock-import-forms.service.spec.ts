@@ -1,39 +1,43 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { ProductVariant } from '../products/product-variant.entity';
-import { StockImportFormStatus } from './enums';
+import { ProductInstanceStatus, StockImportFormStatus } from './enums';
+import { ProductInstance } from './product-instance.entity';
+import { StockBatch } from './stock-batch.entity';
 import { StockImportForm } from './stock-import-form.entity';
 import { StockImportFormsService } from './stock-import-forms.service';
+import { StockMovement } from './stock-movement.entity';
 import { StockService } from './stock.service';
 
 const dateOnly = (y: number, m: number, d: number) =>
   new Date(Date.UTC(y, m, d));
 
-const baseForm = (overrides: Partial<StockImportForm> = {}): StockImportForm =>
-  ({
-    id: 'form-1',
-    productVariantId: 'variant-1',
-    quantity: 10,
-    manufacturingDate: dateOnly(2026, 0, 15),
-    batchCode: 'LOT-001',
-    status: StockImportFormStatus.DRAFT,
-    createdByUserId: 'user-1',
-    submittedByUserId: null,
-    submittedAt: null,
-    confirmedByUserId: null,
-    confirmedAt: null,
-    cancelledByUserId: null,
-    cancelledAt: null,
-    rejectedByUserId: null,
-    rejectedAt: null,
-    rejectionReason: null,
-    stockBatchId: null,
-    productVariant: {} as StockImportForm['productVariant'],
-    stockBatch: null,
-    createdAt: new Date('2026-01-01T00:00:00.000Z'),
-    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
-    ...overrides,
-  }) as StockImportForm;
+const baseForm = (
+  overrides: Partial<StockImportForm> = {},
+): StockImportForm => ({
+  id: 'form-1',
+  productVariantId: 'variant-1',
+  quantity: 10,
+  manufacturingDate: dateOnly(2026, 0, 15),
+  batchCode: 'LOT-001',
+  status: StockImportFormStatus.DRAFT,
+  createdByUserId: 'user-1',
+  submittedByUserId: null,
+  submittedAt: null,
+  confirmedByUserId: null,
+  confirmedAt: null,
+  cancelledByUserId: null,
+  cancelledAt: null,
+  rejectedByUserId: null,
+  rejectedAt: null,
+  rejectionReason: null,
+  stockBatchId: null,
+  productVariant: {} as StockImportForm['productVariant'],
+  stockBatch: null,
+  createdAt: new Date('2026-01-01T00:00:00.000Z'),
+  updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+  ...overrides,
+});
 
 describe('StockImportFormsService', () => {
   let service: StockImportFormsService;
@@ -45,6 +49,9 @@ describe('StockImportFormsService', () => {
     manager: { transaction: jest.Mock };
   };
   let variantRepo: { findOneBy: jest.Mock };
+  let batchRepo: { findOneBy: jest.Mock };
+  let instanceRepo: { createQueryBuilder: jest.Mock };
+  let movementRepo: { find: jest.Mock };
   let stockService: { createBatchInTransaction: jest.Mock };
   let qb: {
     andWhere: jest.Mock;
@@ -53,6 +60,26 @@ describe('StockImportFormsService', () => {
     take: jest.Mock;
     getManyAndCount: jest.Mock;
   };
+
+  const makeInstanceQb = (overrides: Partial<Record<string, jest.Mock>> = {}) =>
+    ({
+      select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      innerJoin: jest.fn().mockReturnThis(),
+      leftJoin: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      setParameters: jest.fn().mockReturnThis(),
+      groupBy: jest.fn().mockReturnThis(),
+      addGroupBy: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      offset: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      getRawMany: jest.fn().mockResolvedValue([]),
+      getRawOne: jest.fn().mockResolvedValue({ total: 0 }),
+      ...overrides,
+    }) as Record<string, jest.Mock>;
 
   beforeEach(() => {
     qb = {
@@ -78,12 +105,24 @@ describe('StockImportFormsService', () => {
     variantRepo = {
       findOneBy: jest.fn().mockResolvedValue({ id: 'variant-1' }),
     };
+    batchRepo = {
+      findOneBy: jest.fn().mockResolvedValue(null),
+    };
+    instanceRepo = {
+      createQueryBuilder: jest.fn().mockImplementation(() => makeInstanceQb()),
+    };
+    movementRepo = {
+      find: jest.fn().mockResolvedValue([]),
+    };
     stockService = {
       createBatchInTransaction: jest.fn(),
     };
     service = new StockImportFormsService(
       formRepo as unknown as Repository<StockImportForm>,
       variantRepo as unknown as Repository<ProductVariant>,
+      batchRepo as unknown as Repository<StockBatch>,
+      instanceRepo as unknown as Repository<ProductInstance>,
+      movementRepo as unknown as Repository<StockMovement>,
       stockService as unknown as StockService,
     );
   });
@@ -268,6 +307,129 @@ describe('StockImportFormsService', () => {
       await expect(service.reject('user-5', 'form-1')).rejects.toThrow(
         BadRequestException,
       );
+    });
+  });
+
+  describe('getSalesLog', () => {
+    it('throws when the form is missing', async () => {
+      formRepo.findOneBy.mockResolvedValue(null);
+      await expect(service.getSalesLog('missing', {})).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('returns an empty log when the form has no stock batch', async () => {
+      formRepo.findOneBy.mockResolvedValue(baseForm());
+
+      const result = await service.getSalesLog('form-1', {});
+
+      expect(result).toEqual({
+        formId: 'form-1',
+        formStatus: StockImportFormStatus.DRAFT,
+        stockBatchId: null,
+        batch: null,
+        movements: [],
+        entries: [],
+        total: 0,
+        page: 1,
+        limit: 20,
+      });
+      expect(instanceRepo.createQueryBuilder).not.toHaveBeenCalled();
+    });
+
+    it('returns batch summary, movements and grouped sale entries', async () => {
+      formRepo.findOneBy.mockResolvedValue(
+        baseForm({
+          status: StockImportFormStatus.CONFIRMED,
+          stockBatchId: 'batch-1',
+        }),
+      );
+      batchRepo.findOneBy.mockResolvedValue({
+        id: 'batch-1',
+        batchCode: 'LOT-001',
+        initialQuantity: 10,
+        remainingQuantity: 7,
+        expirationDate: new Date('2027-01-15T00:00:00.000Z'),
+      });
+      movementRepo.find.mockResolvedValue([
+        {
+          id: 'movement-1',
+          type: 'SALE',
+          quantity: 3,
+          note: 'Order deduction',
+          createdAt: new Date('2026-02-01T00:00:00.000Z'),
+        },
+      ]);
+
+      const statusQb = makeInstanceQb({
+        getRawMany: jest
+          .fn()
+          .mockResolvedValue([
+            { status: ProductInstanceStatus.SOLD, count: '3' },
+          ]),
+      });
+      const totalQb = makeInstanceQb({
+        getRawOne: jest.fn().mockResolvedValue({ total: '1' }),
+      });
+      const entriesQb = makeInstanceQb({
+        getRawMany: jest.fn().mockResolvedValue([
+          {
+            orderItemId: 'item-1',
+            orderId: 'order-1',
+            orderStatus: 'DELIVERED',
+            orderCreatedAt: new Date('2026-01-20T00:00:00.000Z'),
+            customerId: 'customer-1',
+            customerName: 'Nguyễn Văn A',
+            customerEmail: 'a@example.com',
+            orderedQuantity: '3',
+            unitPriceVnd: '250000',
+            stockDeductedAt: new Date('2026-01-21T00:00:00.000Z'),
+            quantityFromBatch: '3',
+            soldQuantity: '3',
+            returnedQuantity: '0',
+          },
+        ]),
+      });
+      instanceRepo.createQueryBuilder
+        .mockImplementationOnce(() => statusQb)
+        .mockImplementationOnce(() => totalQb)
+        .mockImplementationOnce(() => entriesQb);
+
+      const result = await service.getSalesLog('form-1', {
+        page: 1,
+        limit: 20,
+      });
+
+      expect(result.stockBatchId).toBe('batch-1');
+      expect(result.batch).toEqual({
+        id: 'batch-1',
+        batchCode: 'LOT-001',
+        initialQuantity: 10,
+        remainingQuantity: 7,
+        soldQuantity: 3,
+        returnedQuantity: 0,
+        damagedQuantity: 0,
+        expirationDate: '2027-01-15',
+      });
+      expect(result.movements).toHaveLength(1);
+      expect(result.total).toBe(1);
+      expect(result.entries).toEqual([
+        {
+          orderItemId: 'item-1',
+          orderId: 'order-1',
+          orderStatus: 'DELIVERED',
+          orderCreatedAt: new Date('2026-01-20T00:00:00.000Z'),
+          customerId: 'customer-1',
+          customerName: 'Nguyễn Văn A',
+          customerEmail: 'a@example.com',
+          orderedQuantity: 3,
+          quantityFromBatch: 3,
+          soldQuantity: 3,
+          returnedQuantity: 0,
+          unitPriceVnd: 250000,
+          stockDeductedAt: new Date('2026-01-21T00:00:00.000Z'),
+        },
+      ]);
     });
   });
 

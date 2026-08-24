@@ -38,6 +38,10 @@ import {
 import { ListStockImportFormsQueryDto } from './dto/list-stock-import-forms-query.dto';
 import { RejectStockImportFormDto } from './dto/reject-stock-import-form.dto';
 import {
+  StockImportFormSalesLogDto,
+  StockImportFormSalesLogQueryDto,
+} from './dto/stock-import-form-sales-log.dto';
+import {
   PaginatedStockImportFormsDto,
   StockImportFormResponseDto,
 } from './dto/stock-import-form-response.dto';
@@ -88,6 +92,24 @@ export class StockImportFormsController {
   @ApiNotFoundResponse({ description: 'Form not found' })
   getById(@Param('id', ParseUUIDPipe) id: string) {
     return this.stockImportFormsService.getById(id);
+  }
+
+  @Get(':id/sales-log')
+  @ApiOperation({
+    summary: 'Get the sales log of a stock import form',
+    description:
+      'Traces the stock batch created by this form: which order items consumed ' +
+      'its product instances (with order/customer info, paginated) plus the ' +
+      "batch's SALE/RETURN stock movements. Returns an empty log when the form " +
+      'has not been CONFIRMED yet (no batch).',
+  })
+  @ApiOkResponse({ type: StockImportFormSalesLogDto })
+  @ApiNotFoundResponse({ description: 'Form not found' })
+  getSalesLog(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: StockImportFormSalesLogQueryDto,
+  ) {
+    return this.stockImportFormsService.getSalesLog(id, query);
   }
 
   @Patch(':id')
