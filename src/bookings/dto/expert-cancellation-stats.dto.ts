@@ -31,6 +31,14 @@ export class ExpertCancellationPolicyDto {
       'EXPERT_LATE_CANCEL (no-show-grade, unlocks customer feedback). 0 disables.',
   })
   lateCancelThresholdMin!: number;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Cross-key conflict notes (e.g. late-cancel threshold vs booking minimum ' +
+      'lead time). Informational — the values are stored regardless.',
+  })
+  warnings?: string[];
 }
 
 export class UpdateExpertCancellationPolicyDto {

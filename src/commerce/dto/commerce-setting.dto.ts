@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNumber, IsOptional, Max, Min } from 'class-validator';
+import { IsInt, IsNumber, IsOptional, Max, Min } from 'class-validator';
 
 export class UpdateComboDiscountDto {
   @ApiPropertyOptional({ example: 15, minimum: 0, maximum: 100 })
@@ -13,10 +13,11 @@ export class UpdateComboDiscountDto {
     example: 300000,
     minimum: 0,
     description:
-      'Minimum order subtotal (VND) to unlock the survey combo discount',
+      'Minimum order subtotal (VND) to unlock the survey combo discount. ' +
+      'Whole VND — no decimals.',
   })
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(0)
   minSubtotalVnd?: number;
 }

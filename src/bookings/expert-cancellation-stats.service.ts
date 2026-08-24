@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CommerceSetting } from '../commerce/commerce-setting.entity';
@@ -9,16 +9,22 @@ import {
   BookingCancelledBy,
 } from '../consultations/enums';
 import {
+  DEFAULT_BOOKING_MIN_LEAD_TIME_MIN,
+  DEFAULT_EXPERT_LATE_CANCEL_THRESHOLD_MIN,
+  lateCancelLeadTimeWarning,
+} from './booking-policy-conflicts';
+import {
   ExpertCancellationPolicyDto,
   ExpertCancellationStatItemDto,
   ExpertCancellationStatsResponseDto,
   UpdateExpertCancellationPolicyDto,
 } from './dto/expert-cancellation-stats.dto';
 
+export { DEFAULT_EXPERT_LATE_CANCEL_THRESHOLD_MIN } from './booking-policy-conflicts';
+
 export const DEFAULT_EXPERT_CANCEL_LIMIT = 3;
 export const DEFAULT_EXPERT_CANCEL_WINDOW_DAYS = 30;
 export const DEFAULT_EXPERT_NO_SHOW_WEIGHT = 2;
-export const DEFAULT_EXPERT_LATE_CANCEL_THRESHOLD_MIN = 1440;
 
 type RawStatRow = {
   expertId: string;
@@ -72,10 +78,48 @@ export class ExpertCancellationStatsService {
     };
   }
 
+  /** getPolicy plus cross-key conflict warnings, for the admin endpoints. */
+  async getPolicyWithWarnings(): Promise<ExpertCancellationPolicyDto> {
+    const policy = await this.getPolicy();
+    const minLeadTimeMin = await this.readInt(
+      CommerceSettingKey.BOOKING_MIN_LEAD_TIME_MIN,
+      DEFAULT_BOOKING_MIN_LEAD_TIME_MIN,
+      0,
+    );
+    const warning = lateCancelLeadTimeWarning(
+      policy.lateCancelThresholdMin,
+      minLeadTimeMin,
+    );
+    return { ...policy, warnings: warning ? [warning] : [] };
+  }
+
   async updatePolicy(
     userId: string,
     dto: UpdateExpertCancellationPolicyDto,
   ): Promise<ExpertCancellationPolicyDto> {
+    if (
+      dto.cancelLimit === undefined &&
+      dto.windowDays === undefined &&
+      dto.noShowWeight === undefined &&
+      dto.lateCancelThresholdMin === undefined
+    ) {
+      throw new BadRequestException('Cần ít nhất một giá trị để cập nhật');
+    }
+
+    // Validate the merged result so a partial PATCH cannot leave the pair
+    // inconsistent: with weight > limit, one weighted violation always flags,
+    // making every smaller limit indistinguishable from limit = weight.
+    const current = await this.getPolicy();
+    const nextCancelLimit = dto.cancelLimit ?? current.cancelLimit;
+    const nextNoShowWeight = dto.noShowWeight ?? current.noShowWeight;
+    if (nextNoShowWeight > nextCancelLimit) {
+      throw new BadRequestException(
+        `EXPERT_NO_SHOW_WEIGHT (${nextNoShowWeight}) không được lớn hơn EXPERT_CANCEL_LIMIT_30D (${nextCancelLimit}): ` +
+          'một lần no-show/hủy sát giờ sẽ lập tức vượt ngưỡng, khiến ngưỡng mất ý nghĩa. ' +
+          'Muốn chính sách không khoan nhượng, hãy đặt ngưỡng bằng trọng số.',
+      );
+    }
+
     if (dto.cancelLimit !== undefined) {
       await this.upsert(
         CommerceSettingKey.EXPERT_CANCEL_LIMIT_30D,
@@ -104,7 +148,7 @@ export class ExpertCancellationStatsService {
         userId,
       );
     }
-    return this.getPolicy();
+    return this.getPolicyWithWarnings();
   }
 
   async getStats(

@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { CommerceSetting } from '../commerce/commerce-setting.entity';
 import { CommerceSettingKey } from '../commerce/enums';
@@ -108,5 +109,34 @@ describe('BookingSettingsService', () => {
     expect(saved[0].value).toBe('0');
     // 0 is a valid stored value: it disables the lead-time check.
     expect(settings.minLeadTimeMin).toBe(0);
+  });
+
+  it('should reject an empty update', async () => {
+    const { service, saved } = makeService();
+
+    await expect(service.updateSettings('admin-1', {})).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(saved).toHaveLength(0);
+  });
+
+  it('should warn when the late-cancel threshold exceeds the lead time', async () => {
+    // Late-cancel threshold defaults to 1440 vs lead time 120 → warn.
+    const { service } = makeService();
+
+    const settings = await service.getSettingsWithWarnings();
+
+    expect(settings.warnings).toHaveLength(1);
+    expect(settings.warnings![0]).toContain('BOOKING_MIN_LEAD_TIME_MIN');
+  });
+
+  it('should not warn when the threshold sits inside the lead time', async () => {
+    const { service } = makeService({
+      [CommerceSettingKey.EXPERT_LATE_CANCEL_THRESHOLD_MIN]: '60',
+    });
+
+    const settings = await service.getSettingsWithWarnings();
+
+    expect(settings.warnings).toEqual([]);
   });
 });
