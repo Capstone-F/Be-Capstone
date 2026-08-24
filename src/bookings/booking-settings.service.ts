@@ -1,13 +1,17 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CommerceSetting } from '../commerce/commerce-setting.entity';
 import { CommerceSettingKey } from '../commerce/enums';
 import { AppConfigService } from '../config/config.service';
+import {
+  DEFAULT_BOOKING_MIN_LEAD_TIME_MIN,
+  DEFAULT_EXPERT_LATE_CANCEL_THRESHOLD_MIN,
+  lateCancelLeadTimeWarning,
+} from './booking-policy-conflicts';
 import { UpdateBookingSettingsDto } from './dto/booking-settings.dto';
 
-/** Minutes before the slot start under which a booking may no longer be created. */
-export const DEFAULT_BOOKING_MIN_LEAD_TIME_MIN = 120;
+export { DEFAULT_BOOKING_MIN_LEAD_TIME_MIN } from './booking-policy-conflicts';
 
 export type BookingSettings = {
   /** Minutes a PENDING booking waits for expert confirm before auto-cancel. */
@@ -16,6 +20,8 @@ export type BookingSettings = {
   noShowGraceMin: number;
   /** Minimum minutes between booking creation and the slot start. */
   minLeadTimeMin: number;
+  /** Cross-key conflict notes; only set on the admin endpoints. */
+  warnings?: string[];
 };
 
 /**
@@ -52,10 +58,32 @@ export class BookingSettingsService {
     };
   }
 
+  /** getSettings plus cross-key conflict warnings, for the admin endpoints. */
+  async getSettingsWithWarnings(): Promise<BookingSettings> {
+    const settings = await this.getSettings();
+    const lateCancelThresholdMin = await this.readInt(
+      CommerceSettingKey.EXPERT_LATE_CANCEL_THRESHOLD_MIN,
+      DEFAULT_EXPERT_LATE_CANCEL_THRESHOLD_MIN,
+      0,
+    );
+    const warning = lateCancelLeadTimeWarning(
+      lateCancelThresholdMin,
+      settings.minLeadTimeMin,
+    );
+    return { ...settings, warnings: warning ? [warning] : [] };
+  }
+
   async updateSettings(
     userId: string,
     dto: UpdateBookingSettingsDto,
   ): Promise<BookingSettings> {
+    if (
+      dto.confirmTimeoutMin === undefined &&
+      dto.noShowGraceMin === undefined &&
+      dto.minLeadTimeMin === undefined
+    ) {
+      throw new BadRequestException('Cần ít nhất một giá trị để cập nhật');
+    }
     if (dto.confirmTimeoutMin !== undefined) {
       await this.upsert(
         CommerceSettingKey.BOOKING_CONFIRM_TIMEOUT_MIN,
@@ -77,7 +105,7 @@ export class BookingSettingsService {
         userId,
       );
     }
-    return this.getSettings();
+    return this.getSettingsWithWarnings();
   }
 
   private async readInt(

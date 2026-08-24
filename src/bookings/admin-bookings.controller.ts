@@ -60,7 +60,7 @@ export class AdminBookingsController {
   })
   @ApiOkResponse({ type: BookingSettingsDto })
   getSettings(): Promise<BookingSettingsDto> {
-    return this.bookingSettingsService.getSettings();
+    return this.bookingSettingsService.getSettingsWithWarnings();
   }
 
   @Patch('settings')

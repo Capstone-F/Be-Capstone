@@ -24,6 +24,14 @@ export class BookingSettingsDto {
       'Minimum minutes between booking creation and the slot start. 0 disables the lead-time check.',
   })
   minLeadTimeMin!: number;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Cross-key conflict notes (e.g. late-cancel threshold vs minimum lead ' +
+      'time). Informational — the values are stored regardless.',
+  })
+  warnings?: string[];
 }
 
 export class UpdateBookingSettingsDto {

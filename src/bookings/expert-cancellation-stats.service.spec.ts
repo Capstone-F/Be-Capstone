@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { CommerceSetting } from '../commerce/commerce-setting.entity';
 import { CommerceSettingKey } from '../commerce/enums';
@@ -172,6 +173,72 @@ describe('ExpertCancellationStatsService', () => {
       expect(settingRepo.create).not.toHaveBeenCalled();
       expect(existing.value).toBe('7');
       expect(existing.updatedByUserId).toBe('admin-1');
+    });
+
+    it('rejects an empty update', async () => {
+      const { service, settingRepo } = makeService();
+
+      await expect(service.updatePolicy('admin-1', {})).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(settingRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects a merged state where noShowWeight exceeds cancelLimit', async () => {
+      const { service, settingRepo } = makeService();
+
+      // Stored cancelLimit defaults to 3; a weight of 5 would flag on a single
+      // violation, so the merged pair must be rejected before anything persists.
+      await expect(
+        service.updatePolicy('admin-1', { noShowWeight: 5 }),
+      ).rejects.toThrow(BadRequestException);
+      expect(settingRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('allows a zero-tolerance policy where noShowWeight equals cancelLimit', async () => {
+      const { service, settingRepo } = makeService();
+
+      const saved: CommerceSetting[] = [];
+      (settingRepo.save as jest.Mock).mockImplementation(
+        (input: CommerceSetting) => {
+          saved.push(input);
+          return Promise.resolve(input);
+        },
+      );
+
+      await service.updatePolicy('admin-1', {
+        cancelLimit: 5,
+        noShowWeight: 5,
+      });
+
+      expect(saved.map((s) => [s.key, s.value])).toEqual([
+        [CommerceSettingKey.EXPERT_CANCEL_LIMIT_30D, '5'],
+        [CommerceSettingKey.EXPERT_NO_SHOW_WEIGHT, '5'],
+      ]);
+    });
+  });
+
+  describe('getPolicyWithWarnings', () => {
+    it('warns when the late-cancel threshold exceeds the booking lead time', async () => {
+      // Defaults: threshold 1440 vs lead time 120 → born-late zone exists.
+      const { service } = makeService();
+
+      const policy = await service.getPolicyWithWarnings();
+
+      expect(policy.warnings).toHaveLength(1);
+      expect(policy.warnings![0]).toContain('EXPERT_LATE_CANCEL_THRESHOLD_MIN');
+    });
+
+    it('does not warn when the threshold sits inside the lead time', async () => {
+      const { service } = makeService({
+        settings: {
+          [CommerceSettingKey.EXPERT_LATE_CANCEL_THRESHOLD_MIN]: '60',
+        },
+      });
+
+      const policy = await service.getPolicyWithWarnings();
+
+      expect(policy.warnings).toEqual([]);
     });
   });
 

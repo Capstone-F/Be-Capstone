@@ -72,7 +72,7 @@ export class AdminExpertCancellationController {
   })
   @ApiOkResponse({ type: ExpertCancellationPolicyDto })
   getPolicy(): Promise<ExpertCancellationPolicyDto> {
-    return this.statsService.getPolicy();
+    return this.statsService.getPolicyWithWarnings();
   }
 
   @Patch('cancellation-policy')
