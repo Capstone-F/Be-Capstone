@@ -47,6 +47,12 @@ export class OrderResponseDto {
   @ApiPropertyOptional({ nullable: true })
   surveyRecommendationId!: string | null;
 
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Set for TREATMENT orders — the paid treatment phase.',
+  })
+  treatmentPhaseId!: string | null;
+
   @ApiProperty()
   subtotalVnd!: number;
 

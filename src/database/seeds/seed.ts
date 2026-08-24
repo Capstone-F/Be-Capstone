@@ -4032,6 +4032,19 @@ async function seed(): Promise<void> {
     );
   }
 
+  const treatmentComboDefaults: Array<[CommerceSettingKey, string]> = [
+    [CommerceSettingKey.TREATMENT_COMBO_DISCOUNT_PCT, '10'],
+    [CommerceSettingKey.TREATMENT_COMBO_MIN_SUBTOTAL_VND, '300000'],
+  ];
+  for (const [key, value] of treatmentComboDefaults) {
+    const existing = await commerceSettingRepo.findOneBy({ key });
+    if (!existing) {
+      await commerceSettingRepo.save(
+        commerceSettingRepo.create({ key, value, updatedByUserId: null }),
+      );
+    }
+  }
+
   for (const clinicSeed of CLINICS) {
     let clinic = await clinicRepo.findOneBy({ name: clinicSeed.name });
     if (!clinic) {

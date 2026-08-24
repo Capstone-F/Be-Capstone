@@ -372,6 +372,37 @@ While treatment is `ACTIVE` and `startDate ≤ today ≤ endDate`, booking the s
 
 See [§9](#9-mid-plan-cancel--refund).
 
+### 7.4 Customer buys phase products (TREATMENT order) ✅ Ready
+
+The plan payment (§5.5) covers the **expert service fee only** — the products the expert selected for each phase are purchased separately through the normal e-commerce checkout, with a treatment combo discount.
+
+Client flow:
+
+1. `GET /treatments/:id` → read `phases[].products[]` (`productVariantId`, `productName`, `sku`, `priceVnd`).
+2. Add them to the cart with `source: TREATMENT`:
+
+```http
+POST /cart/items
+Content-Type: application/json
+
+{
+  "productVariantId": "<variant-uuid-from-phases.products>",
+  "quantity": 1,
+  "source": "TREATMENT",
+  "treatmentPhaseId": "<phase-uuid>"
+}
+```
+
+3. Continue with the shared checkout stack (order → shipping → payment) in [ecommerce-flow.md](ecommerce-flow.md).
+
+**Rules:**
+
+- The phase must belong to the caller and its treatment must be **paid** (`paidAt` set) and not `CANCELLED`.
+- First item locks the cart to that `treatmentPhaseId`; other catalog variants may be added to the same cart.
+- If **subtotalVnd > TREATMENT_COMBO_MIN_SUBTOTAL_VND** (default 300,000), the order gets the treatment combo discount (`TREATMENT_COMBO_DISCOUNT_PCT`, default 10%, `discountType: COMBO`). Admin settings: `GET/PATCH /admin/commerce-settings/treatment-combo-discount`.
+- The order stores `source: TREATMENT` + `treatmentPhaseId` for provenance.
+- TREATMENT orders do **not** feed `POST /routines/generate` (that is survey-only) — the expert creates the routine via `POST /treatments/phases/:phaseId/routines/generate`.
+
 ---
 
 ## 8. Progress photos & events

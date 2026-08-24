@@ -15,7 +15,7 @@ export class AddCartItemDto {
   @ApiProperty({
     enum: OrderSource,
     description:
-      'Required when the cart is empty. SURVEY carts must include surveyRecommendationId.',
+      'Required when the cart is empty. SURVEY carts must include surveyRecommendationId; TREATMENT carts must include treatmentPhaseId.',
   })
   @IsEnum(OrderSource)
   source!: OrderSource;
@@ -27,4 +27,12 @@ export class AddCartItemDto {
   @IsOptional()
   @IsUUID()
   surveyRecommendationId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Required when source is TREATMENT. The paid treatment phase whose products are being purchased; other catalog variants may be added to the same cart.',
+  })
+  @IsOptional()
+  @IsUUID()
+  treatmentPhaseId?: string;
 }

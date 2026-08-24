@@ -62,6 +62,32 @@ export class CommerceSettingsController {
     );
   }
 
+  @Get('treatment-combo-discount')
+  @Roles(Role.AppAdmin)
+  @ApiOperation({
+    summary: 'Get treatment combo discount percent and minimum subtotal',
+  })
+  @ApiOkResponse({ type: ComboDiscountSettingDto })
+  getTreatmentComboDiscount(): Promise<ComboDiscountSettingDto> {
+    return this.ordersService.getTreatmentComboDiscountSetting();
+  }
+
+  @Patch('treatment-combo-discount')
+  @Roles(Role.AppAdmin)
+  @ApiOperation({
+    summary: 'Update treatment combo discount percent and/or minimum subtotal',
+  })
+  @ApiOkResponse({ type: ComboDiscountSettingDto })
+  updateTreatmentComboDiscount(
+    @Req() req: Request,
+    @Body() body: UpdateComboDiscountDto,
+  ): Promise<ComboDiscountSettingDto> {
+    return this.ordersService.updateTreatmentComboDiscountSetting(
+      this.requireUserId(req),
+      body,
+    );
+  }
+
   private requireUserId(req: Request): string {
     const auth = getAuthContext(req);
     if (!auth?.userId) {

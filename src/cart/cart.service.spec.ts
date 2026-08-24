@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { OrderSource } from '../commerce/enums';
@@ -9,6 +9,8 @@ import { ProductVariant } from '../products/product-variant.entity';
 import { RecommendationService } from '../recommendations/recommendation.service';
 import { REDIS_CLIENT } from '../redis/redis.constants';
 import { StockService } from '../stock/stock.service';
+import { TreatmentStatus } from '../treatments/enums';
+import { TreatmentPhase } from '../treatments/treatment-phase.entity';
 import { Customer } from '../users/customer.entity';
 import { CartService } from './cart.service';
 
@@ -29,6 +31,7 @@ describe('CartService', () => {
     find: jest.Mock;
   };
   let stockService: { getAvailableQuantity: jest.Mock };
+  let treatmentPhaseRepository: { findOne: jest.Mock };
 
   beforeEach(async () => {
     redisStore = new Map();
@@ -58,6 +61,17 @@ describe('CartService', () => {
     };
     stockService = {
       getAvailableQuantity: jest.fn().mockResolvedValue(100),
+    };
+    treatmentPhaseRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'phase-1',
+        treatment: {
+          id: 'treatment-1',
+          customerId: 'cust-1',
+          paidAt: new Date('2026-08-01T00:00:00Z'),
+          status: TreatmentStatus.ACTIVE,
+        },
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -92,6 +106,10 @@ describe('CartService', () => {
         {
           provide: getRepositoryToken(IngredientConflict),
           useValue: ingredientConflictRepository,
+        },
+        {
+          provide: getRepositoryToken(TreatmentPhase),
+          useValue: treatmentPhaseRepository,
         },
         { provide: RecommendationService, useValue: recommendationService },
         { provide: StockService, useValue: stockService },
@@ -129,6 +147,133 @@ describe('CartService', () => {
     expect(cart.surveyRecommendationId).toBe('rec-1');
     expect(cart.items).toEqual([{ productVariantId: 'v-other', quantity: 1 }]);
     expect(cart.conflicts).toEqual([]);
+  });
+
+  describe('TREATMENT cart', () => {
+    it('requires treatmentPhaseId on the first TREATMENT item', async () => {
+      await expect(
+        service.addItem('u1', {
+          productVariantId: 'v1',
+          quantity: 1,
+          source: OrderSource.TREATMENT,
+        }),
+      ).rejects.toThrow(
+        'treatmentPhaseId là bắt buộc đối với giỏ hàng TREATMENT',
+      );
+    });
+
+    it('locks the cart to the first treatment phase', async () => {
+      const cart = await service.addItem('u1', {
+        productVariantId: 'v1',
+        quantity: 1,
+        source: OrderSource.TREATMENT,
+        treatmentPhaseId: 'phase-1',
+      });
+      expect(cart.source).toBe(OrderSource.TREATMENT);
+      expect(cart.treatmentPhaseId).toBe('phase-1');
+
+      await expect(
+        service.addItem('u1', {
+          productVariantId: 'v2',
+          quantity: 1,
+          source: OrderSource.TREATMENT,
+          treatmentPhaseId: 'phase-2',
+        }),
+      ).rejects.toThrow(
+        'Giỏ hàng đang bị khóa với một giai đoạn liệu trình khác',
+      );
+    });
+
+    it('allows extra catalog variants in the same TREATMENT cart', async () => {
+      await service.addItem('u1', {
+        productVariantId: 'v1',
+        quantity: 1,
+        source: OrderSource.TREATMENT,
+        treatmentPhaseId: 'phase-1',
+      });
+      const cart = await service.addItem('u1', {
+        productVariantId: 'v-extra',
+        quantity: 2,
+        source: OrderSource.TREATMENT,
+      });
+      expect(cart.items).toEqual([
+        { productVariantId: 'v1', quantity: 1 },
+        { productVariantId: 'v-extra', quantity: 2 },
+      ]);
+    });
+
+    it('rejects a phase owned by another customer', async () => {
+      treatmentPhaseRepository.findOne.mockResolvedValue({
+        id: 'phase-1',
+        treatment: {
+          customerId: 'someone-else',
+          paidAt: new Date(),
+          status: TreatmentStatus.ACTIVE,
+        },
+      });
+      await expect(
+        service.addItem('u1', {
+          productVariantId: 'v1',
+          quantity: 1,
+          source: OrderSource.TREATMENT,
+          treatmentPhaseId: 'phase-1',
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('rejects an unpaid treatment plan', async () => {
+      treatmentPhaseRepository.findOne.mockResolvedValue({
+        id: 'phase-1',
+        treatment: {
+          customerId: 'cust-1',
+          paidAt: null,
+          status: TreatmentStatus.DRAFT,
+        },
+      });
+      await expect(
+        service.addItem('u1', {
+          productVariantId: 'v1',
+          quantity: 1,
+          source: OrderSource.TREATMENT,
+          treatmentPhaseId: 'phase-1',
+        }),
+      ).rejects.toThrow('Liệu trình chưa được thanh toán');
+    });
+
+    it('rejects a cancelled treatment plan', async () => {
+      treatmentPhaseRepository.findOne.mockResolvedValue({
+        id: 'phase-1',
+        treatment: {
+          customerId: 'cust-1',
+          paidAt: new Date(),
+          status: TreatmentStatus.CANCELLED,
+        },
+      });
+      await expect(
+        service.addItem('u1', {
+          productVariantId: 'v1',
+          quantity: 1,
+          source: OrderSource.TREATMENT,
+          treatmentPhaseId: 'phase-1',
+        }),
+      ).rejects.toThrow('Liệu trình đã bị hủy');
+    });
+
+    it('cannot be mixed with CATALOG items', async () => {
+      await service.addItem('u1', {
+        productVariantId: 'v1',
+        quantity: 1,
+        source: OrderSource.TREATMENT,
+        treatmentPhaseId: 'phase-1',
+      });
+      await expect(
+        service.addItem('u1', {
+          productVariantId: 'v2',
+          quantity: 1,
+          source: OrderSource.CATALOG,
+        }),
+      ).rejects.toThrow('Không thể trộn lẫn sản phẩm');
+    });
   });
 
   it('rejects adding an out-of-stock variant', async () => {
@@ -187,6 +332,7 @@ describe('CartService', () => {
     expect(cart).toEqual({
       source: null,
       surveyRecommendationId: null,
+      treatmentPhaseId: null,
       items: [],
       conflicts: [],
     });

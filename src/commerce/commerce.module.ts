@@ -9,6 +9,7 @@ import { DeliveryModule } from '../delivery/delivery.module';
 import { ProductVariant } from '../products/product-variant.entity';
 import { RecommendationsModule } from '../recommendations/recommendations.module';
 import { StockModule } from '../stock/stock.module';
+import { TreatmentPhase } from '../treatments/treatment-phase.entity';
 import { Customer } from '../users/customer.entity';
 import { WalletModule } from '../wallet/wallet.module';
 import { CommerceSetting } from './commerce-setting.entity';
@@ -37,6 +38,7 @@ import { Transaction } from './transaction.entity';
       DeliveryProvider,
       OrderCancellation,
       OrderCancellationItem,
+      TreatmentPhase,
     ]),
     CartModule,
     RecommendationsModule,

@@ -523,6 +523,7 @@ describe('DeliveryService', () => {
       cartService.getCartByCustomerId.mockResolvedValue({
         source: 'CATALOG',
         surveyRecommendationId: null,
+        treatmentPhaseId: null,
         items: [{ productVariantId: 'v1', quantity: 2 }],
       });
       variantRepo.find.mockResolvedValue([{ id: 'v1', weightGram: 250 }]);
@@ -538,6 +539,7 @@ describe('DeliveryService', () => {
       cartService.getCartByCustomerId.mockResolvedValue({
         source: null,
         surveyRecommendationId: null,
+        treatmentPhaseId: null,
         items: [],
       });
 
