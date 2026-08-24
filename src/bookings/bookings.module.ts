@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SessionGuard } from '../auth/guards/session.guard';
+import { CommerceSetting } from '../commerce/commerce-setting.entity';
 import { ConsultationRequest } from '../consultations/consultation-request.entity';
 import { Feedback } from '../consultations/feedback.entity';
 import { Treatment } from '../treatments/treatment.entity';
@@ -12,6 +13,7 @@ import { WalletModule } from '../wallet/wallet.module';
 import { FinanceModule } from '../finance/finance.module';
 import { AdminBookingsController } from './admin-bookings.controller';
 import { BookingExpiryProcessor } from './booking-expiry.processor';
+import { BookingSettingsService } from './booking-settings.service';
 import { BookingsController } from './bookings.controller';
 import { BookingsService } from './bookings.service';
 import { ClinicBookingsController } from './clinic-bookings.controller';
@@ -28,6 +30,7 @@ import { ExpertAvailabilityService } from './expert-availability.service';
       Customer,
       Feedback,
       Treatment,
+      CommerceSetting,
     ]),
     AuthModule,
     WalletModule,
@@ -41,6 +44,7 @@ import { ExpertAvailabilityService } from './expert-availability.service';
   ],
   providers: [
     BookingsService,
+    BookingSettingsService,
     ExpertAvailabilityService,
     BookingExpiryProcessor,
     SessionGuard,

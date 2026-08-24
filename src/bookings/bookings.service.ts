@@ -29,6 +29,7 @@ import { Treatment } from '../treatments/treatment.entity';
 import { Customer } from '../users/customer.entity';
 import { Expert } from '../users/expert.entity';
 import { WalletService } from '../wallet/wallet.service';
+import { BookingSettingsService } from './booking-settings.service';
 import { BookingPerspective, BookingRange, BookingTab } from './enums';
 import {
   BookingResponseDto,
@@ -122,6 +123,7 @@ export class BookingsService {
     private readonly walletService: WalletService,
     private readonly escrowService: EscrowService,
     private readonly dataSource: DataSource,
+    private readonly bookingSettings: BookingSettingsService,
   ) {}
 
   async createBooking(
@@ -139,6 +141,7 @@ export class BookingsService {
 
     const scheduledAt = this.parseScheduledAt(dto.scheduledAt);
     this.assertFutureTopOfHour(scheduledAt);
+    await this.assertMeetsLeadTime(scheduledAt);
     await this.assertSlotIsBookable(expert, scheduledAt);
 
     const customer = await this.getOrCreateCustomerByUserId(userId);
@@ -694,6 +697,10 @@ export class BookingsService {
       sessionLengthHours,
     );
 
+    // Slots starting inside the lead-time window are no longer bookable (BR-32).
+    const { minLeadTimeMin } = await this.bookingSettings.getSettings();
+    const earliestBookable = Date.now() + minLeadTimeMin * 60_000;
+
     const days: DaySlotsDto[] = [];
     for (const date of enumerateDates(from, to)) {
       const blocks = openAllHours
@@ -721,7 +728,9 @@ export class BookingsService {
       const slots: SlotDto[] = candidateSlots.map((slot) => ({
         startAt: formatVnIso(slot.startAt),
         endAt: formatVnIso(slot.endAt),
-        available: !bookedWindows.some((booked) => slotsOverlap(slot, booked)),
+        available:
+          slot.startAt.getTime() >= earliestBookable &&
+          !bookedWindows.some((booked) => slotsOverlap(slot, booked)),
       }));
 
       days.push({
@@ -878,6 +887,19 @@ export class BookingsService {
       );
     }
     return date;
+  }
+
+  /** BR-32: a booking must be created at least minLeadTimeMin before its slot. */
+  private async assertMeetsLeadTime(scheduledAt: Date): Promise<void> {
+    const { minLeadTimeMin } = await this.bookingSettings.getSettings();
+    if (minLeadTimeMin <= 0) {
+      return;
+    }
+    if (scheduledAt.getTime() - Date.now() < minLeadTimeMin * 60_000) {
+      throw new BadRequestException(
+        `Lịch hẹn phải được đặt trước giờ bắt đầu ít nhất ${minLeadTimeMin} phút`,
+      );
+    }
   }
 
   private assertFutureTopOfHour(scheduledAt: Date): void {

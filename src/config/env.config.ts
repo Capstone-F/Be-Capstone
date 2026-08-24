@@ -361,13 +361,13 @@ export const ENV_DEFINITIONS = {
     required: false,
     defaultValue: '1440',
     description:
-      'Minutes a PENDING booking waits for expert confirm before auto-cancel + refund (default 24h). The sweep also fires once scheduledAt passes, whichever is first.',
+      'Default minutes a PENDING booking waits for expert confirm before auto-cancel + refund (default 24h). The sweep also fires once scheduledAt passes, whichever is first. Admin can override at runtime via PATCH /admin/bookings/settings.',
   },
   BOOKING_NO_SHOW_GRACE_MIN: {
     required: false,
     defaultValue: '15',
     description:
-      'Minutes after scheduledAt a CONFIRMED booking may stay un-started before it is cancelled as an expert no-show and refunded.',
+      'Default minutes after scheduledAt a CONFIRMED booking may stay un-started before it is cancelled as an expert no-show and refunded. Admin can override at runtime via PATCH /admin/bookings/settings.',
   },
   BOOKING_EXPIRY_BATCH_SIZE: {
     required: false,

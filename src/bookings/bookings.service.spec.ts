@@ -96,6 +96,8 @@ describe('BookingsService', () => {
     findAndCountResult?: [ConsultationRequest[], number];
     /** Rows affected by the conditional status UPDATE in autoCancelBooking. */
     updateAffected?: number;
+    /** Minimum minutes between booking creation and the slot start (BR-32). */
+    minLeadTimeMin?: number;
   }) {
     const expertRepo = {
       findOne: jest.fn().mockResolvedValue(options.expert ?? null),
@@ -216,6 +218,14 @@ describe('BookingsService', () => {
       ),
     };
 
+    const bookingSettings = {
+      getSettings: jest.fn().mockResolvedValue({
+        confirmTimeoutMin: 1440,
+        noShowGraceMin: 15,
+        minLeadTimeMin: options.minLeadTimeMin ?? 120,
+      }),
+    };
+
     const service = new BookingsService(
       expertRepo,
       availabilityRepo,
@@ -226,10 +236,12 @@ describe('BookingsService', () => {
       walletService as never,
       escrowService as never,
       dataSource as never,
+      bookingSettings as never,
     );
 
     return {
       service,
+      bookingSettings,
       expertRepo,
       availabilityRepo,
       consultationRepo,
@@ -258,6 +270,15 @@ describe('BookingsService', () => {
   ];
 
   describe('getAvailableSlots', () => {
+    // The fixture week (2026-07) sits in the past relative to the real clock;
+    // pin "now" before it so the lead-time cutoff leaves those slots bookable.
+    beforeEach(() => {
+      jest
+        .spyOn(Date, 'now')
+        .mockReturnValue(new Date('2026-07-01T00:00:00.000Z').getTime());
+    });
+    afterEach(() => jest.restoreAllMocks());
+
     it('should throw NotFoundException when expert is missing or inactive', async () => {
       const { service } = makeService({ expert: null });
 
@@ -359,6 +380,33 @@ describe('BookingsService', () => {
       expect(byStartHour(11).available).toBe(false);
       expect(byStartHour(12).available).toBe(true);
       expect(byStartHour(16).available).toBe(true);
+    });
+
+    it('should mark slots inside the minimum lead time unavailable', async () => {
+      // 08:00 GMT+7 on the fixture Tuesday; lead time 120min → cutoff 10:00.
+      jest
+        .spyOn(Date, 'now')
+        .mockReturnValue(new Date('2026-07-07T08:00:00.000+07:00').getTime());
+      const { service } = makeService({
+        expert: makeExpert({ sessionLengthHours: 1 }),
+        availability: [],
+        minLeadTimeMin: 120,
+      });
+
+      const result = await service.getAvailableSlots('expert-1', {
+        date: '2026-07-07',
+      });
+
+      const tuesday = result.days.find((d) => d.date === '2026-07-07')!;
+      const byStartHour = (hour: number) =>
+        tuesday.slots.find((s) =>
+          s.startAt.startsWith(
+            `2026-07-07T${String(hour).padStart(2, '0')}:00:00.000+07:00`,
+          ),
+        )!;
+
+      expect(byStartHour(9).available).toBe(false);
+      expect(byStartHour(10).available).toBe(true);
     });
 
     it('should use month range when requested', async () => {
@@ -475,6 +523,26 @@ describe('BookingsService', () => {
           scheduledAt: '2030-01-08T09:30:00.000Z',
         }),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException when the slot starts inside the minimum lead time', async () => {
+      const { service } = makeService({
+        expert: makeExpert(),
+        availability: wednesdayAvailability,
+        minLeadTimeMin: 120,
+      });
+
+      // Next top-of-hour plus one hour: strictly future, but under 2h away.
+      const soon = new Date(
+        Math.ceil(Date.now() / 3_600_000) * 3_600_000 + 3_600_000,
+      );
+
+      await expect(
+        service.createBooking('user-customer-1', {
+          expertId: 'expert-1',
+          scheduledAt: soon.toISOString(),
+        }),
+      ).rejects.toThrow('Lịch hẹn phải được đặt trước giờ bắt đầu ít nhất');
     });
 
     it('should allow booking any business-hour top-of-hour slot when expert has no availability configured', async () => {
