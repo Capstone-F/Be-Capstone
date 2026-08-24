@@ -52,6 +52,9 @@ export class CartResponseDto {
   @ApiPropertyOptional({ nullable: true })
   surveyRecommendationId!: string | null;
 
+  @ApiPropertyOptional({ nullable: true })
+  treatmentPhaseId!: string | null;
+
   @ApiProperty({ type: [CartItemResponseDto] })
   items!: CartItemResponseDto[];
 

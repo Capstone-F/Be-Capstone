@@ -196,7 +196,7 @@ export class RoutineGeneratorService {
     }
     if (order.source !== OrderSource.SURVEY) {
       throw new ForbiddenException(
-        'Việc tạo lộ trình chăm sóc chỉ khả dụng cho các sản phẩm được mua từ gợi ý khảo sát chăm sóc da',
+        'Việc tạo lộ trình chăm sóc chỉ khả dụng cho các sản phẩm được mua từ gợi ý khảo sát chăm sóc da. Lộ trình cho liệu trình do chuyên gia tạo qua API treatment.',
       );
     }
     const paidStatuses: OrderStatus[] = [

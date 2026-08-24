@@ -189,10 +189,22 @@ For survey-driven carts:
 }
 ```
 
+For treatment-phase carts (products the expert selected for a **paid** treatment phase — see [Treatment Plan Flow](treatment-plan-flow.md), `GET /treatments/:id` → `phases[].products[]`):
+
+```json
+{
+  "productVariantId": "<variant-uuid>",
+  "quantity": 1,
+  "source": "TREATMENT",
+  "treatmentPhaseId": "<phase-uuid>"
+}
+```
+
 **Rules (enforced by API):**
 
 - First item sets cart `source`. Later items must use the same `source`.
 - `SURVEY` requires `surveyRecommendationId` on the first item; recommended and other catalog variants may share the same SURVEY cart.
+- `TREATMENT` requires `treatmentPhaseId` on the first item. The phase must belong to the caller and its treatment must be **paid** and not cancelled; phase products and other catalog variants may share the same TREATMENT cart.
 - Cart is Redis-backed (TTL ~7 days), scoped to the customer.
 
 Example response:
@@ -201,6 +213,7 @@ Example response:
 {
   "source": "CATALOG",
   "surveyRecommendationId": null,
+  "treatmentPhaseId": null,
   "items": [{ "productVariantId": "...", "quantity": 2 }]
 }
 ```
@@ -332,12 +345,13 @@ Content-Type: application/json
 }
 ```
 
-**Catalog vs survey:**
+**Catalog vs survey vs treatment:**
 
-| Cart source | Behavior                                                                                                                       |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `CATALOG`   | Normal e-commerce order                                                                                                        |
-| `SURVEY`    | Allows recommended + other catalog variants; if **subtotalVnd > SURVEY_COMBO_MIN_SUBTOTAL_VND**, applies survey combo discount |
+| Cart source | Behavior                                                                                                                                                                                 |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CATALOG`   | Normal e-commerce order                                                                                                                                                                  |
+| `SURVEY`    | Allows recommended + other catalog variants; if **subtotalVnd > SURVEY_COMBO_MIN_SUBTOTAL_VND**, applies survey combo discount                                                           |
+| `TREATMENT` | Products of a paid treatment phase (+ other catalog variants); if **subtotalVnd > TREATMENT_COMBO_MIN_SUBTOTAL_VND**, applies treatment combo discount. Order stores `treatmentPhaseId`. |
 
 **Money formula:**
 
@@ -349,10 +363,12 @@ Shipping is added **after** the discount floor, so a 100% product discount still
 
 Admin combo-discount settings (not customer-facing) — `percent` and `minSubtotalVnd`:
 
-| Method | Path                                             | Auth      | Status   |
-| ------ | ------------------------------------------------ | --------- | -------- |
-| GET    | `/admin/commerce-settings/survey-combo-discount` | App Admin | ✅ Ready |
-| PATCH  | `/admin/commerce-settings/survey-combo-discount` | App Admin | ✅ Ready |
+| Method | Path                                                | Auth      | Status   |
+| ------ | --------------------------------------------------- | --------- | -------- |
+| GET    | `/admin/commerce-settings/survey-combo-discount`    | App Admin | ✅ Ready |
+| PATCH  | `/admin/commerce-settings/survey-combo-discount`    | App Admin | ✅ Ready |
+| GET    | `/admin/commerce-settings/treatment-combo-discount` | App Admin | ✅ Ready |
+| PATCH  | `/admin/commerce-settings/treatment-combo-discount` | App Admin | ✅ Ready |
 
 > **Removed from this flow:** `GET /delivery/options` fee matrix and `POST /orders/:id/delivery` attach step. Shipping is chosen via GHN address at **order create**.
 
@@ -552,7 +568,7 @@ GET  /delivery/order/:orderId      ← tracking (webhook updates status)
 
 ```
 Empty cart
-  └─ POST /cart/items  → sets source (CATALOG | SURVEY)
+  └─ POST /cart/items  → sets source (CATALOG | SURVEY | TREATMENT)
        └─ more items must keep same source
             └─ (optional) POST /delivery/fee-quote
                  └─ POST /orders { shippingAddress }  → PENDING + Delivery + fee
@@ -562,15 +578,16 @@ Empty cart
                                      └─ GET /delivery/order/:orderId
 ```
 
-| Rule                | Detail                                                                              |
-| ------------------- | ----------------------------------------------------------------------------------- |
-| Variant id          | Cart uses `productVariantId`, from `product.variants[].id`                          |
-| Empty cart checkout | `POST /orders` fails with `Cart is empty`                                           |
-| Order ownership     | `GET /orders`, `GET /orders/:id`, and payment checkout only for the owning customer |
-| Mixed sources       | Not allowed in one cart                                                             |
-| Survey combo        | Discount when **subtotalVnd > SURVEY_COMBO_MIN_SUBTOTAL_VND** (default 300,000)     |
-| Shipping on create  | `shippingAddress` required; checkout rejects orders without a Delivery row          |
-| Address format      | GHN IDs only — not free-text province/district                                      |
+| Rule                | Detail                                                                                                                                  |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Variant id          | Cart uses `productVariantId`, from `product.variants[].id`                                                                              |
+| Empty cart checkout | `POST /orders` fails with `Cart is empty`                                                                                               |
+| Order ownership     | `GET /orders`, `GET /orders/:id`, and payment checkout only for the owning customer                                                     |
+| Mixed sources       | Not allowed in one cart                                                                                                                 |
+| Survey combo        | Discount when **subtotalVnd > SURVEY_COMBO_MIN_SUBTOTAL_VND** (default 300,000)                                                         |
+| Treatment combo     | `source: TREATMENT` + paid-phase `treatmentPhaseId`; discount when **subtotalVnd > TREATMENT_COMBO_MIN_SUBTOTAL_VND** (default 300,000) |
+| Shipping on create  | `shippingAddress` required; checkout rejects orders without a Delivery row                                                              |
+| Address format      | GHN IDs only — not free-text province/district                                                                                          |
 
 ---
 

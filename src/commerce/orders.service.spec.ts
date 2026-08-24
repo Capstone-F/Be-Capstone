@@ -12,6 +12,8 @@ import { RecommendationService } from '../recommendations/recommendation.service
 import { SurveyRecommendation } from '../recommendations/survey-recommendation.entity';
 import { SurveyRecommendationItem } from '../recommendations/survey-recommendation-item.entity';
 import { StockService } from '../stock/stock.service';
+import { TreatmentStatus } from '../treatments/enums';
+import { TreatmentPhase } from '../treatments/treatment-phase.entity';
 import { Customer } from '../users/customer.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { CommerceSetting } from './commerce-setting.entity';
@@ -56,6 +58,7 @@ describe('OrdersService', () => {
     deductByVariantId: jest.Mock;
   };
   let orderItemRepository: { update: jest.Mock };
+  let treatmentPhaseRepository: { findOne: jest.Mock };
   let savedOrders: Order[];
   let savedDeliveries: Delivery[];
   let savedOrderItems: OrderItem[];
@@ -162,6 +165,17 @@ describe('OrdersService', () => {
       deductByVariantId: jest.fn().mockResolvedValue({}),
     };
     orderItemRepository = { update: jest.fn() };
+    treatmentPhaseRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'phase-1',
+        treatment: {
+          id: 'treatment-1',
+          customerId: 'cust-1',
+          paidAt: new Date('2026-08-01T00:00:00Z'),
+          status: TreatmentStatus.ACTIVE,
+        },
+      }),
+    };
 
     const dataSource = {
       transaction: async (cb: (m: unknown) => Promise<Order>) =>
@@ -211,6 +225,10 @@ describe('OrdersService', () => {
           provide: getRepositoryToken(DeliveryProvider),
           useValue: deliveryProviderRepository,
         },
+        {
+          provide: getRepositoryToken(TreatmentPhase),
+          useValue: treatmentPhaseRepository,
+        },
         { provide: CartService, useValue: cartService },
         { provide: RecommendationService, useValue: recommendationService },
         { provide: DeliveryService, useValue: deliveryService },
@@ -227,6 +245,7 @@ describe('OrdersService', () => {
     cartService.getCartByCustomerId.mockResolvedValue({
       source: OrderSource.SURVEY,
       surveyRecommendationId: 'rec-1',
+      treatmentPhaseId: null,
       items: [
         { productVariantId: 'v1', quantity: 1 },
         { productVariantId: 'v2', quantity: 1 },
@@ -291,6 +310,7 @@ describe('OrdersService', () => {
     cartService.getCartByCustomerId.mockResolvedValue({
       source: OrderSource.SURVEY,
       surveyRecommendationId: 'rec-1',
+      treatmentPhaseId: null,
       items: [
         { productVariantId: 'v1', quantity: 1 },
         { productVariantId: 'v2', quantity: 1 },
@@ -325,10 +345,124 @@ describe('OrdersService', () => {
     expect(savedOrders[0].discountType).toBeNull();
   });
 
+  describe('TREATMENT orders', () => {
+    const treatmentOrderRow = {
+      id: 'order-1',
+      status: OrderStatus.PENDING,
+      source: OrderSource.TREATMENT,
+      customerSurveyId: null,
+      surveyRecommendationId: null,
+      treatmentPhaseId: 'phase-1',
+      subtotalVnd: 450000,
+      discountVnd: 45000,
+      discountType: OrderDiscountType.COMBO,
+      shippingFeeVnd: 32000,
+      totalVnd: 437000,
+      items: [],
+      delivery: deliveryFixture,
+      createdAt: new Date(),
+    };
+
+    it('applies treatment combo discount above the threshold and links the phase', async () => {
+      settingRepository.findOneBy.mockImplementation(
+        ({ key }: { key: CommerceSettingKey }) => {
+          if (key === CommerceSettingKey.TREATMENT_COMBO_DISCOUNT_PCT) {
+            return Promise.resolve({ key, value: '10' });
+          }
+          if (key === CommerceSettingKey.TREATMENT_COMBO_MIN_SUBTOTAL_VND) {
+            return Promise.resolve({ key, value: '300000' });
+          }
+          return Promise.resolve(null);
+        },
+      );
+      // v1 + v2 + v-extra = 450000 > 300000
+      cartService.getCartByCustomerId.mockResolvedValue({
+        source: OrderSource.TREATMENT,
+        surveyRecommendationId: null,
+        treatmentPhaseId: 'phase-1',
+        items: [
+          { productVariantId: 'v1', quantity: 1 },
+          { productVariantId: 'v2', quantity: 1 },
+          { productVariantId: 'v-extra', quantity: 1 },
+        ],
+      });
+      orderRepository.findOne.mockResolvedValue(treatmentOrderRow);
+
+      const order = await service.createFromCart('user-1', DTO);
+      expect(savedOrders[0].source).toBe(OrderSource.TREATMENT);
+      expect(savedOrders[0].treatmentPhaseId).toBe('phase-1');
+      expect(savedOrders[0].discountType).toBe(OrderDiscountType.COMBO);
+      expect(savedOrders[0].discountVnd).toBe(45000);
+      expect(savedOrders[0].totalVnd).toBe(437000);
+      expect(order.treatmentPhaseId).toBe('phase-1');
+      expect(recommendationService.getByIdForCustomer).not.toHaveBeenCalled();
+    });
+
+    it('skips the discount when subtotal does not exceed the threshold', async () => {
+      // v1 + v2 = 300000, not > 300000
+      cartService.getCartByCustomerId.mockResolvedValue({
+        source: OrderSource.TREATMENT,
+        surveyRecommendationId: null,
+        treatmentPhaseId: 'phase-1',
+        items: [
+          { productVariantId: 'v1', quantity: 1 },
+          { productVariantId: 'v2', quantity: 1 },
+        ],
+      });
+      orderRepository.findOne.mockResolvedValue({
+        ...treatmentOrderRow,
+        subtotalVnd: 300000,
+        discountVnd: 0,
+        discountType: null,
+        totalVnd: 332000,
+      });
+
+      await service.createFromCart('user-1', DTO);
+      expect(savedOrders[0].discountVnd).toBe(0);
+      expect(savedOrders[0].discountType).toBeNull();
+    });
+
+    it('rejects when the treatment phase is not paid', async () => {
+      treatmentPhaseRepository.findOne.mockResolvedValue({
+        id: 'phase-1',
+        treatment: {
+          customerId: 'cust-1',
+          paidAt: null,
+          status: TreatmentStatus.DRAFT,
+        },
+      });
+      cartService.getCartByCustomerId.mockResolvedValue({
+        source: OrderSource.TREATMENT,
+        surveyRecommendationId: null,
+        treatmentPhaseId: 'phase-1',
+        items: [{ productVariantId: 'v1', quantity: 1 }],
+      });
+
+      await expect(service.createFromCart('user-1', DTO)).rejects.toThrow(
+        'Liệu trình chưa được thanh toán',
+      );
+      expect(savedOrders).toHaveLength(0);
+    });
+
+    it('rejects when the cart is missing the phase linkage', async () => {
+      cartService.getCartByCustomerId.mockResolvedValue({
+        source: OrderSource.TREATMENT,
+        surveyRecommendationId: null,
+        treatmentPhaseId: null,
+        items: [{ productVariantId: 'v1', quantity: 1 }],
+      });
+
+      await expect(service.createFromCart('user-1', DTO)).rejects.toThrow(
+        'Giỏ hàng TREATMENT thiếu treatmentPhaseId',
+      );
+    });
+  });
+
   it('allows non-recommended variants in a SURVEY order', async () => {
     cartService.getCartByCustomerId.mockResolvedValue({
       source: OrderSource.SURVEY,
       surveyRecommendationId: 'rec-1',
+      treatmentPhaseId: null,
       items: [
         { productVariantId: 'v1', quantity: 1 },
         { productVariantId: 'v-extra', quantity: 1 },
@@ -371,6 +505,7 @@ describe('OrdersService', () => {
     cartService.getCartByCustomerId.mockResolvedValue({
       source: OrderSource.CATALOG,
       surveyRecommendationId: null,
+      treatmentPhaseId: null,
       items: [{ productVariantId: 'v1', quantity: 2 }],
     });
     orderRepository.findOne.mockResolvedValue({
@@ -399,6 +534,7 @@ describe('OrdersService', () => {
     cartService.getCartByCustomerId.mockResolvedValue({
       source: null,
       surveyRecommendationId: null,
+      treatmentPhaseId: null,
       items: [],
     });
     await expect(service.createFromCart('user-1', DTO)).rejects.toBeInstanceOf(
@@ -417,6 +553,7 @@ describe('OrdersService', () => {
     cartService.getCartByCustomerId.mockResolvedValue({
       source: OrderSource.CATALOG,
       surveyRecommendationId: null,
+      treatmentPhaseId: null,
       items: [{ productVariantId: 'v1', quantity: 1 }],
     });
     orderRepository.findOne.mockResolvedValue({
@@ -454,6 +591,7 @@ describe('OrdersService', () => {
     cartService.getCartByCustomerId.mockResolvedValue({
       source: OrderSource.CATALOG,
       surveyRecommendationId: null,
+      treatmentPhaseId: null,
       items: [{ productVariantId: 'v1', quantity: 1 }],
     });
     orderRepository.findOne.mockResolvedValue({
@@ -514,6 +652,7 @@ describe('OrdersService', () => {
     cartService.getCartByCustomerId.mockResolvedValue({
       source: OrderSource.CATALOG,
       surveyRecommendationId: null,
+      treatmentPhaseId: null,
       items: [{ productVariantId: 'v1', quantity: 2 }],
     });
 
@@ -529,6 +668,7 @@ describe('OrdersService', () => {
     cartService.getCartByCustomerId.mockResolvedValue({
       source: OrderSource.CATALOG,
       surveyRecommendationId: null,
+      treatmentPhaseId: null,
       items: [{ productVariantId: 'v1', quantity: 1 }],
     });
 
@@ -543,6 +683,7 @@ describe('OrdersService', () => {
     cartService.getCartByCustomerId.mockResolvedValue({
       source: OrderSource.CATALOG,
       surveyRecommendationId: null,
+      treatmentPhaseId: null,
       items: [{ productVariantId: 'v1', quantity: 1 }],
     });
 

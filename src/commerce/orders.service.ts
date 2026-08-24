@@ -16,6 +16,8 @@ import { ProductVariant } from '../products/product-variant.entity';
 import { RecommendationService } from '../recommendations/recommendation.service';
 import { Role } from '../auth/roles.enum';
 import { StockService } from '../stock/stock.service';
+import { TreatmentPhase } from '../treatments/treatment-phase.entity';
+import { assertTreatmentPhasePurchasable } from '../treatments/treatment-purchase.util';
 import { Customer } from '../users/customer.entity';
 import { CommerceSetting } from './commerce-setting.entity';
 import {
@@ -49,6 +51,8 @@ export class OrdersService {
     private readonly customerRepository: Repository<Customer>,
     @InjectRepository(DeliveryProvider)
     private readonly deliveryProviderRepository: Repository<DeliveryProvider>,
+    @InjectRepository(TreatmentPhase)
+    private readonly treatmentPhaseRepository: Repository<TreatmentPhase>,
     private readonly cartService: CartService,
     private readonly recommendationService: RecommendationService,
     private readonly deliveryService: DeliveryService,
@@ -94,9 +98,15 @@ export class OrdersService {
 
     let customerSurveyId: string | null = null;
     let surveyRecommendationId: string | null = null;
+    let treatmentPhaseId: string | null = null;
     let discountVnd = 0;
     let discountType: OrderDiscountType | null = null;
     const recommendationItemByVariant = new Map<string, string>();
+
+    const subtotalPreview = cart.items.reduce((sum, item) => {
+      const variant = variantById.get(item.productVariantId)!;
+      return sum + variant.priceVnd * item.quantity;
+    }, 0);
 
     if (cart.source === OrderSource.SURVEY) {
       if (!cart.surveyRecommendationId) {
@@ -126,13 +136,43 @@ export class OrdersService {
         }
       }
 
-      const subtotalPreview = cart.items.reduce((sum, item) => {
-        const variant = variantById.get(item.productVariantId)!;
-        return sum + variant.priceVnd * item.quantity;
-      }, 0);
-      const minSubtotalVnd = await this.getComboMinSubtotalVnd();
+      const minSubtotalVnd = await this.getComboMinSubtotalVnd(
+        CommerceSettingKey.SURVEY_COMBO_MIN_SUBTOTAL_VND,
+      );
       if (subtotalPreview > minSubtotalVnd) {
-        const percent = await this.getComboDiscountPercent();
+        const percent = await this.getComboDiscountPercent(
+          CommerceSettingKey.SURVEY_COMBO_DISCOUNT_PCT,
+        );
+        discountVnd = Math.floor((subtotalPreview * percent) / 100);
+        discountType = OrderDiscountType.COMBO;
+      }
+    }
+
+    if (cart.source === OrderSource.TREATMENT) {
+      if (!cart.treatmentPhaseId) {
+        throw new BadRequestException(
+          'Giỏ hàng TREATMENT thiếu treatmentPhaseId',
+        );
+      }
+      const phase = await this.treatmentPhaseRepository.findOne({
+        where: { id: cart.treatmentPhaseId },
+        relations: ['treatment'],
+      });
+      if (!phase) {
+        throw new BadRequestException(
+          `Không tìm thấy giai đoạn liệu trình ${cart.treatmentPhaseId}`,
+        );
+      }
+      assertTreatmentPhasePurchasable(phase, customer.id);
+      treatmentPhaseId = phase.id;
+
+      const minSubtotalVnd = await this.getComboMinSubtotalVnd(
+        CommerceSettingKey.TREATMENT_COMBO_MIN_SUBTOTAL_VND,
+      );
+      if (subtotalPreview > minSubtotalVnd) {
+        const percent = await this.getComboDiscountPercent(
+          CommerceSettingKey.TREATMENT_COMBO_DISCOUNT_PCT,
+        );
         discountVnd = Math.floor((subtotalPreview * percent) / 100);
         discountType = OrderDiscountType.COMBO;
       }
@@ -175,6 +215,7 @@ export class OrdersService {
           source: cart.source!,
           customerSurveyId,
           surveyRecommendationId,
+          treatmentPhaseId,
           subtotalVnd,
           discountVnd,
           discountType,
@@ -431,6 +472,44 @@ export class OrdersService {
     return this.getComboDiscountSetting();
   }
 
+  async getTreatmentComboDiscountSetting(): Promise<ComboDiscountSettingDto> {
+    const [percent, minSubtotalVnd] = await Promise.all([
+      this.getComboDiscountPercent(
+        CommerceSettingKey.TREATMENT_COMBO_DISCOUNT_PCT,
+      ),
+      this.getComboMinSubtotalVnd(
+        CommerceSettingKey.TREATMENT_COMBO_MIN_SUBTOTAL_VND,
+      ),
+    ]);
+    return { percent, minSubtotalVnd };
+  }
+
+  async updateTreatmentComboDiscountSetting(
+    userId: string,
+    dto: UpdateComboDiscountDto,
+  ): Promise<ComboDiscountSettingDto> {
+    if (dto.percent === undefined && dto.minSubtotalVnd === undefined) {
+      throw new BadRequestException(
+        'Cần ít nhất một trong hai giá trị percent hoặc minSubtotalVnd',
+      );
+    }
+    if (dto.percent !== undefined) {
+      await this.upsertSetting(
+        CommerceSettingKey.TREATMENT_COMBO_DISCOUNT_PCT,
+        String(dto.percent),
+        userId,
+      );
+    }
+    if (dto.minSubtotalVnd !== undefined) {
+      await this.upsertSetting(
+        CommerceSettingKey.TREATMENT_COMBO_MIN_SUBTOTAL_VND,
+        String(dto.minSubtotalVnd),
+        userId,
+      );
+    }
+    return this.getTreatmentComboDiscountSetting();
+  }
+
   private async upsertSetting(
     key: CommerceSettingKey,
     value: string,
@@ -450,10 +529,12 @@ export class OrdersService {
     await this.settingRepository.save(setting);
   }
 
-  private async getComboDiscountPercent(): Promise<number> {
-    const setting = await this.settingRepository.findOneBy({
-      key: CommerceSettingKey.SURVEY_COMBO_DISCOUNT_PCT,
-    });
+  private async getComboDiscountPercent(
+    key:
+      | CommerceSettingKey.SURVEY_COMBO_DISCOUNT_PCT
+      | CommerceSettingKey.TREATMENT_COMBO_DISCOUNT_PCT = CommerceSettingKey.SURVEY_COMBO_DISCOUNT_PCT,
+  ): Promise<number> {
+    const setting = await this.settingRepository.findOneBy({ key });
     const parsed = Number.parseFloat(setting?.value ?? '10');
     if (Number.isNaN(parsed) || parsed < 0) {
       return 10;
@@ -461,10 +542,12 @@ export class OrdersService {
     return Math.min(100, parsed);
   }
 
-  private async getComboMinSubtotalVnd(): Promise<number> {
-    const setting = await this.settingRepository.findOneBy({
-      key: CommerceSettingKey.SURVEY_COMBO_MIN_SUBTOTAL_VND,
-    });
+  private async getComboMinSubtotalVnd(
+    key:
+      | CommerceSettingKey.SURVEY_COMBO_MIN_SUBTOTAL_VND
+      | CommerceSettingKey.TREATMENT_COMBO_MIN_SUBTOTAL_VND = CommerceSettingKey.SURVEY_COMBO_MIN_SUBTOTAL_VND,
+  ): Promise<number> {
+    const setting = await this.settingRepository.findOneBy({ key });
     const parsed = Number.parseFloat(setting?.value ?? '300000');
     if (Number.isNaN(parsed) || parsed < 0) {
       return 300000;
@@ -489,6 +572,7 @@ export class OrdersService {
       source: order.source,
       customerSurveyId: order.customerSurveyId,
       surveyRecommendationId: order.surveyRecommendationId,
+      treatmentPhaseId: order.treatmentPhaseId,
       subtotalVnd: order.subtotalVnd,
       discountVnd: order.discountVnd,
       discountType: order.discountType,

@@ -8,6 +8,7 @@ import { ProductProtocol } from '../products/product-protocol.entity';
 import { ProductVariant } from '../products/product-variant.entity';
 import { RecommendationsModule } from '../recommendations/recommendations.module';
 import { StockModule } from '../stock/stock.module';
+import { TreatmentPhase } from '../treatments/treatment-phase.entity';
 import { Customer } from '../users/customer.entity';
 import { CartController } from './cart.controller';
 import { CartService } from './cart.service';
@@ -19,6 +20,7 @@ import { CartService } from './cart.service';
       ProductVariant,
       ProductProtocol,
       IngredientConflict,
+      TreatmentPhase,
     ]),
     RecommendationsModule,
     StockModule,

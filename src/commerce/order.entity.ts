@@ -12,6 +12,7 @@ import {
 import { Customer } from '../users/customer.entity';
 import { CustomerSurvey } from '../survey/customer-survey.entity';
 import { SurveyRecommendation } from '../recommendations/survey-recommendation.entity';
+import { TreatmentPhase } from '../treatments/treatment-phase.entity';
 import { OrderDiscountType, OrderSource, OrderStatus } from './enums';
 import { Delivery } from '../delivery/delivery.entity';
 import { OrderCancellation } from './order-cancellation.entity';
@@ -60,6 +61,17 @@ export class Order {
   })
   @JoinColumn({ name: 'surveyRecommendationId' })
   surveyRecommendation: SurveyRecommendation | null;
+
+  /** Set for TREATMENT orders — the paid treatment phase the products belong to. */
+  @Column({ nullable: true, type: 'uuid' })
+  treatmentPhaseId: string | null;
+
+  @ManyToOne(() => TreatmentPhase, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'treatmentPhaseId' })
+  treatmentPhase: TreatmentPhase | null;
 
   @Column({ type: 'int', default: 0 })
   subtotalVnd: number;

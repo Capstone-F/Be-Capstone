@@ -15,6 +15,8 @@ import { ProductVariant } from '../products/product-variant.entity';
 import { RecommendationService } from '../recommendations/recommendation.service';
 import { REDIS_CLIENT } from '../redis/redis.constants';
 import { StockService } from '../stock/stock.service';
+import { TreatmentPhase } from '../treatments/treatment-phase.entity';
+import { assertTreatmentPhasePurchasable } from '../treatments/treatment-purchase.util';
 import { Customer } from '../users/customer.entity';
 import { AddCartItemDto } from './dto/add-cart-item.dto';
 import { CartConflictDto, CartResponseDto } from './dto/cart-response.dto';
@@ -34,9 +36,29 @@ export class CartService {
     private readonly productProtocolRepository: Repository<ProductProtocol>,
     @InjectRepository(IngredientConflict)
     private readonly ingredientConflictRepository: Repository<IngredientConflict>,
+    @InjectRepository(TreatmentPhase)
+    private readonly treatmentPhaseRepository: Repository<TreatmentPhase>,
     private readonly recommendationService: RecommendationService,
     private readonly stockService: StockService,
   ) {}
+
+  /** Load a treatment phase and assert the customer may buy against it. */
+  private async requirePurchasablePhase(
+    phaseId: string,
+    customerId: string,
+  ): Promise<TreatmentPhase> {
+    const phase = await this.treatmentPhaseRepository.findOne({
+      where: { id: phaseId },
+      relations: ['treatment'],
+    });
+    if (!phase) {
+      throw new NotFoundException(
+        `Không tìm thấy giai đoạn liệu trình ${phaseId}`,
+      );
+    }
+    assertTreatmentPhasePurchasable(phase, customerId);
+    return phase;
+  }
 
   async getCart(userId: string): Promise<CartResponseDto> {
     const customer = await this.requireCustomer(userId);
@@ -71,6 +93,8 @@ export class CartService {
 
     if (cart.items.length === 0) {
       cart.source = dto.source;
+      cart.surveyRecommendationId = null;
+      cart.treatmentPhaseId = null;
       if (dto.source === OrderSource.SURVEY) {
         if (!dto.surveyRecommendationId) {
           throw new BadRequestException(
@@ -83,8 +107,17 @@ export class CartService {
             customer.id,
           );
         cart.surveyRecommendationId = recommendation.id;
-      } else {
-        cart.surveyRecommendationId = null;
+      } else if (dto.source === OrderSource.TREATMENT) {
+        if (!dto.treatmentPhaseId) {
+          throw new BadRequestException(
+            'treatmentPhaseId là bắt buộc đối với giỏ hàng TREATMENT',
+          );
+        }
+        const phase = await this.requirePurchasablePhase(
+          dto.treatmentPhaseId,
+          customer.id,
+        );
+        cart.treatmentPhaseId = phase.id;
       }
     } else {
       if (cart.source !== dto.source) {
@@ -106,6 +139,18 @@ export class CartService {
           cart.surveyRecommendationId!,
           customer.id,
         );
+      }
+      if (cart.source === OrderSource.TREATMENT) {
+        if (
+          dto.treatmentPhaseId &&
+          dto.treatmentPhaseId !== cart.treatmentPhaseId
+        ) {
+          throw new BadRequestException(
+            'Giỏ hàng đang bị khóa với một giai đoạn liệu trình khác',
+          );
+        }
+        // Ensure the locked phase is still purchasable by this customer.
+        await this.requirePurchasablePhase(cart.treatmentPhaseId!, customer.id);
       }
     }
 
@@ -171,6 +216,7 @@ export class CartService {
       return {
         source: parsed.source ?? null,
         surveyRecommendationId: parsed.surveyRecommendationId ?? null,
+        treatmentPhaseId: parsed.treatmentPhaseId ?? null,
         items: Array.isArray(parsed.items) ? parsed.items : [],
       };
     } catch {
@@ -188,6 +234,7 @@ export class CartService {
     return {
       source: cart.source,
       surveyRecommendationId: cart.surveyRecommendationId,
+      treatmentPhaseId: cart.treatmentPhaseId,
       items: cart.items,
       conflicts: await this.resolveConflicts(cart),
     };
