@@ -292,18 +292,90 @@ Content-Type: application/json
 
 ---
 
-## 11. Stock endpoint checklist
+## 11. Sales log (truy xuất log bán hàng) ✅ Ready
 
-| Method | Path                              | Roles            | Status   |
-| ------ | --------------------------------- | ---------------- | -------- |
-| POST   | `/stock/import-forms`             | staff, app_admin | ✅ Ready |
-| GET    | `/stock/import-forms`             | staff, app_admin | ✅ Ready |
-| GET    | `/stock/import-forms/:id`         | staff, app_admin | ✅ Ready |
-| PATCH  | `/stock/import-forms/:id`         | staff, app_admin | ✅ Ready |
-| POST   | `/stock/import-forms/:id/submit`  | staff, app_admin | ✅ Ready |
-| PATCH  | `/stock/import-forms/:id/confirm` | staff, app_admin | ✅ Ready |
-| POST   | `/stock/import-forms/:id/cancel`  | staff, app_admin | ✅ Ready |
-| POST   | `/stock/import-forms/:id/reject`  | staff, app_admin | ✅ Ready |
+| Method | Path                                | Roles            | Status   |
+| ------ | ----------------------------------- | ---------------- | -------- |
+| GET    | `/stock/import-forms/:id/sales-log` | staff, app_admin | ✅ Ready |
+
+Traces the stock batch created by a **CONFIRMED** form: which order items
+consumed its product instances (with order/customer info), plus the batch's
+`SALE`/`RETURN` stock movements. Forms without a batch (not confirmed yet)
+return an empty log (`stockBatchId: null`, empty `entries`/`movements`).
+
+```http
+GET /stock/import-forms/<form-uuid>/sales-log?page=1&limit=20
+```
+
+Response:
+
+```json
+{
+  "formId": "<form-uuid>",
+  "formStatus": "CONFIRMED",
+  "stockBatchId": "<batch-uuid>",
+  "batch": {
+    "id": "<batch-uuid>",
+    "batchCode": "LOT-2026-001",
+    "initialQuantity": 100,
+    "remainingQuantity": 40,
+    "soldQuantity": 55,
+    "returnedQuantity": 3,
+    "damagedQuantity": 2,
+    "expirationDate": "2027-01-15"
+  },
+  "movements": [
+    {
+      "id": "<movement-uuid>",
+      "type": "SALE",
+      "quantity": 2,
+      "note": "Order deduction",
+      "createdAt": "2026-02-01T00:00:00.000Z"
+    }
+  ],
+  "entries": [
+    {
+      "orderItemId": "<order-item-uuid>",
+      "orderId": "<order-uuid>",
+      "orderStatus": "DELIVERED",
+      "orderCreatedAt": "2026-01-20T00:00:00.000Z",
+      "customerId": "<customer-uuid>",
+      "customerName": "Nguyễn Văn A",
+      "customerEmail": "a@example.com",
+      "orderedQuantity": 3,
+      "quantityFromBatch": 2,
+      "soldQuantity": 2,
+      "returnedQuantity": 0,
+      "unitPriceVnd": 250000,
+      "stockDeductedAt": "2026-01-21T00:00:00.000Z"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "limit": 20
+}
+```
+
+`entries` is paginated (grouped per order item, newest deduction first);
+`movements` and `batch` totals always cover the whole batch. An order item may
+span multiple batches (FEFO deduction), so `quantityFromBatch` can be smaller
+than `orderedQuantity`.
+
+---
+
+## 12. Stock endpoint checklist
+
+| Method | Path                                | Roles            | Status   |
+| ------ | ----------------------------------- | ---------------- | -------- |
+| POST   | `/stock/import-forms`               | staff, app_admin | ✅ Ready |
+| GET    | `/stock/import-forms`               | staff, app_admin | ✅ Ready |
+| GET    | `/stock/import-forms/:id`           | staff, app_admin | ✅ Ready |
+| GET    | `/stock/import-forms/:id/sales-log` | staff, app_admin | ✅ Ready |
+| PATCH  | `/stock/import-forms/:id`           | staff, app_admin | ✅ Ready |
+| POST   | `/stock/import-forms/:id/submit`    | staff, app_admin | ✅ Ready |
+| PATCH  | `/stock/import-forms/:id/confirm`   | staff, app_admin | ✅ Ready |
+| POST   | `/stock/import-forms/:id/cancel`    | staff, app_admin | ✅ Ready |
+| POST   | `/stock/import-forms/:id/reject`    | staff, app_admin | ✅ Ready |
 
 **Typical Staff sequence:**
 

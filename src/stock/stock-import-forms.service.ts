@@ -12,11 +12,23 @@ import {
 } from './dto/create-stock-import-form.dto';
 import { ListStockImportFormsQueryDto } from './dto/list-stock-import-forms-query.dto';
 import {
+  SalesLogEntryDto,
+  StockImportFormSalesLogDto,
+  StockImportFormSalesLogQueryDto,
+} from './dto/stock-import-form-sales-log.dto';
+import {
   PaginatedStockImportFormsDto,
   StockImportFormResponseDto,
 } from './dto/stock-import-form-response.dto';
-import { StockImportFormStatus } from './enums';
+import {
+  ProductInstanceStatus,
+  StockImportFormStatus,
+  StockMovementType,
+} from './enums';
+import { ProductInstance } from './product-instance.entity';
+import { StockBatch } from './stock-batch.entity';
 import { StockImportForm } from './stock-import-form.entity';
+import { StockMovement } from './stock-movement.entity';
 import { StockService } from './stock.service';
 
 const EDITABLE_STATUSES = new Set([
@@ -36,6 +48,12 @@ export class StockImportFormsService {
     private readonly formRepository: Repository<StockImportForm>,
     @InjectRepository(ProductVariant)
     private readonly variantRepository: Repository<ProductVariant>,
+    @InjectRepository(StockBatch)
+    private readonly batchRepository: Repository<StockBatch>,
+    @InjectRepository(ProductInstance)
+    private readonly instanceRepository: Repository<ProductInstance>,
+    @InjectRepository(StockMovement)
+    private readonly movementRepository: Repository<StockMovement>,
     private readonly stockService: StockService,
   ) {}
 
@@ -235,6 +253,149 @@ export class StockImportFormsService {
 
     const saved = await this.formRepository.save(form);
     return this.toResponse(saved);
+  }
+
+  async getSalesLog(
+    id: string,
+    query: StockImportFormSalesLogQueryDto,
+  ): Promise<StockImportFormSalesLogDto> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+
+    const form = await this.requireForm(id);
+
+    if (!form.stockBatchId) {
+      return {
+        formId: form.id,
+        formStatus: form.status,
+        stockBatchId: null,
+        batch: null,
+        movements: [],
+        entries: [],
+        total: 0,
+        page,
+        limit,
+      };
+    }
+
+    const batchId = form.stockBatchId;
+    const batch = await this.batchRepository.findOneBy({ id: batchId });
+
+    const statusRows = await this.instanceRepository
+      .createQueryBuilder('instance')
+      .select('instance.status', 'status')
+      .addSelect('CAST(COUNT(*) AS int)', 'count')
+      .where('instance.stockBatchId = :batchId', { batchId })
+      .groupBy('instance.status')
+      .getRawMany<{ status: ProductInstanceStatus; count: number }>();
+    const statusCounts = new Map(
+      statusRows.map((row) => [row.status, Number(row.count)]),
+    );
+
+    const movements = await this.movementRepository.find({
+      where: [
+        { batchId, type: StockMovementType.SALE },
+        { batchId, type: StockMovementType.RETURN },
+      ],
+      order: { createdAt: 'DESC' },
+    });
+
+    const totalRow = await this.instanceRepository
+      .createQueryBuilder('instance')
+      .select('CAST(COUNT(DISTINCT instance.orderItemId) AS int)', 'total')
+      .where('instance.stockBatchId = :batchId', { batchId })
+      .andWhere('instance.orderItemId IS NOT NULL')
+      .getRawOne<{ total: number }>();
+    const total = Number(totalRow?.total ?? 0);
+
+    const entryRows = await this.instanceRepository
+      .createQueryBuilder('instance')
+      .innerJoin('instance.orderItem', 'item')
+      .innerJoin('item.order', 'ord')
+      .innerJoin('ord.customer', 'customer')
+      .leftJoin('customer.user', 'user')
+      .select('item.id', 'orderItemId')
+      .addSelect('ord.id', 'orderId')
+      .addSelect('ord.status', 'orderStatus')
+      .addSelect('ord.createdAt', 'orderCreatedAt')
+      .addSelect('customer.id', 'customerId')
+      .addSelect('user.name', 'customerName')
+      .addSelect('user.email', 'customerEmail')
+      .addSelect('item.quantity', 'orderedQuantity')
+      .addSelect('item.unitPriceVnd', 'unitPriceVnd')
+      .addSelect('item.stockDeductedAt', 'stockDeductedAt')
+      .addSelect('CAST(COUNT(instance.id) AS int)', 'quantityFromBatch')
+      .addSelect(
+        'CAST(SUM(CASE WHEN instance.status = :sold THEN 1 ELSE 0 END) AS int)',
+        'soldQuantity',
+      )
+      .addSelect(
+        'CAST(SUM(CASE WHEN instance.status = :returned THEN 1 ELSE 0 END) AS int)',
+        'returnedQuantity',
+      )
+      .where('instance.stockBatchId = :batchId', { batchId })
+      .andWhere('instance.orderItemId IS NOT NULL')
+      .setParameters({
+        batchId,
+        sold: ProductInstanceStatus.SOLD,
+        returned: ProductInstanceStatus.RETURNED,
+      })
+      .groupBy('item.id')
+      .addGroupBy('ord.id')
+      .addGroupBy('customer.id')
+      .addGroupBy('user.id')
+      .orderBy('MAX(item.stockDeductedAt)', 'DESC', 'NULLS LAST')
+      .addOrderBy('item.id', 'ASC')
+      .offset((page - 1) * limit)
+      .limit(limit)
+      .getRawMany<SalesLogEntryDto & { [key: string]: unknown }>();
+
+    const entries: SalesLogEntryDto[] = entryRows.map((row) => ({
+      orderItemId: row.orderItemId,
+      orderId: row.orderId,
+      orderStatus: row.orderStatus,
+      orderCreatedAt: row.orderCreatedAt,
+      customerId: row.customerId,
+      customerName: row.customerName ?? null,
+      customerEmail: row.customerEmail ?? null,
+      orderedQuantity: Number(row.orderedQuantity),
+      quantityFromBatch: Number(row.quantityFromBatch),
+      soldQuantity: Number(row.soldQuantity),
+      returnedQuantity: Number(row.returnedQuantity),
+      unitPriceVnd: Number(row.unitPriceVnd),
+      stockDeductedAt: row.stockDeductedAt,
+    }));
+
+    return {
+      formId: form.id,
+      formStatus: form.status,
+      stockBatchId: batchId,
+      batch: batch
+        ? {
+            id: batch.id,
+            batchCode: batch.batchCode,
+            initialQuantity: batch.initialQuantity,
+            remainingQuantity: batch.remainingQuantity,
+            soldQuantity: statusCounts.get(ProductInstanceStatus.SOLD) ?? 0,
+            returnedQuantity:
+              statusCounts.get(ProductInstanceStatus.RETURNED) ?? 0,
+            damagedQuantity:
+              statusCounts.get(ProductInstanceStatus.DAMAGED) ?? 0,
+            expirationDate: this.toDateString(batch.expirationDate),
+          }
+        : null,
+      movements: movements.map((movement) => ({
+        id: movement.id,
+        type: movement.type,
+        quantity: movement.quantity,
+        note: movement.note,
+        createdAt: movement.createdAt,
+      })),
+      entries,
+      total,
+      page,
+      limit,
+    };
   }
 
   private async requireForm(id: string): Promise<StockImportForm> {
