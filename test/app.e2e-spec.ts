@@ -2549,26 +2549,26 @@ describe('BE Capstone API (e2e)', () => {
         ]);
 
         const { body } = await request(app.getHttpServer())
-          .get(`/bookings/${expert.id}?date=2026-07-07`)
+          .get(`/bookings/${expert.id}?date=2030-01-08`)
           .set('Cookie', customerSid)
           .expect(200);
 
         expect(body.expertId).toBe(expert.id);
         expect(body.sessionLengthHours).toBe(2);
         expect(body.range).toBe('week');
-        expect(body.from).toBe('2026-07-06');
-        expect(body.to).toBe('2026-07-12');
+        expect(body.from).toBe('2030-01-07');
+        expect(body.to).toBe('2030-01-13');
 
         const tuesday = body.days.find(
-          (d: { date: string }) => d.date === '2026-07-07',
+          (d: { date: string }) => d.date === '2030-01-08',
         );
         expect(tuesday).toBeDefined();
         expect(tuesday.slots).toHaveLength(8);
         expect(
           tuesday.slots.every((s: { available: boolean }) => s.available),
         ).toBe(true);
-        expect(tuesday.slots[0].startAt).toBe('2026-07-07T09:00:00.000+07:00');
-        expect(tuesday.slots[0].endAt).toBe('2026-07-07T11:00:00.000+07:00');
+        expect(tuesday.slots[0].startAt).toBe('2030-01-08T09:00:00.000+07:00');
+        expect(tuesday.slots[0].endAt).toBe('2030-01-08T11:00:00.000+07:00');
       });
 
       it('should return month range when range=month', async () => {
@@ -2592,22 +2592,22 @@ describe('BE Capstone API (e2e)', () => {
         ]);
         await seedConsultation({
           expertId: expert.id,
-          scheduledAt: new Date('2026-07-07T10:00:00.000+07:00'),
+          scheduledAt: new Date('2030-01-08T10:00:00.000+07:00'),
         });
 
         const { body } = await request(app.getHttpServer())
-          .get(`/bookings/${expert.id}?date=2026-07-07`)
+          .get(`/bookings/${expert.id}?date=2030-01-08`)
           .set('Cookie', customerSid)
           .expect(200);
 
         const tuesday = body.days.find(
-          (d: { date: string }) => d.date === '2026-07-07',
+          (d: { date: string }) => d.date === '2030-01-08',
         );
         const byStartHour = (hour: number) =>
           tuesday.slots.find(
             (s: { startAt: string }) =>
               s.startAt ===
-              `2026-07-07T${String(hour).padStart(2, '0')}:00:00.000+07:00`,
+              `2030-01-08T${String(hour).padStart(2, '0')}:00:00.000+07:00`,
           );
 
         expect(byStartHour(9).available).toBe(false);
@@ -3290,7 +3290,7 @@ describe('BE Capstone API (e2e)', () => {
         ]);
         const consultation = await seedConsultation({
           expertId: expert.id,
-          scheduledAt: new Date('2026-07-07T10:00:00.000+07:00'),
+          scheduledAt: new Date('2030-01-08T10:00:00.000+07:00'),
           status: ConsultationStatus.CONFIRMED,
         });
 
@@ -3314,16 +3314,16 @@ describe('BE Capstone API (e2e)', () => {
           .expect(200);
 
         const { body } = await request(app.getHttpServer())
-          .get(`/bookings/${expert.id}?date=2026-07-07`)
+          .get(`/bookings/${expert.id}?date=2030-01-08`)
           .set('Cookie', customerSid)
           .expect(200);
 
         const tuesday = body.days.find(
-          (d: { date: string }) => d.date === '2026-07-07',
+          (d: { date: string }) => d.date === '2030-01-08',
         );
         const slot10 = tuesday.slots.find(
           (s: { startAt: string }) =>
-            s.startAt === '2026-07-07T10:00:00.000+07:00',
+            s.startAt === '2030-01-08T10:00:00.000+07:00',
         );
         expect(slot10.available).toBe(true);
       });

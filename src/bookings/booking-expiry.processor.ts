@@ -9,6 +9,7 @@ import {
   BookingAutoCancelReason,
   ConsultationStatus,
 } from '../consultations/enums';
+import { BookingSettingsService } from './booking-settings.service';
 import { BookingsService } from './bookings.service';
 
 export type BookingExpiryTickOptions = {
@@ -47,6 +48,7 @@ export class BookingExpiryProcessor {
     private readonly consultationRepository: Repository<ConsultationRequest>,
     private readonly bookingsService: BookingsService,
     private readonly config: AppConfigService,
+    private readonly bookingSettings: BookingSettingsService,
   ) {}
 
   @Cron(
@@ -123,7 +125,8 @@ export class BookingExpiryProcessor {
     bookingId: string | undefined,
     ignoreDeadline: boolean,
   ): Promise<ConsultationRequest[]> {
-    const { confirmTimeoutMin, batchSize } = this.config.bookingExpiryConfig;
+    const { batchSize } = this.config.bookingExpiryConfig;
+    const { confirmTimeoutMin } = await this.bookingSettings.getSettings();
     const now = new Date();
     const createdBefore = new Date(now.getTime() - confirmTimeoutMin * 60_000);
 
@@ -151,7 +154,8 @@ export class BookingExpiryProcessor {
     bookingId: string | undefined,
     ignoreDeadline: boolean,
   ): Promise<ConsultationRequest[]> {
-    const { noShowGraceMin, batchSize } = this.config.bookingExpiryConfig;
+    const { batchSize } = this.config.bookingExpiryConfig;
+    const { noShowGraceMin } = await this.bookingSettings.getSettings();
     const startDeadline = new Date(Date.now() - noShowGraceMin * 60_000);
 
     const qb = this.consultationRepository

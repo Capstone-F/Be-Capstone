@@ -6,6 +6,7 @@ import {
   ConsultationStatus,
 } from '../consultations/enums';
 import { BookingExpiryProcessor } from './booking-expiry.processor';
+import { BookingSettingsService } from './booking-settings.service';
 import { BookingsService } from './bookings.service';
 
 type QbCall = { sql: string; params?: Record<string, unknown> };
@@ -62,13 +63,28 @@ function makeProcessor(
     },
   } as unknown as AppConfigService;
 
+  const bookingSettings = {
+    getSettings: jest.fn().mockResolvedValue({
+      confirmTimeoutMin: 1440,
+      noShowGraceMin: 15,
+      minLeadTimeMin: 120,
+    }),
+  } as unknown as BookingSettingsService;
+
   const processor = new BookingExpiryProcessor(
     consultationRepo,
     bookingsService,
     config,
+    bookingSettings,
   );
 
-  return { processor, autoCancelBooking, calls, consultationRepo };
+  return {
+    processor,
+    autoCancelBooking,
+    calls,
+    consultationRepo,
+    bookingSettings,
+  };
 }
 
 describe('BookingExpiryProcessor', () => {
