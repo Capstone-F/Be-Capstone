@@ -10,7 +10,7 @@ import {
   ConsultationStatus,
 } from '../consultations/enums';
 import { BookingSettingsService } from './booking-settings.service';
-import { BookingsService } from './bookings.service';
+import { BookingsService, SweepAutoCancelReason } from './bookings.service';
 
 export type BookingExpiryTickOptions = {
   /** Restrict the sweep to a single booking (demo / unstick). */
@@ -180,7 +180,7 @@ export class BookingExpiryProcessor {
 
   private async cancelSafely(
     booking: ConsultationRequest,
-    reason: BookingAutoCancelReason,
+    reason: SweepAutoCancelReason,
   ): Promise<boolean> {
     try {
       const cancelled = await this.bookingsService.autoCancelBooking(

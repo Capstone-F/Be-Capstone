@@ -51,6 +51,7 @@ import {
   SlotDto,
 } from './dto/slot-response.dto';
 import { ExpertAvailability } from './expert-availability.entity';
+import { ExpertCancellationStatsService } from './expert-cancellation-stats.service';
 import {
   BUSINESS_END_HOUR,
   BUSINESS_START_HOUR,
@@ -79,8 +80,16 @@ const CANCELLABLE_STATUSES = [
   ConsultationStatus.CONFIRMED,
 ];
 
+/**
+ * Reasons the cron sweep may auto-cancel with. EXPERT_LATE_CANCEL is excluded:
+ * it is stamped on manual expert cancels, never by the sweep.
+ */
+export type SweepAutoCancelReason =
+  | BookingAutoCancelReason.CONFIRM_TIMEOUT
+  | BookingAutoCancelReason.EXPERT_NO_SHOW;
+
 /** Cancel copy written by the expiry sweep, keyed by auto-cancel reason. */
-const AUTO_CANCEL_REASON_TEXT: Record<BookingAutoCancelReason, string> = {
+const AUTO_CANCEL_REASON_TEXT: Record<SweepAutoCancelReason, string> = {
   [BookingAutoCancelReason.CONFIRM_TIMEOUT]:
     'Tự động hủy: chuyên gia không xác nhận lịch hẹn trong thời gian quy định',
   [BookingAutoCancelReason.EXPERT_NO_SHOW]:
@@ -89,7 +98,7 @@ const AUTO_CANCEL_REASON_TEXT: Record<BookingAutoCancelReason, string> = {
 
 /** Status an auto-cancel may transition from, per reason. */
 const AUTO_CANCEL_FROM_STATUS: Record<
-  BookingAutoCancelReason,
+  SweepAutoCancelReason,
   ConsultationStatus
 > = {
   [BookingAutoCancelReason.CONFIRM_TIMEOUT]: ConsultationStatus.PENDING,
@@ -124,6 +133,7 @@ export class BookingsService {
     private readonly escrowService: EscrowService,
     private readonly dataSource: DataSource,
     private readonly bookingSettings: BookingSettingsService,
+    private readonly cancellationStatsService: ExpertCancellationStatsService,
   ) {}
 
   async createBooking(
@@ -284,6 +294,11 @@ export class BookingsService {
       );
     }
 
+    const autoCancelReason =
+      cancelledBy === BookingCancelledBy.EXPERT
+        ? await this.resolveExpertLateCancelReason(consultation)
+        : null;
+
     await this.dataSource.transaction(async (manager) => {
       const hold = await this.escrowService.findByConsultation(
         manager,
@@ -297,7 +312,7 @@ export class BookingsService {
       consultation.cancelledAt = new Date();
       consultation.cancelReason = dto.reason?.trim() || null;
       consultation.cancelledBy = cancelledBy;
-      consultation.autoCancelReason = null;
+      consultation.autoCancelReason = autoCancelReason;
       await manager.save(ConsultationRequest, consultation);
     });
 
@@ -312,7 +327,7 @@ export class BookingsService {
    */
   async autoCancelBooking(
     bookingId: string,
-    reason: BookingAutoCancelReason,
+    reason: SweepAutoCancelReason,
   ): Promise<boolean> {
     const fromStatus = AUTO_CANCEL_FROM_STATUS[reason];
 
@@ -417,7 +432,7 @@ export class BookingsService {
 
     if (!this.isFeedbackAllowed(consultation)) {
       throw new BadRequestException(
-        `Phản hồi chỉ có thể được gửi cho lịch hẹn đã COMPLETED hoặc bị hủy do chuyên gia không bắt đầu buổi tư vấn (hiện tại: ${consultation.status})`,
+        `Phản hồi chỉ có thể được gửi cho lịch hẹn đã COMPLETED hoặc bị hủy do chuyên gia vắng mặt / hủy sát giờ (hiện tại: ${consultation.status})`,
       );
     }
 
@@ -1045,6 +1060,30 @@ export class BookingsService {
     );
   }
 
+  /**
+   * An expert cancel inside the configured threshold before the slot is
+   * stamped EXPERT_LATE_CANCEL: it counts as a no-show-grade violation on the
+   * cancellation report and unlocks customer feedback. The classification is
+   * frozen under the policy in force at cancel time.
+   */
+  private async resolveExpertLateCancelReason(
+    consultation: ConsultationRequest,
+  ): Promise<BookingAutoCancelReason | null> {
+    if (!consultation.scheduledAt) {
+      return null;
+    }
+    const { lateCancelThresholdMin } =
+      await this.cancellationStatsService.getPolicy();
+    if (lateCancelThresholdMin <= 0) {
+      return null;
+    }
+    const lateFrom =
+      consultation.scheduledAt.getTime() - lateCancelThresholdMin * 60_000;
+    return Date.now() >= lateFrom
+      ? BookingAutoCancelReason.EXPERT_LATE_CANCEL
+      : null;
+  }
+
   private toBookingResponseFromSaved(
     saved: ConsultationRequest,
     loaded: ConsultationRequest,
@@ -1114,8 +1153,9 @@ export class BookingsService {
   }
 
   /**
-   * Feedback is normally post-COMPLETED, but an expert no-show is also
-   * rateable — the customer lost the slot and the expert rating should reflect it.
+   * Feedback is normally post-COMPLETED, but an expert no-show or late cancel
+   * is also rateable — the customer lost the slot and the expert rating should
+   * reflect it.
    */
   private isFeedbackAllowed(consultation: ConsultationRequest): boolean {
     if (consultation.status === ConsultationStatus.COMPLETED) {
@@ -1123,7 +1163,10 @@ export class BookingsService {
     }
     return (
       consultation.status === ConsultationStatus.CANCELLED &&
-      consultation.autoCancelReason === BookingAutoCancelReason.EXPERT_NO_SHOW
+      (consultation.autoCancelReason ===
+        BookingAutoCancelReason.EXPERT_NO_SHOW ||
+        consultation.autoCancelReason ===
+          BookingAutoCancelReason.EXPERT_LATE_CANCEL)
     );
   }
 

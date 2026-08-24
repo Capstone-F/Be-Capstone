@@ -12,11 +12,14 @@ import { Expert } from '../users/expert.entity';
 import { WalletModule } from '../wallet/wallet.module';
 import { FinanceModule } from '../finance/finance.module';
 import { AdminBookingsController } from './admin-bookings.controller';
+import { AdminExpertCancellationController } from './admin-expert-cancellation.controller';
 import { BookingExpiryProcessor } from './booking-expiry.processor';
 import { BookingSettingsService } from './booking-settings.service';
 import { BookingsController } from './bookings.controller';
 import { BookingsService } from './bookings.service';
 import { ClinicBookingsController } from './clinic-bookings.controller';
+import { ClinicExpertCancellationController } from './clinic-expert-cancellation.controller';
+import { ExpertCancellationStatsService } from './expert-cancellation-stats.service';
 import { ExpertAvailabilityController } from './expert-availability.controller';
 import { ExpertAvailability } from './expert-availability.entity';
 import { ExpertAvailabilityService } from './expert-availability.service';
@@ -39,12 +42,15 @@ import { ExpertAvailabilityService } from './expert-availability.service';
   controllers: [
     BookingsController,
     ClinicBookingsController,
+    ClinicExpertCancellationController,
     ExpertAvailabilityController,
     AdminBookingsController,
+    AdminExpertCancellationController,
   ],
   providers: [
     BookingsService,
     BookingSettingsService,
+    ExpertCancellationStatsService,
     ExpertAvailabilityService,
     BookingExpiryProcessor,
     SessionGuard,
