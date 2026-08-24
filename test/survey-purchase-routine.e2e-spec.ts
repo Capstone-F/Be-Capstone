@@ -70,6 +70,7 @@ import { StockBatch } from '../src/stock/stock-batch.entity';
 import { StockMovement } from '../src/stock/stock-movement.entity';
 import { ProductInstance } from '../src/stock/product-instance.entity';
 import { StockService } from '../src/stock/stock.service';
+import { TreatmentPhase } from '../src/treatments/treatment-phase.entity';
 
 describe('Survey purchase → routine generation (e2e)', () => {
   let moduleFixture: TestingModule;
@@ -124,6 +125,7 @@ describe('Survey purchase → routine generation (e2e)', () => {
           Delivery,
           DeliveryProvider,
           DeliveryStatusEvent,
+          TreatmentPhase,
         ]),
         RuleEngineModule,
       ],
