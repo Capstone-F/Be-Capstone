@@ -127,6 +127,13 @@ const TEST_CONFIG: Record<string, unknown> = {
   },
   clientReturnUrl: 'http://localhost:3000/vnpay_return',
   mobileReturnUrl: 'glowscan://vnpay-return',
+  bookingExpiryConfig: {
+    cronEnabled: false,
+    tickCron: '0 * * * * *',
+    confirmTimeoutMin: 1440,
+    noShowGraceMin: 15,
+    batchSize: 20,
+  },
   getMissingRequiredKeys: () => [],
 };
 
