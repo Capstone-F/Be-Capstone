@@ -71,7 +71,11 @@ export class ConsultationRequest {
   })
   cancelledBy: BookingCancelledBy | null;
 
-  /** Set only for SYSTEM cancels; EXPERT_NO_SHOW unlocks customer feedback. */
+  /**
+   * Penalised-cancel reason: SYSTEM sweeps stamp CONFIRM_TIMEOUT/EXPERT_NO_SHOW,
+   * an expert cancel inside the late-cancel threshold stamps EXPERT_LATE_CANCEL.
+   * NO_SHOW and LATE_CANCEL unlock customer feedback.
+   */
   @Column({
     type: 'varchar',
     enum: BookingAutoCancelReason,

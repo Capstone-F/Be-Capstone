@@ -98,6 +98,8 @@ describe('BookingsService', () => {
     updateAffected?: number;
     /** Minimum minutes between booking creation and the slot start (BR-32). */
     minLeadTimeMin?: number;
+    /** Minutes before the slot under which an expert cancel is stamped late. */
+    lateCancelThresholdMin?: number;
   }) {
     const expertRepo = {
       findOne: jest.fn().mockResolvedValue(options.expert ?? null),
@@ -226,6 +228,15 @@ describe('BookingsService', () => {
       }),
     };
 
+    const cancellationStatsService = {
+      getPolicy: jest.fn().mockResolvedValue({
+        cancelLimit: 3,
+        windowDays: 30,
+        noShowWeight: 2,
+        lateCancelThresholdMin: options.lateCancelThresholdMin ?? 1440,
+      }),
+    };
+
     const service = new BookingsService(
       expertRepo,
       availabilityRepo,
@@ -237,6 +248,7 @@ describe('BookingsService', () => {
       escrowService as never,
       dataSource as never,
       bookingSettings as never,
+      cancellationStatsService as never,
     );
 
     return {
@@ -253,6 +265,7 @@ describe('BookingsService', () => {
       escrowService,
       dataSource,
       managerUpdate,
+      cancellationStatsService,
     };
   }
 
@@ -996,6 +1009,83 @@ describe('BookingsService', () => {
       expect(result.status).toBe(ConsultationStatus.CANCELLED);
       expect(result.cancelledBy).toBe(BookingCancelledBy.EXPERT);
       expect(result.cancelReason).toBeNull();
+      // FUTURE_SLOT is years away, far outside the late-cancel threshold.
+      expect(result.autoCancelReason).toBeNull();
+      expect(result.canSubmitFeedback).toBe(false);
+    });
+
+    it('should stamp EXPERT_LATE_CANCEL and unlock feedback when the expert cancels inside the threshold', async () => {
+      const expert = makeExpert();
+      const consultation = makeConsultation({
+        expertId: expert.id,
+        expert,
+        status: ConsultationStatus.CONFIRMED,
+        scheduledAt: new Date(Date.now() + 60 * 60_000),
+      });
+      const { service, consultationRepo } = makeService({ expert });
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+
+      const result = await service.cancelBooking(
+        expert.userId,
+        [Role.Expert],
+        consultation.id,
+        { reason: 'Bận đột xuất' },
+      );
+
+      expect(result.cancelledBy).toBe(BookingCancelledBy.EXPERT);
+      expect(result.autoCancelReason).toBe(
+        BookingAutoCancelReason.EXPERT_LATE_CANCEL,
+      );
+      expect(result.canSubmitFeedback).toBe(true);
+    });
+
+    it('should not stamp EXPERT_LATE_CANCEL when the customer cancels inside the threshold', async () => {
+      const customer = makeCustomer();
+      const consultation = makeConsultation({
+        customerId: customer.id,
+        customer,
+        status: ConsultationStatus.CONFIRMED,
+        scheduledAt: new Date(Date.now() + 60 * 60_000),
+      });
+      const { service, consultationRepo, customerRepo } = makeService({
+        customer,
+      });
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+      (customerRepo.findOne as jest.Mock).mockResolvedValue(customer);
+
+      const result = await service.cancelBooking(
+        customer.userId,
+        [Role.Customer],
+        consultation.id,
+        {},
+      );
+
+      expect(result.cancelledBy).toBe(BookingCancelledBy.CUSTOMER);
+      expect(result.autoCancelReason).toBeNull();
+    });
+
+    it('should not stamp EXPERT_LATE_CANCEL when the threshold is 0 (disabled)', async () => {
+      const expert = makeExpert();
+      const consultation = makeConsultation({
+        expertId: expert.id,
+        expert,
+        status: ConsultationStatus.CONFIRMED,
+        scheduledAt: new Date(Date.now() + 60 * 60_000),
+      });
+      const { service, consultationRepo } = makeService({
+        expert,
+        lateCancelThresholdMin: 0,
+      });
+      (consultationRepo.findOne as jest.Mock).mockResolvedValue(consultation);
+
+      const result = await service.cancelBooking(
+        expert.userId,
+        [Role.Expert],
+        consultation.id,
+        {},
+      );
+
+      expect(result.autoCancelReason).toBeNull();
     });
 
     it('should throw ForbiddenException for unauthorized actor', async () => {
@@ -1185,6 +1275,35 @@ describe('BookingsService', () => {
       await service.submitFeedback(customer.userId, consultation.id, {
         rating: 1,
         comment: 'Expert never showed up',
+      });
+
+      expect(feedbackRepo.save).toHaveBeenCalled();
+    });
+
+    it('should allow feedback on a booking the expert cancelled late', async () => {
+      const customer = makeCustomer();
+      const expert = makeExpert({ rating: 0 });
+      const consultation = makeConsultation({
+        status: ConsultationStatus.CANCELLED,
+        cancelledBy: BookingCancelledBy.EXPERT,
+        autoCancelReason: BookingAutoCancelReason.EXPERT_LATE_CANCEL,
+        customerId: customer.id,
+        customer,
+        expertId: expert.id,
+        expert,
+        feedback: undefined as never,
+      });
+      const { service, consultationRepo, feedbackRepo } = makeService({
+        customer,
+        expert,
+      });
+      (consultationRepo.findOne as jest.Mock)
+        .mockResolvedValueOnce(consultation)
+        .mockResolvedValueOnce(consultation);
+
+      await service.submitFeedback(customer.userId, consultation.id, {
+        rating: 1,
+        comment: 'Cancelled right before the session',
       });
 
       expect(feedbackRepo.save).toHaveBeenCalled();
